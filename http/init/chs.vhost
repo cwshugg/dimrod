@@ -1,0 +1,18 @@
+server
+{
+    # set up ipv4 and ipv6 listener ports
+    listen 8080;
+    listen [::]:8080;
+
+    # set up domain name
+    server_name chs.ln;
+    
+    # set up root directory and home page (index.html)
+    root /var/www/chs;
+    index index.html;
+
+    location /
+    {
+        try_files $uri $uri/ =404;
+    }
+}
