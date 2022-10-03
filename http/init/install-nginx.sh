@@ -6,8 +6,10 @@
 # I'm using nginx as my home HTTP server.
 
 # install updates and nginx (use -y to skip the 'are you sure?' prompts)
-sudo apt update -y
-sudo apt install nginx -y
+if [ -z "$(which nginx 2> /dev/null)" ]; then
+    sudo apt update -y
+    sudo apt install nginx -y
+fi
 
 # by default, HTML files are in /var/www/html. Navigate to this directory
 root_dir=/var/www
