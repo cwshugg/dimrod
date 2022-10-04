@@ -17,14 +17,13 @@ if [ ! -d ${root_dir} ]; then
     echo "Cannot find root nginx directory: ${root_dir}"
     exit 1
 fi
-cd ${root_dir}
 
 # I'll set up my own directory to contain my home server HTML files
-hs_dir=${root_dir}/chs
+hs_dir=${root_dir}/html
 if [ -d ${hs_dir} ]; then
     echo "Home server root directory already exists: ${hs_dir}"
 else
-    echo "Creating server root directory: ${hs_dir}/ ..."
+    echo "Creating server root directory: ${hs_dir}/..."
     sudo mkdir ${hs_dir}
 fi
 
@@ -34,13 +33,9 @@ if [ -z "${hs_init_path}" ]; then
     echo "Couldn't find the location of this script. Unable to continue setup."
     exit 1
 fi
-hs_vhost_path=${hs_init_path}/chs.vhost
-vhost_dest=/etc/nginx/sites-enabled/chs
-echo "Copying virtual host file from ${hs_vhost_path} to ${vhost_dest} ..."
-sudo cp ${hs_vhost_path} /etc/nginx/sites-enabled/chs
 
 # next, copy all my HTML files from this repository to the directory
 hs_root_path=$(dirname ${hs_init_path})/root
-echo "Copying server root files from ${hs_root_path} to ${hs_dir}/ ..."
+echo "Copying server root files from ${hs_root_path} to ${hs_dir}/..."
 sudo cp -r $(realpath ${hs_root_path})/* ${hs_dir}/
 
