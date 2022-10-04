@@ -52,7 +52,7 @@ The GitHub repository can be found at this link:
     </head>
 
     <!-- CONTENT -->
-    <body class="mdl-demo mdl-color--black mdl-color-text--grey-700 mdl-base">
+    <body class="mdl-demo mdl-color--grey-800 mdl-color-text--grey-700 mdl-base">
         <div class="mdl-layout mdl-js-layout mdl-layout--fixed-header">
             <!-- colored header at the top of the page -->
             <header class="mdl-layout__header mdl-layout__header--scroll mdl-color--indigo-600">
@@ -60,60 +60,29 @@ The GitHub repository can be found at this link:
                     
                 </div>
                 <div class="mdl-layout--large-screen-only mdl-layout__header-row">
-                    <h3>Home Server</h3>
+                    <h1>Home Server</h1>
                 </div>
                 <div class="mdl-layout--large-screen-only mdl-layout__header-row">
 
                 </div>
 
                 <!-- top-bar menu items -->
-                <div class="mdl-layout__tab-bar mdl-js-ripple-effect mdl-color--indigo-800">
-                    <a href="#overview" class="mdl-layout__tab is-active">Overview</a>
-                    <a href="#services" class="mdl-layout__tab">Services</a>
+                <div id="tab_anchors" class="mdl-layout__tab-bar mdl-js-ripple-effect mdl-color--indigo-800">
+                    <!-- no tabs anchors yet - it will be filled dynamically -->
                 </div>
             </header>
             
             <!-- main page content -->
-            <main class="mdl-layout__content">
-                <!-- OVERVIEW TAB -->
-                <div class="mdl-layout__tab-panel mdl-color--black is-active" id="overview">
-
-                    <!-- card 1 -->
-                    <section class="section--center mdl-grid mdl-grid--no-spacing mdl-shadow--2dp">
-                        <!--
-                        <header class="section__play-btn mdl-cell mdl-cell--3-col-desktop mdl-cell--2-col-tablet mdl-cell--4-col-phone mdl-color--teal-100 mdl-color-text--white">
-                        <i class="material-icons">play_circle_filled</i>
-                        </header>
-                        -->
-                        <div class="mdl-card mdl-cell mdl-cell--12-col mdl-color--grey-900 mdl-color-text--grey-300">
-                            <div class="mdl-card__supporting-text">
-                                <h4>Welcome</h4>
-                                Welcome to the home server.
-                                It's under construction.
-                            </div>
-                        </div>
-                    </section>
-    
-                </div>
-
-                <!-- SERVICES TAB -->
-                <div class="mdl-layout__tab-panel mdl-color--black" id="services">
-
-                    <!-- card 1 -->
-                    <section class="section--center mdl-grid mdl-grid--no-spacing mdl-shadow--2dp">
-                        <div class="mdl-card mdl-cell mdl-cell--12-col mdl-color--grey-900 mdl-color-text--grey-300">
-                            <div class="mdl-card__supporting-text">
-                                <h4>Service Status</h4>
-                                TODO: display status of my running services here.
-                            </div>
-                        </div>
-                    </section>
-                </div>
-
+            <main id="content" class="mdl-layout__content">
+                <!-- no tab divs or cards here - they will be created dynamically -->
             </main>
         </div>
         
         <!-- JS imports -->
         <script src="https://code.getmdl.io/1.3.0/material.min.js"></script>
+        <script src="script/cards.js"></script>
+        <script src="script/tabs.js"></script>
+        <script src="script/services.js"></script>
+        <script src="script/home.js"></script>
     </body>
 </html>
