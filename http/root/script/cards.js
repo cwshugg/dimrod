@@ -38,7 +38,6 @@ class Card
 
         // set up a few internal fields for other parts of the card
         this.title = null;
-        this.text = null;
     }
 
     // Takes in a title and updates the card's title text.
@@ -59,17 +58,11 @@ class Card
         this.title.innerHTML = title;
     }
     
-    // Takes in text and updates the card's supporting text.
-    set_text(text)
+    // Takes in an HTML element and sets the card's inner "supporting text"
+    // HTML content
+    add_html(html)
     {
-        // if the text paragraph doesn't exist, create it
-        if (!this.text)
-        {
-            this.text = document.createElement("p");
-            this.text.id = this.id + "_text";
-            this.stdiv.appendChild(this.text);
-        }
-        this.text.innerHTML = text;
+        this.stdiv.appendChild(html);
     }
 }
 
