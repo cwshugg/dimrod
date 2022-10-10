@@ -1,5 +1,6 @@
 // Utility module that defines helper classes/functions.
 
+// URL class. Used to easily represent URLs.
 class URL
 {
     // Constructor. Takes in the address, port, and endpoint to form the full
