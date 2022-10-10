@@ -1,0 +1,5 @@
+{
+    "name": "example-service1",
+    "server_addr": "0.0.0.0",
+    "server_port": 2323
+}
