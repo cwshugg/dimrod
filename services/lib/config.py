@@ -23,7 +23,8 @@ class Config:
             # NAME              REQUIRED?       ALLOWED TYPES
             ["name",            True,           [str]],
             ["server_addr",     True,           [str]],
-            ["server_port",     True,           [int]]
+            ["server_port",     True,           [int]],
+            ["log_file",        False,          [str]]
         ]
 
         # iterate through each field we expect to see
@@ -48,4 +49,7 @@ class Config:
             if required:
                 msg = "the service's config must contain \"%s\"" % key
                 assert key in jdata, msg
+            else:
+                # otherwise, null-out the field
+                setattr(self, key, None)
 

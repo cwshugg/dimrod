@@ -27,15 +27,7 @@ class Oracle(threading.Thread):
         threading.Thread.__init__(self, target=self.run)
         self.service = service
         self.server = flask.Flask(__name__)
-
-    # Function that defines a number of endpoints for the oracle. This is
-    # invoked when the oracle is started, before the flask server is launched.
-    def endpoints(self):
-        # Default handler for '/'
-        @self.server.route("/")
-        def endpoint_root():
-            return self.make_response(msg="I am alive.")
-
+        
     # Thread main function. Configures the flask server to invoke the class'
     # various handler functions, then launches it.
     def run(self):
@@ -62,10 +54,23 @@ class Oracle(threading.Thread):
         port = self.service.config.server_port
         self.server.run(addr, port=port)
         
-    # ---------------------- Server Pre/Post-Processing ---------------------- #
+    # ------------------- Server Processing and Endpoints -------------------- #
+    # Function that defines a number of endpoints for the oracle. This is
+    # invoked when the oracle is started, before the flask server is launched.
+    def endpoints(self):
+        # Default handler for '/'
+        @self.server.route("/")
+        def endpoint_root():
+            message = "I am the oracle for %s." % self.service.config.name
+            return self.make_response(msg=message)
+
     # Invoked directly before a request's main handler is invoked.
     def pre_process(self):
-        pass
+        # parse the JSON data (if any was given)
+        try:
+            flask.g.jdata = self.get_request_json(flask.request)
+        except:
+            flask.g.jdata = None
     
     # Invoked directly after a request's main handler is invoked.
     def post_process(self, response):
@@ -81,9 +86,9 @@ class Oracle(threading.Thread):
     # message body. Returns None, a dictionary, or throws an exception.
     def get_request_json(self, request):
         raw = request.get_data()
-        if len(rdata) == 0:
-            return None
-        return json.loads(rdata.decode())
+        if len(raw) == 0:
+            return {}
+        return json.loads(raw.decode())
     
     # Used to construct a JSON object to be sent in a response message.
     def make_response(self, success=True, msg=None, jdata={}, rstatus=200, rheaders={}):
