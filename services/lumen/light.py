@@ -2,41 +2,33 @@
 # can interact with.
 
 # Imports
-import os
-import sys
-import enum
-
-
-# ============================== Light Actions =============================== #
-# Class that represents a single action supported by a light. The most common of
-# these is "on" and "off", but some advanced lights support other actions, such
-# as setting color and brightness.
-class LightAction(enum.Enum):
-    OFF = 0,
-    ON = 1,
-    COLOR = 2,
-    BRIGHTNESS = 3,
+import json
 
 
 # ================================== Lights ================================== #
 # Class that represents a single light. The light has an identifier and a number
-# of actions it supports through a remote API.
+# of flags that 
 class Light:
     # Constructor. Takes in the light's ID and a number of flags indicating if
     # special features are present.
     def __init__(self, lid, has_color, has_brightness):
         self.lid = lid
-        self.actions = []
-        for a in actions:
-            self.actions.append(a.strip().lower())
+        self.has_color = has_color
+        self.has_brightness = has_brightness
     
-    # Turns the light on, optionally taking in color and brightness values.
-    def turn_on(self, color=None, brightness=None):
+    # Converts the current Light object into a JSON/dictionary and returns it.
+    def to_json(self):
         # TODO
+        # NOTE - IDEA: could you make a "JSONSerializable" class that small
+        #        classes like this could inherit that automatically take care
+        #        of the 'to_json()' and 'from_json()' functions?
+        #        That would be super handy.
         pass
-    
-    # Turns the light off.
-    def turn_off(self):
+
+    # Attempts to parse a dictionary/JSON object as a light. Returns a Light
+    # object on success, and throws an exception on a failure.
+    @staticmethod
+    def from_json(jdata):
         # TODO
         pass
     

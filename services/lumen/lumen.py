@@ -13,8 +13,21 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 # Local imports
-from lib.service import Service
+from lib.config import ConfigField
+from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
+
+
+# =============================== Config Class =============================== #
+class LumenConfig(ServiceConfig):
+    # Constructor.
+    def __init__(self):
+        super().__init__()
+        # create lumen-specific fields to append to the existing service fields
+        fields = [
+            ConfigField("lights",        [list],     required=True)
+        ]
+        self.fields += fields
 
 
 # ============================== Service Class =============================== #
@@ -22,6 +35,8 @@ class LumenService(Service):
     # Constructor.
     def __init__(self, config_path):
         super().__init__(config_path)
+        self.config = LumenConfig()
+        self.config.parse(config_path)
         self.lights = []
     
     # Overridden main function implementation.
@@ -36,16 +51,16 @@ class LumenService(Service):
     # attempts to turn the corresponding light on.
     #   - 'color' must be an array of 3 RGB integers
     #   - 'brightness' must be a float between 0.0 and 1.0 (inclusive)
-    def turn_on(self, lid, color=None, brightness=None):
+    def power_on(self, lid, color=None, brightness=None):
         light = self.search(lid)
-        assert light, "unknown light specified: \"%s\"" % lid
+        self.check(light, "unknown light specified: \"%s\"" % lid)
 
         # TODO
     
     # Takes in a light ID and turns off the corresponding light.
-    def turn_off(self, lid):
+    def power_off(self, lid):
         light = self.search(lid)
-        assert light, "unknown light specified: \"%s\"" % lid
+        self.check(light, "unknown light specified: \"%s\"" % lid)
 
         # TODO
 
@@ -57,6 +72,11 @@ class LumenService(Service):
             if light.lid == lid:
                 return light
         return None
+    
+    # Custom assertion function.
+    def check(self, condition, msg):
+        if not condition:
+            raise Exception("Lumen Error: %s" % msg)
 
 
 # ============================== Service Oracle ============================== #
@@ -77,7 +97,7 @@ class LumenOracle(Oracle):
             # make sure some sort of data was passed
             if not flask.g.jdata:
                 return self.make_response(msg="No toggle information provided.",
-                                          rstatus=400)
+                                          success=False, rstatus=400)
 
             # otherwise, parse the data to understand the request
             jdata = flask.g.jdata
