@@ -1,0 +1,14 @@
+{
+    "name": "lumen",
+    "server_addr": "0.0.0.0",
+    "server_port": 2350,
+
+    "lights":
+    [
+        {
+            "id": "bulb_front_porch",
+            "has_color": true,
+            "has_brightness": true
+        }
+    ]
+}
