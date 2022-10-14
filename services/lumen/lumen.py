@@ -20,9 +20,8 @@ from lib.oracle import Oracle
 # ============================== Service Class =============================== #
 class LumenService(Service):
     # Constructor.
-    def __init__(self):
-        config_path = os.path.join(os.path.dirname(__file__), "lumen.json")
-        super().__init__(os.path.join(config_path))
+    def __init__(self, config_path):
+        super().__init__(config_path)
         self.lights = []
     
     # Overridden main function implementation.
@@ -86,8 +85,9 @@ class LumenOracle(Oracle):
 
 
 # =============================== Runner Code ================================ #
-ls = LumenService()
-lo = LumenOracle(ls)
+cp = os.path.join(os.path.dirname(__file__), "lumen.json")
+ls = LumenService(cp)
+lo = LumenOracle(cp, ls)
 ls.start()
 lo.start()
 lo.join()

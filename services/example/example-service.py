@@ -19,10 +19,6 @@ from lib.oracle import Oracle
 
 # ============================== Service Class =============================== #
 class HelloService(Service):
-    # Constructor.
-    def __init__(self):
-        super().__init__(os.path.join(pdir, "example/example.json"))
-    
     # Overridden abstract class implementation for the service thread.
     def run(self):
         super().run()
@@ -55,8 +51,9 @@ class HelloOracle(Oracle):
 
 
 # =============================== Runner Code ================================ #
-hs = HelloService()
-ho = HelloOracle(hs)
+cp = os.path.join(pdir, "example/example.json")
+hs = HelloService(cp)
+ho = HelloOracle(cp, hs)
 hs.start()
 ho.start()
 ho.join()

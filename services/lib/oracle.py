@@ -15,6 +15,20 @@ pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 if pdir not in sys.path:
     sys.path.append(pdir)
 
+# Local imports
+import lib.config
+
+
+# ============================== Service Config ============================== #
+# A config class for a generic oracle.
+class OracleConfig(lib.config.Config):
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            lib.config.ConfigField("server_addr",   [str],      required=True),
+            lib.config.ConfigField("server_port",   [int],      required=True),
+        ]
+
 
 # ========================== Service Oracle Server =========================== #
 # Service "oracle" thread that runs a flask server to act as a middleman
@@ -23,9 +37,11 @@ if pdir not in sys.path:
 # well.
 class Oracle(threading.Thread):
     # Constructor.
-    def __init__(self, service):
+    def __init__(self, config_path, service):
         threading.Thread.__init__(self, target=self.run)
         self.service = service
+        self.config = OracleConfig()
+        self.config.parse(config_path)
         self.server = flask.Flask(__name__)
         
     # Thread main function. Configures the flask server to invoke the class'
@@ -50,8 +66,8 @@ class Oracle(threading.Thread):
         self.endpoints()
 
         # with all endpoints and handlers set up, run the server
-        addr = self.service.config.server_addr
-        port = self.service.config.server_port
+        addr = self.config.server_addr
+        port = self.config.server_port
         self.server.run(addr, port=port)
         
     # ------------------- Server Processing and Endpoints -------------------- #

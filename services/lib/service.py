@@ -19,6 +19,17 @@ import lib.config
 import lib.log
 
 
+# ============================== Service Config ============================== #
+# A config class for a generic service.
+class ServiceConfig(lib.config.Config):
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            lib.config.ConfigField("name",          [str],      required=True),
+            lib.config.ConfigField("log_file",      [str],      required=False)
+        ]
+
+
 # ================================ Main Class ================================ #
 # Main service class. Caller must 'start()' the service as if it was starting a
 # thread.
@@ -26,7 +37,8 @@ class Service(threading.Thread):
     # Constructor.
     def __init__(self, config_path):
         threading.Thread.__init__(self, target=self.run)
-        self.config = lib.config.Config(config_path)
+        self.config = ServiceConfig()
+        self.config.parse(config_path)
         self.lock = threading.Lock()
 
         # examine the config for a log stream
