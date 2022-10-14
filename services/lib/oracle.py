@@ -63,6 +63,12 @@ class Oracle(threading.Thread):
         def endpoint_root():
             message = "I am the oracle for %s." % self.service.config.name
             return self.make_response(msg=message)
+        
+        # An identification route that all service oracles have. This is used
+        # to identify services by name.
+        @self.server.route("/id")
+        def endpoint_id():
+            return self.make_response(msg=self.service.config.name)
 
     # Invoked directly before a request's main handler is invoked.
     def pre_process(self):
