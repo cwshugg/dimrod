@@ -21,7 +21,7 @@ from lib.oracle import Oracle
 class HelloService(Service):
     # Constructor.
     def __init__(self):
-        super().__init__(os.path.join(pdir, "config/example.json"))
+        super().__init__(os.path.join(pdir, "example/example.json"))
     
     # Overridden abstract class implementation for the service thread.
     def run(self):
