@@ -135,7 +135,13 @@ class LumenOracle(Oracle):
         # for pinging.
         @self.server.route("/lights")
         def endpoint_lights():
-            return self.make_response(msg="TODO - LIGHT LIST")
+            # iterate through all the lights in the service and build a JSON
+            # list to return
+            lights = []
+            for light in self.service.lights:
+                lights.append(light.to_json())
+            # send back the list
+            return self.make_response(success=True, payload=lights)
         
         # Endpoint used to toggle a single light.
         @self.server.route("/toggle", methods=["POST"])
@@ -184,14 +190,26 @@ class LumenOracle(Oracle):
 
             # invoke the service's API according to the given action
             try:
+                r = None
                 if action == "on":
-                    self.service.power_on(lid, color=color, brightness=brightness)
+                    r = self.service.power_on(lid, color=color, brightness=brightness)
                 elif action == "off":
-                    self.service.power_off(lid)
+                    r = self.service.power_off(lid)
                 else:
                     return self.make_response(msg="Invalid action.",
                                               success=False, rstatus=400)
-                return self.make_response(success=True)
+
+                # based on the response from IFTTT, construct an appropriate
+                # response message
+                status_code = self.service.webhooker.get_status_code(r)
+                success = status_code == 200
+                message = None
+                if not success:
+                    message = "IFTTT returned %d." % status_code
+                    errors = self.service.webhooker.get_errors(r)
+                    for e in errors:
+                        message += "\n%s" % e
+                return self.make_response(success=success, msg=message)
             except Exception as e:
                 return self.make_response(msg=str(e), success=False)
 

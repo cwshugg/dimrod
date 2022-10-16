@@ -123,7 +123,7 @@ class Oracle(threading.Thread):
         return json.loads(raw.decode())
     
     # Used to construct a JSON object to be sent in a response message.
-    def make_response(self, success=True, msg=None, jdata={}, rstatus=200, rheaders={}):
+    def make_response(self, success=True, msg=None, payload={}, rstatus=200, rheaders={}):
         # update the message if necessary
         if msg == None or msg == "":
             if rstatus == 404:
@@ -131,13 +131,12 @@ class Oracle(threading.Thread):
             elif rstatus == 400:
                 msg = "Bad request."
     
-        # construct the response JSON object (any given 'jdata' becomes out
-        # payload)
+        # construct the response JSON object
         rdata = {"success": success}
         if msg != None and msg != "":
             rdata["message"] = msg
-        if len(jdata) > 0:
-            rdata["payload"] = jdata
+        if len(payload) > 0:
+            rdata["payload"] = payload
     
         # create the response object and set all headers
         resp = flask.Response(response=json.dumps(rdata), status=rstatus)

@@ -44,3 +44,11 @@ class Light:
         return "%s [has color: %s] [has brightness: %s]" % \
                (self.lid, self.has_color, self.has_brightness)
     
+    # Builds a JSON dictionary containing the class fields and returns it.
+    def to_json(self):
+        return {
+            "id": self.lid,
+            "has_color": self.has_color,
+            "has_brightness": self.has_brightness
+        }
+    
