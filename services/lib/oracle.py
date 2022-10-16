@@ -87,7 +87,7 @@ class Oracle(threading.Thread):
         # Default handler for '/'
         @self.server.route("/")
         def endpoint_root():
-            message = "I am the oracle for %s." % self.service.config.name
+            message = "I am the oracle for %s." % self.service.config.service_name
             return self.make_response(msg=message)
         
         # An identification route that all service oracles have. This is used
