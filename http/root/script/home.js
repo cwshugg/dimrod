@@ -181,7 +181,6 @@ function refresh_services(servs)
         const status_icon = document.getElementById(s.id + "_status_icon");
         online_css = "fas fa-check mdl-color-text--green-400";
         offline_css = "fas fa-xmark mdl-color-text--red-400";
-        console.log(status_icon);
         s.ping().then(
             function(result)
             {
