@@ -12,7 +12,10 @@ const hostname = window.location.hostname;
 // Services
 const services = [
     new Service("pihole", "Pi-hole", new URL(hostname, "2301", "/admin/index.php")),
-    new Service("jellyfin", "Jellyfin", new URL(hostname, "2302", "/NEED_TO_ACTUALLY_MAKE_THIS"))
+    new Service("jellyfin", "Jellyfin", new URL(hostname, "2302", "/NEED_TO_ACTUALLY_MAKE_THIS")),
+];
+const services_me = [
+    new Service("lumen", "Lumen", new URL(hostname, "2350", "/"))
 ];
 
 // Window-load function
@@ -65,7 +68,8 @@ function init_card_main(card_main)
     const p1 = document.createElement("p");
     p1.innerHTML = "This is my home server. It's under construction.";
     card_main.add_html(p1);
-
+    
+    // ------------------------ Third-Party Services ------------------------ //
     // add a list of services to the div
     const srvs_header = document.createElement("h3");
     srvs_header.innerHTML = "Services";
@@ -85,5 +89,27 @@ function init_card_main(card_main)
         srvs_list.appendChild(li);
     }
     card_main.add_html(srvs_list);
+
+     // ---------------------------- My Services ---------------------------- //
+    // add a list of services to the div
+    const mysrvs_header = document.createElement("h3");
+    mysrvs_header.innerHTML = "My Services";
+    card_main.add_html(mysrvs_header);
+
+    // create the services list
+    const mysrvs_list = document.createElement("ul");
+    for (let i = 0; i < services_me.length; i++)
+    {
+        const srv = services_me[i];
+        const li = document.createElement("li");
+        li.id = srv.id + "_list_item";
+
+        // append the anchor to the service and some extra text
+        li.appendChild(srv.make_anchor(srv.name));
+        li.innerHTML += " (running on port " + srv.url.port + ")";
+        mysrvs_list.appendChild(li);
+    }
+    card_main.add_html(mysrvs_list);
+
 }
 
