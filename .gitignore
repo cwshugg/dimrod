@@ -4,3 +4,6 @@
 # python artifacts
 __pycache__
 
+# my service config files
+cwshugg*.json
+

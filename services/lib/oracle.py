@@ -126,14 +126,16 @@ class Oracle(threading.Thread):
     def make_response(self, success=True, msg=None, jdata={}, rstatus=200, rheaders={}):
         # update the message if necessary
         if msg == None or msg == "":
-            if status == 404:
+            if rstatus == 404:
                 msg = "File not found."
             elif rstatus == 400:
                 msg = "Bad request."
     
         # construct the response JSON object (any given 'jdata' becomes out
         # payload)
-        rdata = {"success": success, "message": msg}
+        rdata = {"success": success}
+        if msg != None and msg != "":
+            rdata["message"] = msg
         if len(jdata) > 0:
             rdata["payload"] = jdata
     

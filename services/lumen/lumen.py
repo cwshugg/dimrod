@@ -16,6 +16,8 @@ if pdir not in sys.path:
 from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
+from lib.ifttt import Webhook
+from lib.cli import ServiceCLI
 
 # Service imports
 from light import Light, LightConfig
@@ -28,7 +30,9 @@ class LumenConfig(ServiceConfig):
         super().__init__()
         # create lumen-specific fields to append to the existing service fields
         fields = [
-            ConfigField("lights",        [list],     required=True)
+            ConfigField("lights",           [list],     required=True),
+            ConfigField("webhook_event",    [str],      required=True),
+            ConfigField("webhook_key",      [str],      required=True)
         ]
         self.fields += fields
 
@@ -40,6 +44,7 @@ class LumenService(Service):
         super().__init__(config_path)
         self.config = LumenConfig()
         self.config.parse_file(config_path)
+        self.webhooker = Webhook(config_path)
 
         # for each of the entries in the config's 'lights' field, we'll create a
         # new Light object
@@ -74,14 +79,36 @@ class LumenService(Service):
         light = self.search(lid)
         self.check(light, "unknown light specified: \"%s\"" % lid)
 
-        # TODO
+        # build JSON data to send to the remote API
+        jdata = {"id": light.lid, "action": "on"}
+
+        # make sure color is supported by this light, if color was given
+        if color:
+            self.check(light.has_color, "\"%s\" does not support color" % light.lid)
+            self.check(type(color) == list, "'color' must be a list of 3 RGB ints")
+            self.check(len(color) == 3, "'color' must have exactly 3 ints")
+            jdata["color"] = "%d,%d,%d" % (color[0], color[1], color[2])
+
+        # do the same for brightness
+        if brightness:
+            self.check(light.has_brightness, "\"%s\" does not support brightness" % light.lid)
+            self.check(type(brightness) == float, "'brightness' must be a float between [0.0, 1.0]")
+            brightness = max(min(brightness, 1.0), 0.0)
+            jdata["brightness"] = brightness
+
+        # initialize an IFTTT webhook pinger and send the request
+        r = self.webhooker.send(self.config.webhook_event, jdata)
+        return r
     
     # Takes in a light ID and turns off the corresponding light.
     def power_off(self, lid):
         light = self.search(lid)
         self.check(light, "unknown light specified: \"%s\"" % lid)
 
-        # TODO
+        # build a JSON object and send the request
+        jdata = {"id": light.lid, "action": "off"}
+        r = self.webhooker.send(self.config.webhook_event, jdata)
+        return r
 
     # ------------------------------- Helpers -------------------------------- #
     # Searches lumen's light array and returns a Light object if one with a
@@ -115,20 +142,61 @@ class LumenOracle(Oracle):
         def endpoint_toggle():
             # make sure some sort of data was passed
             if not flask.g.jdata:
-                return self.make_response(msg="No toggle information provided.",
+                return self.make_response(msg="Missing/invalid toggle information.",
                                           success=False, rstatus=400)
 
             # otherwise, parse the data to understand the request
             jdata = flask.g.jdata
-            return self.make_response(msg="TODO - TOGGLE")
+            if "id" not in jdata:
+                return self.make_response(msg="Request must contain a light ID.",
+                                          success=False, rstatus=400)
+            if "action" not in jdata:
+                return self.make_response(msg="Request must contain an action.",
+                                          success=False, rstatus=400)
+
+            lid = jdata["id"]
+            action = jdata["action"].lower()
+            color = None
+            brightness = None
+            
+            # look for the optional 'color' field. It must come as a string of
+            # three RGB integers, separated by commas. (ex: "125,13,0")
+            if "color" in jdata:
+                try:
+                    color = jdata["color"].strip().split(",")
+                    assert len(color) == 3
+                    for (i, cstr) in color:
+                        color[i] = int(cstr.strip())
+                except:
+                    return self.make_response(msg="Invalid color format.",
+                                              success=False, rstatus=400)
+            
+            # look for the optional 'brightness' field. It must come as a float
+            # between 0.0 and 1.0
+            if "brightness" in jdata:
+                try:
+                    brightness = jdata["brightness"]
+                    assert type(brightness) == float
+                    assert brightness >= 0.0 and brightness <= 1.0
+                except:
+                    return self.make_response(msg="Invalid brightness value.",
+                                              success=False, rstatus=400)
+
+            # invoke the service's API according to the given action
+            try:
+                if action == "on":
+                    self.service.power_on(lid, color=color, brightness=brightness)
+                elif action == "off":
+                    self.service.power_off(lid)
+                else:
+                    return self.make_response(msg="Invalid action.",
+                                              success=False, rstatus=400)
+                return self.make_response(success=True)
+            except Exception as e:
+                return self.make_response(msg=str(e), success=False)
 
 
 # =============================== Runner Code ================================ #
-cp = os.path.join(os.path.dirname(__file__), "lumen.json")
-ls = LumenService(cp)
-lo = LumenOracle(cp, ls)
-ls.start()
-lo.start()
-lo.join()
-ls.join()
+cli = ServiceCLI(config=LumenConfig, service=LumenService, oracle=LumenOracle)
+cli.run()
 

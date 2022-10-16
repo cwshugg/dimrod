@@ -12,16 +12,8 @@
             "id": "bulb_front_porch",
             "has_color": true,
             "has_brightness": true
-        },
-        {
-            "id": "plug_front_porch1",
-            "has_color": false,
-            "has_brightness": false
-        },
-        {
-            "id": "plug_front_porch2",
-            "has_color": false,
-            "has_brightness": false
         }
-    ]
+    ],
+    "webhook_event": "YOUR_IFTTT_WEBHOOK_HERE",
+    "webhook_key": "YOUR_IFTTT_KEY_HERE"
 }

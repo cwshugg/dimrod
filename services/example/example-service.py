@@ -15,6 +15,7 @@ if pdir not in sys.path:
 # Local imports
 from lib.service import Service
 from lib.oracle import Oracle
+from lib.cli import ServiceCLI
 
 
 # ============================== Service Class =============================== #
@@ -51,11 +52,6 @@ class HelloOracle(Oracle):
 
 
 # =============================== Runner Code ================================ #
-cp = os.path.join(pdir, "example/example.json")
-hs = HelloService(cp)
-ho = HelloOracle(cp, hs)
-hs.start()
-ho.start()
-ho.join()
-hs.join()
+cli = ServiceCLI(service=HelloService, oracle=HelloOracle)
+cli.run()
 
