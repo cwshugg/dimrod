@@ -2,7 +2,30 @@
 # can interact with.
 
 # Imports
+import os
+import sys
 import json
+
+# Enable import from the parent directory
+pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+if pdir not in sys.path:
+    sys.path.append(pdir)
+
+# Local imports
+from lib.config import Config, ConfigField
+
+
+# =============================== Light Config =============================== #
+# Class that represents the required fields for a single Light object.
+class LightConfig(Config):
+    # Constructor.
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            ConfigField("id",               [str],      required=True),
+            ConfigField("has_color",        [bool],     required=True),
+            ConfigField("has_brightness",   [bool],     required=True)
+        ]
 
 
 # ================================== Lights ================================== #
@@ -16,19 +39,8 @@ class Light:
         self.has_color = has_color
         self.has_brightness = has_brightness
     
-    # Converts the current Light object into a JSON/dictionary and returns it.
-    def to_json(self):
-        # TODO
-        # NOTE - IDEA: could you make a "JSONSerializable" class that small
-        #        classes like this could inherit that automatically take care
-        #        of the 'to_json()' and 'from_json()' functions?
-        #        That would be super handy.
-        pass
-
-    # Attempts to parse a dictionary/JSON object as a light. Returns a Light
-    # object on success, and throws an exception on a failure.
-    @staticmethod
-    def from_json(jdata):
-        # TODO
-        pass
+    # Creates a string representation of the Light object.
+    def __str__(self):
+        return "%s [has color: %s] [has brightness: %s]" % \
+               (self.lid, self.has_color, self.has_brightness)
     

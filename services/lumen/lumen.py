@@ -17,6 +17,9 @@ from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
 
+# Service imports
+from light import Light, LightConfig
+
 
 # =============================== Config Class =============================== #
 class LumenConfig(ServiceConfig):
@@ -36,8 +39,24 @@ class LumenService(Service):
     def __init__(self, config_path):
         super().__init__(config_path)
         self.config = LumenConfig()
-        self.config.parse(config_path)
+        self.config.parse_file(config_path)
+
+        # for each of the entries in the config's 'lights' field, we'll create a
+        # new Light object
         self.lights = []
+        for ldata in self.config.lights:
+            # create a LightConfig object, parse from the sub-JSON, then make
+            # sure the given light ID doesn't already exist
+            lconfig = LightConfig()
+            lconfig.parse_json(ldata)
+            self.check(self.search(lconfig.id) == None,
+                       "light \"%s\" is defined more than once" % lconfig.id)
+
+            # if we're good, initialize a new Light object and append it to our
+            # list of lights
+            light = Light(lconfig.id, lconfig.has_color, lconfig.has_brightness)
+            self.lights.append(light)
+            self.log.write("loaded light: %s" % light)
     
     # Overridden main function implementation.
     def run(self):

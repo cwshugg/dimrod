@@ -34,19 +34,25 @@ class Config:
     # Constructor. Takes in the JSON file path and reads it in.
     def __init__(self):
         self.fields = []
+        self.fpath = None
             
     # Takes in a file path, opens it for reading, and attempts to parse all
     # fields defined in the class' 'fields' property.
-    def parse(self, fpath):
+    def parse_file(self, fpath):
         # slurp the entire file contents (not ideal, but the config files
         # shouldn't be too big)
+        self.fpath = fpath
         fp = open(fpath)
         content = fp.read()
         fp.close()
 
-        # convert to JSON and define a number of expected fields
+        # convert to JSON and define a number of expected fields, then invoke
+        # the JSON parsing function
         jdata = json.loads(content)
+        self.parse_json(jdata)
 
+    # Used to parse config entries from a dictionary.
+    def parse_json(self, jdata):
         # iterate through each field we expect to see
         for f in self.fields:
             key = f.name
@@ -57,7 +63,8 @@ class Config:
             if key in jdata:
                 # ensure the value is of the correct type
                 val = jdata[key]
-                msg = "%s entry \"%s\" must be of type: %s" % (fpath, key, types)
+                msg = "%s entry \"%s\" must be of type: %s" % \
+                      (self.fpath if self.fpath else "json", key, types)
                 self.check(f.type_match(val), msg)
                 
                 # set the class's attribute and move onto the next field
@@ -67,7 +74,8 @@ class Config:
             # if it doesn't exist, and it's required, force an assertion failure
             # so the user knows it needs to be included
             if required:
-                msg = "%s must contain \"%s\"" % (fpath, key)
+                msg = "%s must contain \"%s\"" % \
+                      (self.fpath if self.fpath else "json", key)
                 self.check(key in jdata, msg)
             else:
                 # otherwise, null-out the field

@@ -38,7 +38,7 @@ class Service(threading.Thread):
     def __init__(self, config_path):
         threading.Thread.__init__(self, target=self.run)
         self.config = ServiceConfig()
-        self.config.parse(config_path)
+        self.config.parse_file(config_path)
         self.lock = threading.Lock()
 
         # examine the config for a log stream
@@ -50,5 +50,5 @@ class Service(threading.Thread):
     # The service's main thread. This function must is where all the service's
     # actual work will occur, and thus must be extended by subclasses.
     def run(self):
-        self.log.write("spawned.")
+        self.log.write("running main thread.")
 

@@ -42,7 +42,7 @@ class Oracle(threading.Thread):
         threading.Thread.__init__(self, target=self.run)
         self.service = service
         self.config = OracleConfig()
-        self.config.parse(config_path)
+        self.config.parse_file(config_path)
         self.server = flask.Flask(__name__)
         
         # examine the config for a log stream
