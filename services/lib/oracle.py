@@ -25,8 +25,9 @@ class OracleConfig(lib.config.Config):
     def __init__(self):
         super().__init__()
         self.fields = [
-            lib.config.ConfigField("server_addr",   [str],      required=True),
-            lib.config.ConfigField("server_port",   [int],      required=True),
+            lib.config.ConfigField("oracle_addr",   [str],      required=True),
+            lib.config.ConfigField("oracle_port",   [int],      required=True),
+            lib.config.ConfigField("oracle_log",    [str],      required=False),
         ]
 
 
@@ -44,9 +45,17 @@ class Oracle(threading.Thread):
         self.config.parse(config_path)
         self.server = flask.Flask(__name__)
         
+        # examine the config for a log stream
+        log_file = sys.stdout
+        if self.config.oracle_log:
+            log_file = self.config.oracle_log
+        log_name = self.service.config.service_name + "-oracle"
+        self.log = lib.log.Log(log_name, stream=log_file)
+        
     # Thread main function. Configures the flask server to invoke the class'
     # various handler functions, then launches it.
     def run(self):
+        self.log.write("establishing endpoints...")
         # PRE-PROCESSING
         @self.server.before_request
         def pre_process():
@@ -66,8 +75,9 @@ class Oracle(threading.Thread):
         self.endpoints()
 
         # with all endpoints and handlers set up, run the server
-        addr = self.config.server_addr
-        port = self.config.server_port
+        self.log.write("launching flask...")
+        addr = self.config.oracle_addr
+        port = self.config.oracle_port
         self.server.run(addr, port=port)
         
     # ------------------- Server Processing and Endpoints -------------------- #

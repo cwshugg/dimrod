@@ -1,5 +1,8 @@
 {
-    "name": "example-service1",
-    "server_addr": "0.0.0.0",
-    "server_port": 2323
+    "service_name": "example-service1",
+    "service_log": "stdout",
+
+    "oracle_addr": "0.0.0.0",
+    "oracle_port": 2323,
+    "oracle_log": "stdout"
 }

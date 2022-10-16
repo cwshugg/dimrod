@@ -1,7 +1,10 @@
 {
-    "name": "lumen",
-    "server_addr": "0.0.0.0",
-    "server_port": 2350,
+    "service_name": "lumen",
+    "service_log": "stdout",
+
+    "oracle_addr": "0.0.0.0",
+    "oracle_port": 2350,
+    "oracle_log": "stdout",
 
     "lights":
     [

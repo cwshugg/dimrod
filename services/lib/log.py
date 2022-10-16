@@ -25,13 +25,15 @@ class Log:
             if stream == "1" or stream.lower() == "stdout":
                 self.stream = sys.stdout
             # special case 2: stderr
-            if stream == "2" or stream.lower() == "stderr":
+            elif stream == "2" or stream.lower() == "stderr":
                 self.stream = sys.stderr
             # default case: treat it as a file path
             else:
                 self.stream = stream
                 # if the file doesn't exist, create it
-                if not os.path.isfile(stream):
+                if not os.path.isfile(stream) and \
+                   stream != sys.stdout and \
+                   stream != sys.stderr:
                     fp = open(stream, "w")
                     fp.close()
 

@@ -25,8 +25,8 @@ class ServiceConfig(lib.config.Config):
     def __init__(self):
         super().__init__()
         self.fields = [
-            lib.config.ConfigField("name",          [str],      required=True),
-            lib.config.ConfigField("log_file",      [str],      required=False)
+            lib.config.ConfigField("service_name",  [str],      required=True),
+            lib.config.ConfigField("service_log",   [str],      required=False)
         ]
 
 
@@ -43,9 +43,9 @@ class Service(threading.Thread):
 
         # examine the config for a log stream
         log_file = sys.stdout
-        if self.config.log_file:
-            log_file = self.config.log_file
-        self.log = lib.log.Log(self.config.name, stream=log_file)
+        if self.config.service_log:
+            log_file = self.config.service_log
+        self.log = lib.log.Log(self.config.service_name, stream=log_file)
     
     # The service's main thread. This function must is where all the service's
     # actual work will occur, and thus must be extended by subclasses.
