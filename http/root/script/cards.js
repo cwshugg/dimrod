@@ -38,6 +38,7 @@ class Card
 
         // set up a few internal fields for other parts of the card
         this.title = null;
+        this.title_icon = null;
     }
 
     // Takes in a title and updates the card's title text.
@@ -46,7 +47,7 @@ class Card
         // if the title doesn't exist, create it
         if (!this.title)
         {
-            this.title = document.createElement("h2");
+            this.title = document.createElement("h3");
             this.title.id = this.id + "_title";
 
             // ensure the title is at the top
@@ -56,6 +57,31 @@ class Card
             { this.stdiv.appendChild(this.title); }
         }
         this.title.innerHTML = title;
+    }
+    
+    // Takes in a font-awesome class string and adds an icon to the card's
+    // title.
+    set_title_icon(fa_icon)
+    {
+        // make sure the title is initialized
+        if (!this.title)
+        { this.set_title(""); }
+
+        // if the icon hasn't been set up, create it
+        if (!this.title_icon)
+        {
+            const title_text = this.title.innerHTML;
+            this.title_icon = document.createElement("i");
+            this.title_icon.className = fa_icon;
+
+            // reset the title's HTML and add the icon
+            this.title.innerHTML = "";
+            this.title.appendChild(this.title_icon);
+            this.title.innerHTML += " " + title_text;
+        }
+
+        // update the icon's classname
+        this.title_icon.className = fa_icon;
     }
     
     // Takes in an HTML element and sets the card's inner "supporting text"
