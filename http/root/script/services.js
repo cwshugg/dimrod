@@ -21,7 +21,15 @@ class Service
     // whether or not a response was received.
     async ping()
     {
+        // create a URL and set it to "no-cors" mode to avoid the browser error
+        // where the server doesn't specify an "Access-Control-Allow-Origin"
+        // header without authentication. This 'ping' function is really just
+        // supposed to see if the service is up, so we don't really care about
+        // security too much here.
         const url = new URL(this.url.address, this.url.port, "/");
+        url.no_cors = true;
+        
+        // send the request
         let resp = null;
         try
         { resp = await url.send_request("GET", null); }

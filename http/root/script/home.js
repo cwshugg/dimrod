@@ -24,6 +24,9 @@ const services_me = [
                 "fas fa-lightbulb", "mdl-color-text--yellow-600")
 ];
 
+// Service-specific globals
+let lumen = null;
+
 // Window-load function
 window.onload = function()
 {
@@ -44,17 +47,6 @@ window.onload = function()
     init_tab_lighting(tab_lighting);
 }
 
-// ============================== Lighting Tab ============================== //
-// Initializes the lighting tab and everything within.
-function init_tab_lighting(tab_lighting)
-{
-    // TODO - replace this with actual lighting services
-    const card = new Card("card_lighting1");
-    card.set_title("Reachable Lights");
-    tab_lighting.add_card(card);
-
-    // TODO - replace this with actual lighting services
-}
 
 // ============================== Overview Tab ============================== //
 // Initializes the given tab as the main "overview" tab.
@@ -107,7 +99,7 @@ function init_service_card(card, servs)
     // create a table to contain all services
     const table = document.createElement("table");
     table.className = "mdl-data-table mdl-js-data-table mdl-shadow--2dp " +
-                      "mdl-color--grey-800";
+                      "mdl-color--grey-900";
     table.style.cssText = "width: 100%;";
     table.id = card.id + "_service_table";
     card.add_html(table);
@@ -123,7 +115,7 @@ function init_service_card(card, servs)
     for (let i = 0; i < hcols.length; i++)
     {
         const th = document.createElement("th");
-        th.className = "mdl-color-text--grey-200";
+        th.className = "mdl-color-text--grey-100";
         if (isNaN(hcols[i][1]))
         { th.className += " mdl-data-table__cell--non-numeric"; }
         th.innerHTML = hcols[i][0];
@@ -194,4 +186,115 @@ function refresh_services(servs)
         );
     }
 }
+
+
+// ============================== Lighting Tab ============================== //
+// Initializes the lighting tab and everything within.
+async function init_tab_lighting(tab_lighting)
+{
+    // iterate through my services to find the lumen service
+    for (let i = 0; i < services_me.length; i++)
+    {
+        if (services_me[i].name.toLowerCase() == "lumen")
+        { 
+            lumen = services_me[i];
+            break;
+        }
+    }
+
+    // if the lumen service couldn't be found, complain and return
+    if (lumen === null)
+    {
+        console.log("Couldn't find the lumen service.");
+        return
+    }
+
+    // initialize a Lumen object and get all light information
+    lumen = new Lumen(lumen);
+    lights = await lumen.get_lights();
+
+    // if no lights are returned, make a card to tell the user
+    if (lights.length == 0)
+    {
+        const card = new Card("card_lights_none");
+        card.set_title("No Lights");
+        tab_lighting.add_card(card);
+
+        const p = document.createElement("p");
+        p.innerHTML = "Lumen reported zero connected lights.";
+        card.add_html(p);
+    }
+
+    // for each light, we'll create an interactive card
+    for (let i = 0; i < lights.length; i++)
+    {
+        l = lights[i];
+        const card = new Card("card_light_" + l.id);
+        card.set_title(l.id);
+        tab_lighting.add_card(card);
+
+        const p = document.createElement("p");
+        p.innerHTML = l.description;
+        card.add_html(p);
+
+        // add a few actions to the card
+        card.add_action("lumenon_" + l.id, "ON", light_turn_on);
+        card.add_action("lumenoff_" + l.id, "OFF", light_turn_off);
+    }
+}
+
+// Click event for a light's "ON" button.
+async function light_turn_on(ev)
+{
+    const btn = ev.currentTarget;
+    button_disable(btn);
+
+    // extract the light ID from the button ID and find the light
+    let lid = ev.currentTarget.id;
+    lid = lid.replace("lumenon_", "");
+    let light = lumen.search_light(lid);
+    if (!light)
+    {
+        console.log("Failed to find light: \"" + lid + "\".");
+        return;
+    }
+
+    // extract color from the card, if applicable
+    color = null;
+    if (light.has_color)
+    {
+        console.log("TODO - COLOR");
+    }
+
+    // extract brightness from the card, if applicable
+    brightness = null;
+    if (light.has_brightness)
+    {
+        console.log("TODO - BRIGHTNESS");
+    }
+
+    await lumen.turn_on(lid, color, brightness);
+    button_enable(btn);
+}
+
+// Click event for a light's "OFF" button.
+async function light_turn_off(ev)
+{
+    const btn = ev.currentTarget;
+    button_disable(btn);
+
+    // extract the light ID from the button ID and find the light object
+    let lid = ev.currentTarget.id;
+    lid = lid.replace("lumenoff_", "");
+    let light = lumen.search_light(lid);
+    if (!light)
+    {
+        console.log("Failed to find light: \"" + lid + "\".");
+        return;
+    }
+
+    await lumen.turn_off(lid);
+    button_enable(btn);
+}
+
 

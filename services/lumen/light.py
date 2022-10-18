@@ -23,6 +23,7 @@ class LightConfig(Config):
         super().__init__()
         self.fields = [
             ConfigField("id",               [str],      required=True),
+            ConfigField("description",      [str],      required=True),
             ConfigField("has_color",        [bool],     required=True),
             ConfigField("has_brightness",   [bool],     required=True)
         ]
@@ -34,8 +35,9 @@ class LightConfig(Config):
 class Light:
     # Constructor. Takes in the light's ID and a number of flags indicating if
     # special features are present.
-    def __init__(self, lid, has_color, has_brightness):
+    def __init__(self, lid, description, has_color, has_brightness):
         self.lid = lid
+        self.description = description
         self.has_color = has_color
         self.has_brightness = has_brightness
     
@@ -48,6 +50,7 @@ class Light:
     def to_json(self):
         return {
             "id": self.lid,
+            "description": self.description,
             "has_color": self.has_color,
             "has_brightness": self.has_brightness
         }

@@ -9,6 +9,9 @@ class URL
         this.address = address;
         this.port = port;
         this.endpoint = endpoint;
+
+        // other internal settings
+        this.no_cors = false;
     }
 
     // Creates a full URL string and returns it.
@@ -29,33 +32,16 @@ class URL
     // to be sent to the remote server.
     async send_request(method, jdata)
     {
-        // build a request body string, if JSON data was given
-        let request_body = null;
+        // build a JSON object of settings to pass to fetch()
+        const fetch_data = { method: method };
         if (jdata)
-        { request_body = JSON.stringify(jdata); }
-    
-        // send a request to the correct server endpoint
-        let response = null;
-        const urlstr = this.get_string();
-        if (jdata == null)
-        {
-            response = await fetch(urlstr, {
-                mode: "no-cors",
-                method: method
-            });
-        }
-        else
-        {
-            response = await fetch(urlstr, {
-                mode: "no-cors",
-                method: method,
-                body: request_body
-            });
-        }
-    
-        // retrieve the response body and attempt to parse it as JSON
-        return response;
-    }
+        { fetch_data.body = JSON.stringify(jdata); }
+        if (this.no_cors)
+        { fetch_data.mode = "no-cors"; }
 
+        // send a request to the URL
+        const urlstr = this.get_string();
+        return await fetch(urlstr, fetch_data);
+    }
 }
 

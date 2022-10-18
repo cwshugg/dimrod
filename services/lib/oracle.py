@@ -106,6 +106,11 @@ class Oracle(threading.Thread):
     
     # Invoked directly after a request's main handler is invoked.
     def post_process(self, response):
+        # enable this to override the CORS warning on the receiving brower.
+        # I know... not very safe. But until authentication is built in, this is
+        # what we're going with.
+        # https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin
+        response.headers["Access-Control-Allow-Origin"] = "*"
         return response
 
     # Invoked to clean up resources after handling a request - even in the event

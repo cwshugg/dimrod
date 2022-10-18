@@ -39,6 +39,7 @@ class Card
         // set up a few internal fields for other parts of the card
         this.title = null;
         this.title_icon = null;
+        this.actions = null;
     }
 
     // Takes in a title and updates the card's title text.
@@ -89,6 +90,34 @@ class Card
     add_html(html)
     {
         this.stdiv.appendChild(html);
+    }
+    
+    // Takes in HTML and a function pointer and adds a button to the card's
+    // action menu.
+    add_action(id, html, func)
+    {
+        // create the actions 'div' if it doesn't exist yet
+        if (!this.actions)
+        {
+            this.actions = document.createElement("div");
+            this.actions.id = this.id + "_actions";
+            this.actions.className = "mdl-card__actions mdl-card--border";
+            this.div.appendChild(this.actions);
+        }
+
+        const button = document.createElement("button");
+        button.id = id;
+        button.className = "mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect";
+        button.className += " mdl-color--grey-800 mdl-color-text--grey-200";
+        button.style.cssText = "margin: 8px;";
+        button.addEventListener("click", func);
+
+        // add the string (or HTML) to the button as necessary
+        if (typeof html == "string")
+        { button.innerHTML = html; }
+        else
+        { button.appendChild(html); }
+        this.actions.appendChild(button);
     }
 }
 

@@ -10,6 +10,7 @@
     [
         {
             "id": "bulb_front_porch",
+            "description": "The lightbulb above the front door.",
             "has_color": true,
             "has_brightness": true
         }
