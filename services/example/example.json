@@ -4,5 +4,15 @@
 
     "oracle_addr": "0.0.0.0",
     "oracle_port": 2323,
-    "oracle_log": "stdout"
+    "oracle_log": "stdout",
+    "oracle_auth_cookie": "example_auth",
+    "oracle_auth_secret": "YOUR_JWT_SECRET_HERE",
+    "oracle_auth_users":
+    [
+        {
+            "username": "luke",
+            "password": "skywalker",
+            "privilege": 0
+        }
+    ]
 }

@@ -9,6 +9,8 @@ import sys
 import threading
 import json
 import flask
+import jwt
+from datetime import datetime
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -19,15 +21,19 @@ if pdir not in sys.path:
 import lib.config
 
 
-# ============================== Service Config ============================== #
+# ============================== Oracle Config =============================== #
 # A config class for a generic oracle.
 class OracleConfig(lib.config.Config):
     def __init__(self):
         super().__init__()
         self.fields = [
-            lib.config.ConfigField("oracle_addr",   [str],      required=True),
-            lib.config.ConfigField("oracle_port",   [int],      required=True),
-            lib.config.ConfigField("oracle_log",    [str],      required=False),
+            lib.config.ConfigField("oracle_addr",           [str],  required=True),
+            lib.config.ConfigField("oracle_port",           [int],  required=True),
+            lib.config.ConfigField("oracle_log",            [str],  required=False),
+            lib.config.ConfigField("oracle_auth_cookie",    [str],  required=True),
+            lib.config.ConfigField("oracle_auth_secret",    [str],  required=True),
+            lib.config.ConfigField("oracle_auth_users",     [list], required=True),
+            lib.config.ConfigField("oracle_auth_exptime",   [int],  required=False),
         ]
 
 
@@ -44,6 +50,18 @@ class Oracle(threading.Thread):
         self.config = OracleConfig()
         self.config.parse_file(config_path)
         self.server = flask.Flask(__name__)
+
+        # initialize the user objects
+        self.users = []
+        for udata in self.config.oracle_auth_users:
+            self.users.append(User(udata))
+
+        # initialize the optional JWT expiration time
+        jwt_exptime = 2592000
+        if not self.config.oracle_auth_exptime:
+            self.config.oracle_auth_exptime = jwt_exptime
+        else:
+            self.config.oracle_auth_exptime = abs(self.config.oracle_auth_exptime)
         
         # examine the config for a log stream
         log_file = sys.stdout
@@ -95,6 +113,32 @@ class Oracle(threading.Thread):
         @self.server.route("/id")
         def endpoint_id():
             return self.make_response(msg=self.service.config.name)
+        
+        # An authentication endpoint used to log in and receive a JWT.
+        @self.server.route("/auth/login", methods=["POST"])
+        def endpoint_auth_login():
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing credentials.", rstatus=400)
+            
+            # attempt to match-up the username and password
+            user = self.auth_check_login(flask.g.jdata)
+            if not user:
+                return self.make_response(msg="Incorrect credentials.", rstatus=400)
+
+            # create a cookie for the user
+            cookie = self.auth_make_cookie(user)
+            cookie_str = "%s=%s; Path=/" % (self.config.oracle_auth_cookie, cookie)
+            return self.make_response(msg="Authentication successful. Hello, %s." % user.config.username,
+                                 rheaders={"Set-Cookie": cookie_str})
+        
+        # An authentication endpoint used to check the current log-in status.
+        @self.server.route("/auth/check", methods=["GET"])
+        def endpoint_auth_check():
+            # the JWT-decoding step was performed in the pre-processing
+            # function, so we'll just check it here
+            if flask.g.user:
+                return self.make_response(msg="You are authenticated as %s." % flask.g.user.config.username)
+            return self.make_response(msg="You are not authenticated.", success=False)
 
     # Invoked directly before a request's main handler is invoked.
     def pre_process(self):
@@ -103,6 +147,9 @@ class Oracle(threading.Thread):
             flask.g.jdata = self.get_request_json(flask.request)
         except:
             flask.g.jdata = None
+
+        # attempt to decode the JWT (if present)
+        flask.g.user = self.auth_check_cookie(flask.request.headers.get("Cookie"))
     
     # Invoked directly after a request's main handler is invoked.
     def post_process(self, response):
@@ -117,6 +164,96 @@ class Oracle(threading.Thread):
     # of an error.
     def post_process_cleanup(self, error=None):
         pass
+
+    
+    # ---------------------------- Authentication ---------------------------- #
+    # Takes in a JSON object from an incoming request and attempts to verify a
+    # login attempt. Returns the matching user object on a successful login and
+    # None on a failed login.
+    def auth_check_login(self, jdata):
+        # extract the username and password from the JSON data
+        username = "" if "username" not in jdata else jdata["username"]
+        password = "" if "password" not in jdata else jdata["password"]
+        if type(username) != str or type(password) != str:
+            return None
+
+        # iterate through the user list and attempt to match up the password
+        for u in self.users:
+            if username == u.config.username and \
+               password == u.config.password:
+                return u
+        return None
+    
+    # Takes in a cookie from a request and attempts to verify the cookie's
+    # validity. Returns None if the cookie isn't valid, or the user object
+    # that corresponds to the cookie if the cookie *is* valid.
+    def auth_check_cookie(self, cookie):
+        if cookie == None:
+            return None
+        
+        # split into individual cookies
+        cookies = cookie.split(";")
+        result = None
+        for c in cookies:
+            c = c.strip()
+            # attempt to separate out the cookie value and decode it
+            pieces = c.split("=")
+            # check the cookie name - if this is the one we want, break out of the
+            # loop and proceed
+            if pieces[0] == self.config.oracle_auth_cookie:
+                result = pieces[0]
+                break
+
+        # if we never found the cookie, return
+        if result == None:
+            return None
+        
+        # attempt to decode the cookie (don't verify the expiration time in the
+        # function call - we'll do this ourself)
+        try:
+            result = jwt.decode(pieces[len(pieces) - 1],
+                                self.config.oracle_auth_secret,
+                                algorithms=["HS512"],
+                                options={"verify_exp": False})
+        except:
+            return None
+    
+        # check for the correct fields in the decoded JWT
+        if "iat" not in result or "exp" not in result or "sub" not in result:
+            return None
+
+        # check the issued-at time for the token
+        now = int(datetime.now().timestamp())
+        if result["iat"] > now:
+            return None
+        # make sure the 'sub' is one of our registered users
+        user = None
+        for u in self.users:
+            if result["sub"] == u.config.username:
+                user = u
+                break
+        if user == None:
+            return None
+    
+        # check the expiration time for the token, but only if the user doesn't
+        # have special privileges
+        if user.config.privilege > 0 and result["exp"] <= now:
+            return None
+       
+        # if we passed all the above checks, they must be authenticated
+        return user
+    
+    # Takes in a user and generates a fresh JWT token as proof of
+    # authentication.
+    def auth_make_cookie(self, user):
+        now = int(datetime.now().timestamp())
+        data = {
+            "iat": now,
+            "exp": now + self.config.oracle_auth_exptime,
+            "sub": user.config.username
+        }
+        token = jwt.encode(data, self.config.oracle_auth_secret, algorithm="HS512")
+        return token
 
     # ------------------------------- Helpers -------------------------------- #
     # Takes in the HTTP request object and parses out any JSON data in the
@@ -151,4 +288,29 @@ class Oracle(threading.Thread):
     
         # return the response object
         return resp
+
+
+# ============================ Oracle User Config ============================ #
+class UserConfig(lib.config.Config):
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            lib.config.ConfigField("username",      [str],      required=True),
+            lib.config.ConfigField("password",      [str],      required=True),
+            lib.config.ConfigField("privilege",     [int],      required=True),
+        ]
+
+
+
+# =============================== Oracle Users =============================== #
+# This small class represents a single user that can access the Oracle via HTTP.
+class User:
+    # Constructor.
+    def __init__(self, jdata):
+        self.config = UserConfig()
+        self.config.parse_json(jdata)
+    
+    # Returns a string representation of the object.
+    def __str__(self):
+        return self.username
 
