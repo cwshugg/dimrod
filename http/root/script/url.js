@@ -39,6 +39,9 @@ class URL
         if (this.no_cors)
         { fetch_data.mode = "no-cors"; }
 
+        // enable cookie usage
+        fetch_data.credentials = "include";
+
         // send a request to the URL
         const urlstr = this.get_string();
         return await fetch(urlstr, fetch_data);

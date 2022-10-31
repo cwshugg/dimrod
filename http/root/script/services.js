@@ -40,6 +40,50 @@ class Service
         // through to the service. So, it must be up
         return resp instanceof Response;
     }
+    
+    // Sends a HTTP GET request to the authentication-checker endpoint to see if
+    // the user is logged into the service. Returns a boolean indicating whether
+    // or not the user is authenticated.
+    async auth_check()
+    {
+        const url = new URL(this.url.address, this.url.port, "/auth/check");
+
+        let resp = null;
+        try
+        { resp = await url.send_request("GET", null); }
+        catch
+        { resp = null; }
+
+        // if the response is null, return null
+        if (resp == null)
+        { return {success: false, message: "Failed to send the request"}; }
+        
+        // parse the response as JSON and find the set-cookie header if the
+        // request succeeded
+        const jdata = JSON.parse(await resp.text());
+        return jdata;
+    }
+    
+    // Sends a HTTP POST request to the login endpoint for the service.
+    async auth_login(username, password)
+    {
+        const url = new URL(this.url.address, this.url.port, "/auth/login");
+
+        let resp = null;
+        const login_data = {"username": username, "password": password};
+        try
+        { resp = await url.send_request("POST", login_data); }
+        catch
+        { resp = null; }
+        
+        // if the response is null, return null
+        if (resp == null)
+        { return {success: false, message: "Failed to send the request"}; }
+
+        // parse the response JSON and return it
+        const jdata = JSON.parse(await resp.text());
+        return jdata;
+    }
 
 
     // =========================== HTML Elements ============================ //
@@ -60,6 +104,7 @@ class Service
         const i = document.createElement("i");
         i.id = this.id + "_icon";
         i.className = this.fa_icon + " " + this.color;
+        i.style.cssText = "margin: 8px;"
         return i;
     }
 }

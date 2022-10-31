@@ -8,6 +8,9 @@ const tab_anchors = document.getElementById("tab_anchors");
 
 // Other globals
 const hostname = window.location.hostname;
+const css_check = "fas fa-check mdl-color-text--green-400";
+const css_xmark = "fas fa-xmark mdl-color-text--red-400";
+const css_loading = "fas fa-hourglass mdl-color-text--grey-600";
 
 // Services
 const services = [
@@ -66,7 +69,7 @@ function init_tab_overview(tab_overview)
     card_servs_tp_desc.innerHTML = "These third-party services are running " +
                                    "on the home server.";
     card_servs_tp.add_html(card_servs_tp_desc);
-    init_service_card(card_servs_tp, services);
+    init_service_card(card_servs_tp, services, false);
 
     // set up a card for homemade services my server is running
     const card_servs_me = new Card("card_services_me");
@@ -76,11 +79,11 @@ function init_tab_overview(tab_overview)
     card_servs_me_desc.innerHTML = "These homemade services were created by " +
                                    "me for the home server.";
     card_servs_me.add_html(card_servs_me_desc);
-    init_service_card(card_servs_me, services_me);
+    init_service_card(card_servs_me, services_me, true);
 
     // refresh the services
-    refresh_services(services);
-    refresh_services(services_me);
+    refresh_services(services, false);
+    refresh_services(services_me, true);
 }
 
 // Initializes the main card on the home page.
@@ -94,7 +97,7 @@ function init_card_main(card_main)
 
 // Takes in a MDL card and a list of Service objects and initializes it to
 // display each service.
-function init_service_card(card, servs)
+function init_service_card(card, servs, homemade)
 {
     // create a table to contain all services
     const table = document.createElement("table");
@@ -107,11 +110,12 @@ function init_service_card(card, servs)
     // add a header row to describe the entries
     const hrow = document.createElement("tr");
     const hcols = [
-        ["", NaN],
         ["Name", NaN],
         ["Port", 0],
         ["Status", NaN]
     ];
+    if (homemade)
+    { hcols.push(["Auth", NaN]); }
     for (let i = 0; i < hcols.length; i++)
     {
         const th = document.createElement("th");
@@ -128,20 +132,41 @@ function init_service_card(card, servs)
     {
         const s = servs[i];
         const row = document.createElement("tr");
+        
+        // create a span containing an icon PLUS the service name
+        const namespan = document.createElement("span");
+        namespan.appendChild(s.make_icon());
+        namespan.innerHTML += " " + s.name;
 
         // ping the service to determine if it's up, then create an appropriate
         // status icon
         status_icon = document.createElement("i");
-        status_icon.className = "fas fa-hourglass mdl-color-text--grey-600";
+        status_icon.className = css_loading;
         status_icon.id = s.id + "_status_icon";
         
         // construct an array of values to be stored in the row's columns
         const cols = [
-            s.make_icon(),
-            s.name,
+            namespan,
             s.url.port,
             status_icon
         ];
+        if (homemade)
+        {
+            // add a column for authentication
+            const auth_icon = document.createElement("i");
+            auth_icon.className = css_loading;
+            auth_icon.id = s.id + "_auth_icon";
+            
+            // create a button to contain the icon
+            const auth_button = document.createElement("button");
+            auth_button.className = "mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect";
+            auth_button.className += " mdl-color--grey-800 mdl-color-text--grey-200";
+            auth_button.style.cssText = "text-align: center";
+            auth_button.id = s.id + "_auth_button";
+            auth_button.setAttribute("onclick", "authenticate_service(\"" + s.id + "\")");
+            auth_button.appendChild(auth_icon);
+            cols.push(auth_button);
+        }
 
         // for each column add a 'td' element
         for (let j = 0; j < cols.length; j++)
@@ -163,7 +188,7 @@ function init_service_card(card, servs)
 }
 
 // Pings the list of given services and updates their status icons.
-function refresh_services(servs)
+function refresh_services(servs, homemade)
 {
     for (let i = 0; i < servs.length; i++)
     {
@@ -171,20 +196,103 @@ function refresh_services(servs)
 
         // ping the service to determine if it's online or not
         const status_icon = document.getElementById(s.id + "_status_icon");
-        online_css = "fas fa-check mdl-color-text--green-400";
-        offline_css = "fas fa-xmark mdl-color-text--red-400";
+        let online = false;
         s.ping().then(
             function(result)
             {
                 if (result)
-                { status_icon.className = online_css; }
+                {
+                    // the service is online, so we'll mark it as such
+                    status_icon.className = css_check;
+
+                    // if the service is homemade, we'll do an addition check to
+                    // determine if the user is authenticated
+                    if (homemade)
+                    {
+                        const auth_icon = document.getElementById(s.id + "_auth_icon");
+                        const auth_button = document.getElementById(s.id + "_auth_button");
+                        s.auth_check().then(
+                            function(result)
+                            {
+                                if (result.success)
+                                {
+                                    auth_icon.className = css_check;
+                                    button_disable(auth_button);
+                                }
+                                else
+                                {
+                                    auth_icon.className = css_xmark;
+                                    button_enable(auth_button);
+                                }
+                            },
+                            function()
+                            { auth_icon.className = css_xmark; }
+                        );
+                    }
+                }
                 else
-                { status_icon.className = offline_css; }
+                { status_icon.className = css_xmark; }
             },
             function()
-            { status_icon.className = offline_css; }
+            { status_icon.className = css_xmark; }
         );
     }
+}
+
+// Invoked when a button is clicked to authenticate with a particular service.
+async function authenticate_service(service_id)
+{
+    // find the homemade service with the matching ID
+    let s = null;
+    for (let i = 0; i < services_me.length; i++)
+    {
+        if (services_me[i].name.toLowerCase() == service_id.toLowerCase())
+        {
+            s = services_me[i];
+            break;
+        }
+    }
+    
+    // if a service wasn't found, return
+    if (s == null)
+    { return; }
+
+    // otherwise, prompt the user for a username and password
+    const username = prompt("Please enter your username for " + s.name + ":");
+    if (username == "")
+    {
+        const dlg = new Dialog(s.id + "_auth_error_dialog1");
+        dlg.set_title("Input Error");
+        dlg.set_message("Your username cannot be blank.");
+        dlg.add_action("OK", dlg.close);
+        const result = dlg.show();
+        return;
+    }
+    const password = prompt("Please enter your password for " + s.name + ":");
+    if (password == "")
+    {
+        const dlg = new Dialog(s.id + "_auth_error_dialog2");
+        dlg.set_title("Input Error");
+        dlg.set_message("Your password cannot be blank.");
+        dlg.add_action("OK", dlg.close);
+        const result = dlg.show();
+        return;
+    }
+
+    // contact the service via HTTP and attempt to authenticate
+    const result = await s.auth_login(username, password);
+
+    // show the user the result with another dialog
+    const dlg = new Dialog(s.id + "_auth_success_dialog");
+    dlg.set_title("Success");
+    if (!result.success)
+    { dlg.set_title("Failure"); }
+    dlg.set_message(result.message);
+    dlg.add_action("OK", dlg.close);
+    dlg.show();
+    
+    // refresh the services to display any visual updates after the attempt
+    refresh_services(services_me, true);
 }
 
 
@@ -209,6 +317,21 @@ async function init_tab_lighting(tab_lighting)
         return
     }
 
+    // make sure we're authenticated with lumen
+    const result = await lumen.auth_check();
+    if (!result.success)
+    {
+        const card = new Card("card_lights_noauth");
+        card.set_title("Not Authenticated");
+        tab_lighting.add_card(card);
+
+        const p = document.createElement("p");
+        p.innerHTML = "You aren't authenticated with Lumen." +
+                      "If you just logged in, refresh the page.";
+        card.add_html(p);
+        return;
+    }
+
     // initialize a Lumen object and get all light information
     lumen = new Lumen(lumen);
     lights = await lumen.get_lights();
@@ -223,6 +346,7 @@ async function init_tab_lighting(tab_lighting)
         const p = document.createElement("p");
         p.innerHTML = "Lumen reported zero connected lights.";
         card.add_html(p);
+        return;
     }
 
     // for each light, we'll create an interactive card

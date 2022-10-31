@@ -4,6 +4,15 @@
 const btn_e_color = "mdl-color--grey-800 mdl-color-text--grey-200";
 const btn_d_color = "mdl-color--grey-800 mdl-color-text--grey-600";
 
+
+// ================================ Buttons ================================= //
+// Initializes a butotn element to contain the correct MDL CSS fields.
+function button_init(btn)
+{
+    btn.className = "mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect";
+    btn.className += " " + btn_e_color;
+}
+
 // Takes in a HTML button element (assumed to be material design lite) and marks
 // it as disabled.
 function button_disable(btn)

@@ -118,12 +118,19 @@ class Oracle(threading.Thread):
         @self.server.route("/auth/login", methods=["POST"])
         def endpoint_auth_login():
             if not flask.g.jdata:
-                return self.make_response(msg="Missing credentials.", rstatus=400)
+                return self.make_response(success=False,
+                                          msg="Missing credentials.",
+                                          rstatus=400)
             
             # attempt to match-up the username and password
             user = self.auth_check_login(flask.g.jdata)
             if not user:
-                return self.make_response(msg="Incorrect credentials.", rstatus=400)
+                return self.make_response(success=False,
+                                          msg="Incorrect credentials.",
+                                          rstatus=400)
+
+            # log the success
+            self.log.write("user \"%s\" successfully logged in." % user)
 
             # create a cookie for the user
             cookie = self.auth_make_cookie(user)
@@ -150,6 +157,9 @@ class Oracle(threading.Thread):
 
         # attempt to decode the JWT (if present)
         flask.g.user = self.auth_check_cookie(flask.request.headers.get("Cookie"))
+        if flask.g.user:
+            self.log.write("user \"%s\" is making a request." % flask.g.user)
+
     
     # Invoked directly after a request's main handler is invoked.
     def post_process(self, response):
@@ -157,7 +167,16 @@ class Oracle(threading.Thread):
         # I know... not very safe. But until authentication is built in, this is
         # what we're going with.
         # https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin
-        response.headers["Access-Control-Allow-Origin"] = "*"
+        #response.headers["Access-Control-Allow-Origin"] = "*"
+
+        # get the origin URL from the request headers to use for the
+        # Access-Control-Allow-Origin response header
+        origin = flask.request.headers.get("Origin")
+        if not origin:
+            origin = flask.request.headers.get("Host")
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        #response.headers["Access-Control-Expose-Headers"] = "*, Set-Cookie"
         return response
 
     # Invoked to clean up resources after handling a request - even in the event
@@ -312,5 +331,5 @@ class User:
     
     # Returns a string representation of the object.
     def __str__(self):
-        return self.username
+        return self.config.username
 
