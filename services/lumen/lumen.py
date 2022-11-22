@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Might home lighting service used to toggle and adjust the home's smart lights.
+# My home lighting service used to toggle and adjust the home's smart lights.
 
 # Imports
 import os
@@ -140,6 +140,9 @@ class LumenOracle(Oracle):
         # for pinging.
         @self.server.route("/lights")
         def endpoint_lights():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+
             # iterate through all the lights in the service and build a JSON
             # list to return
             lights = []
@@ -151,6 +154,9 @@ class LumenOracle(Oracle):
         # Endpoint used to toggle a single light.
         @self.server.route("/toggle", methods=["POST"])
         def endpoint_toggle():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+
             # make sure some sort of data was passed
             if not flask.g.jdata:
                 return self.make_response(msg="Missing/invalid toggle information.",
