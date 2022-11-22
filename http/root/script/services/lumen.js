@@ -66,7 +66,7 @@ class Lumen
         const jdata = {"id": lid, "action": "on"}
         if (color)
         { jdata["color"] = color; }
-        if (brightness)
+        if (brightness !== null)
         { jdata["brightness"] = brightness; }
 
         // send the request and check for a non-200 response

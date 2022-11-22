@@ -42,3 +42,32 @@ function button_enable(btn)
     btn.className += btn_e_color;
 }
 
+
+// ================================ Helpers ================================= //
+// Takes in a hex string and returns a JSON object in the following format:
+//      {
+//          "r": 255,
+//          "b": 254,
+//          "c": 253
+//      }
+function hex_to_rgb(hex)
+{
+    // remove any "#" characters from the string
+    hex = hex.replace("#", "");
+
+    // make sure the string is of the correct length. If it's not, return
+    if (hex.length != 6)
+    { return {"r": 255, "g": 255, "b": 255}; }
+    
+    // slice the string and parse as base-16 integers
+    let r = hex.substring(0, 2);
+    let g = hex.substring(2, 4);
+    let b = hex.substring(4, 6);
+    r = parseInt(r, 16);
+    g = parseInt(g, 16);
+    b = parseInt(b, 16);
+    
+    // build and return the JSON object
+    return {"r": r, "g": g, "b": b};
+}
+

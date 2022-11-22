@@ -326,7 +326,7 @@ async function init_tab_lighting(tab_lighting)
         tab_lighting.add_card(card);
 
         const p = document.createElement("p");
-        p.innerHTML = "You aren't authenticated with Lumen." +
+        p.innerHTML = "You aren't authenticated with Lumen. " +
                       "If you just logged in, refresh the page.";
         card.add_html(p);
         return;
@@ -364,6 +364,48 @@ async function init_tab_lighting(tab_lighting)
         // add a few actions to the card
         card.add_action("lumenon_" + l.id, "ON", light_turn_on);
         card.add_action("lumenoff_" + l.id, "OFF", light_turn_off);
+
+        // if the light supports color, add a color selector
+        if (l.has_color)
+        {
+            const d = document.createElement("div");
+
+            const cp = document.createElement("p");
+            cp.innerHTML = "<b>Color</b>";
+
+            const ci = document.createElement("input");
+            ci.type = "color";
+            ci.id = "lumencolor_" + l.id;
+            ci.style.cssText = "width: 100%; height: 100px; border-color; black; margin: 16px; padding: 0;";
+            ci.value = "#FFFFFF";
+
+            d.appendChild(cp);
+            d.appendChild(ci);
+            card.add_html(d);
+        }
+
+        // if the light supports brightness, add a brightness slider
+        if (l.has_brightness)
+        {
+            const d = document.createElement("div");
+
+            const bp = document.createElement("p");
+            bp.innerHTML = "<b>Brightness</b>";
+            
+            const bi = document.createElement("input");
+            bi.type = "range"
+            bi.id = "lumenbrightness_" + l.id;
+            bi.className = "mdl-slider mdl-js-slider";
+            bi.style.cssText = "margin: 16px";
+            bi.min = 0;
+            bi.max = 100;
+            bi.step = 1;
+            bi.value = 50;
+
+            d.appendChild(bp);
+            d.appendChild(bi);
+            card.add_html(d);
+        }
     }
 }
 
@@ -387,14 +429,25 @@ async function light_turn_on(ev)
     color = null;
     if (light.has_color)
     {
-        console.log("TODO - COLOR");
+        const cinput = document.getElementById("lumencolor_" + lid);
+        if (cinput !== null)
+        {
+            // parse the input's value into a "R,G,B" string
+            rgb = hex_to_rgb(cinput.value);
+            color = "" + rgb.r + "," + rgb.g + "," + rgb.b
+        }
     }
 
     // extract brightness from the card, if applicable
     brightness = null;
     if (light.has_brightness)
     {
-        console.log("TODO - BRIGHTNESS");
+        const binput = document.getElementById("lumenbrightness_" + lid);
+        if (binput !== null)
+        {
+            // convert the string value into a float from 0.0-1.0
+            brightness = parseFloat(binput.value) / 100.0;
+        }
     }
 
     await lumen.turn_on(lid, color, brightness);
