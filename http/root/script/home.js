@@ -377,7 +377,15 @@ async function init_tab_lighting(tab_lighting)
             ci.type = "color";
             ci.id = "lumencolor_" + l.id;
             ci.style.cssText = "width: 100%; height: 100px; border-color; black; margin: 16px; padding: 0;";
-            ci.value = "#FFFFFF";
+
+            // split the RGB string and conver it to hex
+            const cpieces = l.status.color.split(",");
+            const cval = {
+                "r": parseInt(cpieces[0]),
+                "g": parseInt(cpieces[1]),
+                "b": parseInt(cpieces[2])
+            };
+            ci.value = "#" + rgb_to_hex(cval);
 
             d.appendChild(cp);
             d.appendChild(ci);
@@ -400,7 +408,8 @@ async function init_tab_lighting(tab_lighting)
             bi.min = 0;
             bi.max = 100;
             bi.step = 1;
-            bi.value = 50;
+            const light_value = l.status.brightness * 100.0;
+            bi.value = light_value;
 
             d.appendChild(bp);
             d.appendChild(bi);

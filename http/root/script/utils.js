@@ -71,3 +71,20 @@ function hex_to_rgb(hex)
     return {"r": r, "g": g, "b": b};
 }
 
+// Takes in a RGB dictionary, as seen above, and converts it into a hex string
+// without the preceding "#".
+function rgb_to_hex(rgb)
+{   
+    // Internal helper function.
+    function int_to_hex(i)
+    {
+        let str = Number(i).toString(16);
+        return str.length == 1 ? "0" + str : str;
+    }
+
+    let result = int_to_hex(rgb.r) +
+                 int_to_hex(rgb.g) +
+                 int_to_hex(rgb.b);
+    return result;
+}
+
