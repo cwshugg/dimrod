@@ -40,6 +40,9 @@ class Light:
         self.description = description
         self.has_color = has_color
         self.has_brightness = has_brightness
+
+        # internal light status trackers
+        self.status = {"power": False, "color": "255,255,255", "brightness": 1.0}
     
     # Creates a string representation of the Light object.
     def __str__(self):
@@ -52,6 +55,34 @@ class Light:
             "id": self.lid,
             "description": self.description,
             "has_color": self.has_color,
-            "has_brightness": self.has_brightness
+            "has_brightness": self.has_brightness,
+            "status": self.status
         }
+
+    # -------------------------- Status Operations --------------------------- #
+    # Retrieves the last-known status of the light's power.
+    def get_power(self):
+        return self.status["power"]
     
+    # Retrieves the last-known status of the light's color, or None if the light
+    # doesn't have color.
+    def get_color(self):
+        return self.status["color"] if self.has_color else None
+    
+    # Retrieves the last-known status of the light's brightness, or None if the
+    # light doesn't have brightness.
+    def get_brightness(self):
+        return self.status["brightness"] if self.has_brightness else None
+    
+    # Set's the light's power status.
+    def set_power(self, power: bool):
+        self.status["power"] = power
+
+    # Set's the light's color status.
+    def set_color(self, color: str):
+        self.status["color"] = color
+    
+    # Set's the light's brightness status.
+    def set_brightness(self, brightness: float):
+        self.status["brightness"] = brightness
+

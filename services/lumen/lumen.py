@@ -89,6 +89,7 @@ class LumenService(Service):
             self.check(type(color) == list, "'color' must be a list of 3 RGB ints")
             self.check(len(color) == 3, "'color' must have exactly 3 ints")
             jdata["color"] = "%d,%d,%d" % (color[0], color[1], color[2])
+            light.set_color(jdata["color"])
 
         # do the same for brightness
         if brightness != None:
@@ -96,8 +97,10 @@ class LumenService(Service):
             self.check(type(brightness) == float, "'brightness' must be a float between [0.0, 1.0]")
             brightness = max(min(brightness, 1.0), 0.0)
             jdata["brightness"] = brightness
+            light.set_brightness(jdata["brightness"])
 
         # initialize an IFTTT webhook pinger and send the request
+        light.set_power(True)
         r = self.webhooker.send(self.config.webhook_event, jdata)
         return r
     
@@ -108,6 +111,7 @@ class LumenService(Service):
 
         # build a JSON object and send the request
         jdata = {"id": light.lid, "action": "off"}
+        light.set_power(False)
         r = self.webhooker.send(self.config.webhook_event, jdata)
         return r
 
