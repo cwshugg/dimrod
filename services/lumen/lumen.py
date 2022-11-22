@@ -91,7 +91,7 @@ class LumenService(Service):
             jdata["color"] = "%d,%d,%d" % (color[0], color[1], color[2])
 
         # do the same for brightness
-        if brightness:
+        if brightness != None:
             self.check(light.has_brightness, "\"%s\" does not support brightness" % light.lid)
             self.check(type(brightness) == float, "'brightness' must be a float between [0.0, 1.0]")
             brightness = max(min(brightness, 1.0), 0.0)
@@ -172,10 +172,10 @@ class LumenOracle(Oracle):
                 try:
                     color = jdata["color"].strip().split(",")
                     assert len(color) == 3
-                    for (i, cstr) in color:
+                    for (i, cstr) in enumerate(color):
                         color[i] = int(cstr.strip())
                 except:
-                    return self.make_response(msg="Invalid color format.",
+                    return self.make_response(msg="Invalid color format",
                                               success=False, rstatus=400)
             
             # look for the optional 'brightness' field. It must come as a float
@@ -183,7 +183,8 @@ class LumenOracle(Oracle):
             if "brightness" in jdata:
                 try:
                     brightness = jdata["brightness"]
-                    assert type(brightness) == float
+                    assert type(brightness) in [float, int]
+                    brightness = float(brightness)
                     assert brightness >= 0.0 and brightness <= 1.0
                 except:
                     return self.make_response(msg="Invalid brightness value.",
