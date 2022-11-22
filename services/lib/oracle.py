@@ -134,7 +134,8 @@ class Oracle(threading.Thread):
 
             # create a cookie for the user
             cookie = self.auth_make_cookie(user)
-            cookie_str = "%s=%s; Path=/" % (self.config.oracle_auth_cookie, cookie)
+            cookie_age = 999999999 if user.config.privilege == 0 else self.config.oracle_auth_exptime
+            cookie_str = "%s=%s; Path=/; Max-Age=%d" % (self.config.oracle_auth_cookie, cookie, cookie_age)
             return self.make_response(msg="Authentication successful. Hello, %s." % user.config.username,
                                  rheaders={"Set-Cookie": cookie_str})
         
@@ -154,7 +155,7 @@ class Oracle(threading.Thread):
             flask.g.jdata = self.get_request_json(flask.request)
         except:
             flask.g.jdata = None
-
+        
         # attempt to decode the JWT (if present)
         flask.g.user = self.auth_check_cookie(flask.request.headers.get("Cookie"))
         if flask.g.user:
@@ -163,12 +164,6 @@ class Oracle(threading.Thread):
     
     # Invoked directly after a request's main handler is invoked.
     def post_process(self, response):
-        # enable this to override the CORS warning on the receiving brower.
-        # I know... not very safe. But until authentication is built in, this is
-        # what we're going with.
-        # https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin
-        #response.headers["Access-Control-Allow-Origin"] = "*"
-
         # get the origin URL from the request headers to use for the
         # Access-Control-Allow-Origin response header
         origin = flask.request.headers.get("Origin")
@@ -176,7 +171,7 @@ class Oracle(threading.Thread):
             origin = flask.request.headers.get("Host")
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
-        #response.headers["Access-Control-Expose-Headers"] = "*, Set-Cookie"
+        response.headers["Access-Control-Expose-Headers"] = "*, Set-Cookie"
         return response
 
     # Invoked to clean up resources after handling a request - even in the event
