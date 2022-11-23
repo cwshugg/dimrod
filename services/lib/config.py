@@ -17,10 +17,12 @@ class ConfigField:
     #   name        The name of the config file entry.
     #   types       An array of types representing the field's allowed type(s).
     #   required    An optional boolean that indicates if the field is mandatory
-    def __init__(self, name, types, required=False):
+    #   default     A default field, useful if required=False
+    def __init__(self, name, types, required=False, default=None):
         self.name = name
         self.types = types
         self.required = required
+        self.default = default
 
     # Checks the type of a given value against the field's type. Returns True if
     # the type matches one of the field's types.
@@ -35,6 +37,11 @@ class Config:
     def __init__(self):
         self.fields = []
         self.fpath = None
+    
+    # Creates and returns a string representation of the config object.
+    def __str__(self):
+        jdata = self.to_json()
+        return json.dumps(jdata, indent=4)
             
     # Takes in a file path, opens it for reading, and attempts to parse all
     # fields defined in the class' 'fields' property.
@@ -78,11 +85,18 @@ class Config:
                       (self.fpath if self.fpath else "json", key)
                 self.check(key in jdata, msg)
             else:
-                # otherwise, null-out the field
-                setattr(self, key, None)
+                # otherwise, set the value to the field's default
+                setattr(self, key, f.default)
     
     # A custom assertion function for the config class.
     def check(self, condition, msg):
         if not condition:
             raise Exception("Config Error: %s" % msg)
+
+    # Converts the config into a JSON dictionary and returns it.
+    def to_json(self):
+        result = {}
+        for f in self.fields:
+            result[f.name] = getattr(self, f.name)
+        return result
 

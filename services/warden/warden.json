@@ -1,0 +1,35 @@
+{
+    "service_name": "warden",
+    "service_log": "stdout",
+
+    "oracle_addr": "0.0.0.0",
+    "oracle_port": 2351,
+    "oracle_log": "stdout",
+    "oracle_auth_cookie": "warden_auth",
+    "oracle_auth_secret": "YOUR_JWT_SECRET_HERE",
+    "oracle_auth_users":
+    [
+        {
+            "username": "finrod",
+            "password": "felagund",
+            "privilege": 0
+        },
+        {
+            "username": "fingolfin",
+            "password": "ringil",
+            "privilege": 1
+        }
+    ],
+
+    "devices":
+    [
+        {
+            "name": "Feanor's Smithing Hammer",
+            "macaddr": "01:23:45:67:89:ab:cd:ef"
+        },
+        {
+            "name": "Melkor's Iron Crown",
+            "macaddr": "ff:ff:ff:ff:ff:ff:ff:ff"
+        }
+    ]
+}

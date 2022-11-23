@@ -12,3 +12,6 @@ python3 -m pip uninstall JWT
 python3 -m pip uninstall PyJWT
 python3 -m pip install PyJWT
 
+echo "Installing ipaddress..."
+python3 -m pip install ipaddress
+
