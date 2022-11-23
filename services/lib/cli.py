@@ -4,6 +4,7 @@
 import os
 import sys
 import argparse
+import signal
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -85,6 +86,9 @@ class ServiceCLI:
                 self.panic("Failed to initialize %s: %s" %
                            (self.oracle_class.__name__, e))
 
+        # establish the SIGINT handler
+        signal.signal(signal.SIGINT, self.sigint_handler)
+
         # now, run the service (and the oracle, if applicable)
         self.success("Initialized successfully. Starting %s%s." %
                      (config.service_name, " (and oracle)" if oracle else ""))
@@ -105,4 +109,9 @@ class ServiceCLI:
     def success(self, msg):
         prefix = "%s:" % exec_name if not config else "%s:" % config.service_name
         sys.stderr.write("%s%s%s %s\n" % (C_GREEN, prefix, C_NONE, msg))
+
+    # SIGINT handler.
+    def sigint_handler(self, sig, frame):
+        self.success("caught SIGINT. Exiting.")
+        sys.exit(0)
 
