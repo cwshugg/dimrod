@@ -1,5 +1,8 @@
 // Defines a number of functions specific to the Lumen service.
 
+const lumen_icon_on_class = "fa-solid fa-lightbulb mdl-color-text--yellow-400";
+const lumen_icon_off_class = "fa-solid fa-lightbulb mdl-color-text--grey-600";
+
 // Lumen class
 class Lumen
 {

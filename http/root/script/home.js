@@ -354,7 +354,13 @@ async function init_tab_lighting(tab_lighting)
     {
         l = lights[i];
         const card = new Card("card_light_" + l.id);
-        card.set_title(l.id);
+
+        // build an icon and title for the light's card
+        let icon_class = lumen_icon_off_class;
+        if (l.status.power)
+        { icon_class = lumen_icon_on_class; }
+        const icon = "<i id=\"" + "lumenicon_" + l.id + "\" class=\"" + icon_class + "\"></i> ";;
+        card.set_title(icon + l.id);
         tab_lighting.add_card(card);
 
         const p = document.createElement("p");
@@ -372,11 +378,14 @@ async function init_tab_lighting(tab_lighting)
 
             const cp = document.createElement("p");
             cp.innerHTML = "<b>Color</b>";
-
+            
+            const d2 = document.createElement("div");
+            d2.style.cssText = "text-align: center";
             const ci = document.createElement("input");
             ci.type = "color";
             ci.id = "lumencolor_" + l.id;
-            ci.style.cssText = "width: 100%; height: 100px; border-color; black; margin: 16px; padding: 0;";
+            ci.style.cssText = "width: 90%; height: 100px; border-color; black; margin: 16px; padding: 0;";
+            d2.appendChild(ci);
 
             // split the RGB string and conver it to hex
             const cpieces = l.status.color.split(",");
@@ -388,7 +397,7 @@ async function init_tab_lighting(tab_lighting)
             ci.value = "#" + rgb_to_hex(cval);
 
             d.appendChild(cp);
-            d.appendChild(ci);
+            d.appendChild(d2);
             card.add_html(d);
         }
 
@@ -400,6 +409,8 @@ async function init_tab_lighting(tab_lighting)
             const bp = document.createElement("p");
             bp.innerHTML = "<b>Brightness</b>";
             
+            const d2 = document.createElement("div");
+            d2.style.cssText = "text-align: center";
             const bi = document.createElement("input");
             bi.type = "range"
             bi.id = "lumenbrightness_" + l.id;
@@ -410,9 +421,10 @@ async function init_tab_lighting(tab_lighting)
             bi.step = 1;
             const light_value = l.status.brightness * 100.0;
             bi.value = light_value;
+            d2.appendChild(bi);
 
             d.appendChild(bp);
-            d.appendChild(bi);
+            d.appendChild(d2);
             card.add_html(d);
         }
     }
@@ -461,6 +473,10 @@ async function light_turn_on(ev)
 
     await lumen.turn_on(lid, color, brightness);
     button_enable(btn);
+
+    // set the light's icon css to update the change
+    const icon = document.getElementById("lumenicon_" + lid);
+    icon.className = lumen_icon_on_class;
 }
 
 // Click event for a light's "OFF" button.
@@ -481,6 +497,10 @@ async function light_turn_off(ev)
 
     await lumen.turn_off(lid);
     button_enable(btn);
+    
+    // set the light's icon css to update the change
+    const icon = document.getElementById("lumenicon_" + lid);
+    icon.className = lumen_icon_off_class;
 }
 
 
