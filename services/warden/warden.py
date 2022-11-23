@@ -73,21 +73,25 @@ class WardenService(Service):
     # Overridden main function implementation.
     def run(self):
         super().run()
+        
+        # Helper function to determine if it's time for a sweep.
+        def can_sweep():
+            time_to_sweep_threshold = now.timestamp() - self.last_sweep.timestamp()
+            can_sweep = time_to_sweep_threshold >= self.config.sweep_threshold
+            return can_sweep
 
         # get our own IP address
         self.addr = self.get_address()
         self.log.write("Warden's IP address: %s" % self.addr)
-        
+         
         # loop forever
         while True:
             now = datetime.now()
             pfx = "[%s]" % now.strftime("%Y-%m-%d %H:%M:%S")
-            
+                        
             # if the cache is empty, and we're past the sweep threshold, perform
             # a sweep of the network
-            time_to_sweep_threshold = now.timestamp() - self.last_sweep.timestamp()
-            can_sweep = time_to_sweep_threshold >= self.config.sweep_threshold
-            if len(self.cache) == 0 and can_sweep:
+            if len(self.cache) == 0 and can_sweep():
                 self.log.write("%s Cache is empty. Sweeping network..." % pfx)
                 self.sweep()
                 for entry in self.cache:
@@ -121,10 +125,12 @@ class WardenService(Service):
                                     (pfx, device.config.name))
                         # if we're past the sweep threshold, we'll sweep again to
                         # try to find the device
-                        if can_sweep:
+                        if can_sweep():
                             self.log.write("%s Sweeping the network to look for \"%s\"..." %
                                         (pfx, device.config.name))
                             self.sweep()
+                        else:
+                            break
 
             # sleep for the specified amount of seconds
             time.sleep(self.config.refresh_rate)
