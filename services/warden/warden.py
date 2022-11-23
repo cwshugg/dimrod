@@ -35,10 +35,11 @@ class WardenConfig(ServiceConfig):
         super().__init__()
         # create lumen-specific fields to append to the existing service fields
         fields = [
-            ConfigField("devices",      [list], required=True),
-            ConfigField("refresh_rate", [int],  required=False,     default=10),
-            ConfigField("ping_timeout", [int],  required=False,     default=0.1),
-            ConfigField("ping_tries",   [int],  required=False,     default=2)
+            ConfigField("devices",          [list], required=True),
+            ConfigField("refresh_rate",     [int],  required=False,     default=10),
+            ConfigField("ping_timeout",     [int],  required=False,     default=0.1),
+            ConfigField("ping_tries",       [int],  required=False,     default=2),
+            ConfigField("sweep_threshold",  [int],  required=False,     default=600)
         ]
         self.fields += fields
 
@@ -66,6 +67,7 @@ class WardenService(Service):
         # the service will keep a cache of IP/MAC addresses, but it starts as an
         # empty dictionary
         self.cache = {}
+        self.last_sweep = datetime.fromtimestamp(0)
 
 
     # Overridden main function implementation.
@@ -78,30 +80,51 @@ class WardenService(Service):
         
         # loop forever
         while True:
-            self.log.write("%s" % datetime.now())
+            now = datetime.now()
+            pfx = "[%s]" % now.strftime("%Y-%m-%d %H:%M:%S")
             
-            # if the cache is empty, perform a sweep of the network
-            if len(self.cache) == 0:
-                self.log.write("Cache is empty. Sweeping network...")
-                addresses = self.sweep()
+            # if the cache is empty, and we're past the sweep threshold, perform
+            # a sweep of the network
+            time_to_sweep_threshold = now.timestamp() - self.last_sweep.timestamp()
+            can_sweep = time_to_sweep_threshold >= self.config.sweep_threshold
+            if len(self.cache) == 0 and can_sweep:
+                self.log.write("%s Cache is empty. Sweeping network..." % pfx)
+                self.sweep()
                 for entry in self.cache:
                     self.log.write(" - %s" % self.cache[entry])
 
             # iterate across each device from the config file
             for device in self.devices:
-                # if there isn't a cache entry for it, and our last sweep wasn't
-                # recent, sweep the network to look for it
-                # TODO
-
-                # if there *is* a cache entry for it, ping it to see if it's on
-                # the network and responding
-                if device.config.macaddr in self.cache:
-                    if device.ping():
-                        self.log.write("Device \"%s\" is alive." % device.config.name)
+                # it's possible we may want to retry this sequence, so we'll
+                # loop infinitely and break within when needed
+                while True:
+                    # if there *is* a cache entry for it, ping it to see if it's on
+                    # the network and responding
+                    if device.config.macaddr in self.cache:
+                        client = self.cache[device.config.macaddr]
+                        device_str = "%s - last seen: %s" % \
+                                    (str(client), str(client.last_seen))
+    
+                        # ping the device
+                        ping_tries = min(max(4, self.config.ping_tries * 2), 16)
+                        if self.ping(client.ipaddr, tries=ping_tries) == 0:
+                            self.log.write("%s Device \"%s\" (%s) responded." %
+                                        (pfx, device.config.name, device_str))
+                            # update the cache entry
+                            client.update()
+                        else:
+                            self.log.write("%s Device \"%s\" (%s) didn't respond." %
+                                        (pfx, device.config.name, device_str))
+                        break
                     else:
-                        self.log.write("Device \"%s\" didn't respond." % device.config.name)
-                else:
-                    self.log.write("Device \"%s\" isn't cached." % device.config.name)
+                        self.log.write("%s Device \"%s\" isn't cached." %
+                                    (pfx, device.config.name))
+                        # if we're past the sweep threshold, we'll sweep again to
+                        # try to find the device
+                        if can_sweep:
+                            self.log.write("%s Sweeping the network to look for \"%s\"..." %
+                                        (pfx, device.config.name))
+                            self.sweep()
 
             # sleep for the specified amount of seconds
             time.sleep(self.config.refresh_rate)
@@ -180,6 +203,7 @@ class WardenService(Service):
     # service's IP address. Returns dictionary of IP addresses and MAC
     # addresses corresponding to the clients that responded.
     def sweep(self):
+        self.last_sweep = datetime.now()
         # get all addresses, and our own address
         addr = self.get_address()
         addresses = self.get_all_addresses()
@@ -205,17 +229,22 @@ class WardenService(Service):
             # add this to the cache, or update the existing entry
             if macaddr:
                 client = self.cache_set(macaddr)
-                client.update(addr)
+                client.update(ipaddr=addr)
         return up_addrs
 
     # Pings a given IP address and returns the result. 0 is equal to success and
     # a non-zero value is equivalent to the 'ping' utility's error return value.
     # This may attempt multiple pings to reduce inaccuracy or unreturned pings
     # due to network latency.
-    def ping(self, address: str):
-        for i in range(self.config.ping_tries):
+    def ping(self, address: str, timeout=None, tries=None):
+        # establish defaults if none were given
+        timeout = self.config.ping_timeout if timeout == None else timeout
+        tries = self.config.ping_tries if tries == None else tries
+
+        # try a number of times to ping the ip address
+        for i in range(tries):
             # the more times we try, the longer the timeout we'll allow
-            timeout = self.config.ping_timeout + (i * self.config.ping_timeout)
+            timeout = timeout + (i * timeout)
 
             # spawn a ping process and return the exit code
             args = [
@@ -258,7 +287,7 @@ class WardenService(Service):
                 macaddr = pieces[2].lower()
                 # update the cache entry
                 client = self.cache_set(macaddr)
-                client.update(address)
+                client.update(ipaddr=address)
                 return pieces[2]
         return None
     

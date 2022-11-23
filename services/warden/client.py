@@ -15,7 +15,10 @@ class Client:
         return "%s: %s" % (self.macaddr, self.ipaddr)
     
     # Takes in an IP address and updates it internally.
-    def update(self, ipaddr: str):
-        self.ipaddr = ipaddr
+    def update(self, ipaddr=None):
+        # only update the IP address if one was given
+        if ipaddr:
+            self.ipaddr = ipaddr
+        # update the last-seen time regardless
         self.last_seen = datetime.now()
 
