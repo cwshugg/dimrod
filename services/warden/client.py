@@ -22,3 +22,17 @@ class Client:
         # update the last-seen time regardless
         self.last_seen = datetime.now()
 
+    # Computes and returns the number of seconds since the client was last seen.
+    def time_since_last_seen(self):
+        return datetime.now().timestamp() - self.last_seen.timestamp()
+
+    # ------------------------ Dictionary Conversion ------------------------- #
+    # Converts the Client object into a JSON dictionary and returns it.
+    def to_json(self):
+        result = {
+            "macaddr": self.macaddr,
+            "ipaddr": self.ipaddr,
+            "last_seen": self.last_seen.timestamp()
+        }
+        return result
+

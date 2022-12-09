@@ -38,14 +38,14 @@ class Log:
                     fp.close()
 
     # Writes a new line to the log with the given message.
-    def write(self, msg):
+    def write(self, msg, begin="", end="\n"):
         # if the stream is stored as a string, we'll interpret it as a file path
         stream = self.stream
         is_file = type(self.stream) == str
         if is_file:
             stream = open(stream, "a")
         # write the message
-        stream.write("[%s] %s\n" % (self.name, msg))
+        stream.write("%s[%s] %s%s" % (begin, self.name, msg, end))
         if is_file:
             stream.close()
 

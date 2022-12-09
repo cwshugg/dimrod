@@ -36,10 +36,11 @@ class WardenConfig(ServiceConfig):
         # create lumen-specific fields to append to the existing service fields
         fields = [
             ConfigField("devices",          [list], required=True),
-            ConfigField("refresh_rate",     [int],  required=False,     default=10),
+            ConfigField("refresh_rate",     [int],  required=False,     default=60),
             ConfigField("ping_timeout",     [int],  required=False,     default=0.1),
             ConfigField("ping_tries",       [int],  required=False,     default=2),
-            ConfigField("sweep_threshold",  [int],  required=False,     default=600)
+            ConfigField("sweep_threshold",  [int],  required=False,     default=600),
+            ConfigField("initial_sweeps",   [int],  required=False,     default=4)
         ]
         self.fields += fields
 
@@ -83,54 +84,40 @@ class WardenService(Service):
         # get our own IP address
         self.addr = self.get_address()
         self.log.write("Warden's IP address: %s" % self.addr)
+
+        # before entering the main loop, we'll sweep the network a number of
+        # times to build up the cache of connected devices
+        for i in range(self.config.initial_sweeps):
+            self.log.write("Performing initial network sweep (%d/%d)" %
+                           ((i + 1), self.config.initial_sweeps))
+            self.sweep()
+
+        # dump out the current state of the cache
+        self.log.write("Initial cache entries:")
+        for entry in self.cache:
+            self.log.write(" - %s" % self.cache[entry])
          
         # loop forever
         while True:
             now = datetime.now()
             pfx = "[%s]" % now.strftime("%Y-%m-%d %H:%M:%S")
-                        
-            # if the cache is empty, and we're past the sweep threshold, perform
-            # a sweep of the network
-            if len(self.cache) == 0 and can_sweep():
-                self.log.write("%s Cache is empty. Sweeping network..." % pfx)
+            
+            # if we're past the sweep threshold, sweep the network
+            if can_sweep():
+                self.log.write("%s Sweeping the network..." % pfx)
                 self.sweep()
                 for entry in self.cache:
                     self.log.write(" - %s" % self.cache[entry])
-
-            # iterate across each device from the config file
-            for device in self.devices:
-                # it's possible we may want to retry this sequence, so we'll
-                # loop infinitely and break within when needed
-                while True:
-                    # if there *is* a cache entry for it, ping it to see if it's on
-                    # the network and responding
-                    if device.config.macaddr in self.cache:
-                        client = self.cache[device.config.macaddr]
-                        device_str = "%s - last seen: %s" % \
-                                    (str(client), str(client.last_seen))
-    
-                        # ping the device
-                        ping_tries = min(max(4, self.config.ping_tries * 2), 16)
-                        if self.ping(client.ipaddr, tries=ping_tries) == 0:
-                            self.log.write("%s Device \"%s\" (%s) responded." %
-                                        (pfx, device.config.name, device_str))
-                            # update the cache entry
-                            client.update()
-                        else:
-                            self.log.write("%s Device \"%s\" (%s) didn't respond." %
-                                        (pfx, device.config.name, device_str))
-                        break
-                    else:
-                        self.log.write("%s Device \"%s\" isn't cached." %
-                                    (pfx, device.config.name))
-                        # if we're past the sweep threshold, we'll sweep again to
-                        # try to find the device
-                        if can_sweep():
-                            self.log.write("%s Sweeping the network to look for \"%s\"..." %
-                                        (pfx, device.config.name))
-                            self.sweep()
-                        else:
-                            break
+            
+            # iterate across all clients stored in the cache
+            for addr in self.cache:
+                client = self.cache[addr]
+                
+                # ping the client and update if it responds
+                if self.ping(client.ipaddr, tries=self.config.ping_tries) == 0:
+                    self.log.write("%s Client \"%s\" is responding." %
+                                   (pfx, client))
+                    client.update()
 
             # sleep for the specified amount of seconds
             time.sleep(self.config.refresh_rate)
@@ -216,7 +203,12 @@ class WardenService(Service):
         
         # ping all addresses
         up_addrs = []
-        for addr in addresses:
+        log_msg = "Trying address %s"
+        for (i, addr) in enumerate(addresses):
+            # write a message to the log
+            log_msg_end = "" if i < len(addresses) - 1 else "\n"
+            self.log.write(log_msg % addr, begin="\r", end=log_msg_end)
+
             entry = {"ipaddr": None, "macaddr": None}
 
             # ping and save the address if the ping succeeded
@@ -315,6 +307,23 @@ class WardenOracle(Oracle):
             result = []
             for device in self.service.devices:
                 result.append(device.config.to_json())
+            return self.make_response(payload=result)
+        
+        # This endpoint retrieves all clients stored in the warden's cache.
+        @self.server.route("/clients", methods=["GET"])
+        def endpoint_clients():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+
+            # retrieve all clients from the warden's cache and build a JSON
+            # dictionary to return. Only include the clients whose 'last_seen'
+            # is within the time of the warden's last sweep (i.e. meaning
+            # they're most likely still on the network)
+            result = []
+            for addr in self.service.cache:
+                c = self.service.cache[addr]
+                if c.time_since_last_seen() < self.service.config.refresh_rate:
+                    result.append(c.to_json())
             return self.make_response(payload=result)
 
 

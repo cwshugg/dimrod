@@ -31,5 +31,10 @@
         }
     ],
     "webhook_event": "YOUR_IFTTT_WEBHOOK_HERE",
-    "webhook_key": "YOUR_IFTTT_KEY_HERE"
+    "webhook_key": "YOUR_IFTTT_KEY_HERE",
+
+    "warden_addr": "127.0.0.1",
+    "warden_port": 9999,
+    "warden_username": "USERNAME_FOR_WARDEN_SERVICE",
+    "warden_password": "PASSWORD_FOR_WARDEN_SERVICE"
 }
