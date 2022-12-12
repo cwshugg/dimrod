@@ -40,7 +40,8 @@ class WardenConfig(ServiceConfig):
             ConfigField("ping_timeout",     [int],  required=False,     default=0.1),
             ConfigField("ping_tries",       [int],  required=False,     default=2),
             ConfigField("sweep_threshold",  [int],  required=False,     default=600),
-            ConfigField("initial_sweeps",   [int],  required=False,     default=4)
+            ConfigField("initial_sweeps",   [int],  required=False,     default=4),
+            ConfigField("last_seen_online_threshold", [int], required=False, default=300)
         ]
         self.fields += fields
 
@@ -114,7 +115,8 @@ class WardenService(Service):
                 client = self.cache[addr]
                 
                 # ping the client and update if it responds
-                if self.ping(client.ipaddr, tries=self.config.ping_tries) == 0:
+                ping_tries = self.config.ping_tries * 2
+                if self.ping(client.ipaddr, tries=ping_tries) == 0:
                     self.log.write("%s Client \"%s\" is responding." %
                                    (pfx, client))
                     client.update()
@@ -317,12 +319,12 @@ class WardenOracle(Oracle):
 
             # retrieve all clients from the warden's cache and build a JSON
             # dictionary to return. Only include the clients whose 'last_seen'
-            # is within the time of the warden's last sweep (i.e. meaning
-            # they're most likely still on the network)
+            # is within a configured threshold (i.e. meaning they're most likely
+            # still on the network)
             result = []
             for addr in self.service.cache:
                 c = self.service.cache[addr]
-                if c.time_since_last_seen() < self.service.config.refresh_rate:
+                if c.time_since_last_seen() < self.service.config.last_seen_online_threshold:
                     result.append(c.to_json())
             return self.make_response(payload=result)
 

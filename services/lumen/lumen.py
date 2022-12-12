@@ -156,8 +156,9 @@ class LumenService(Service):
     # Returns a list of client dictionaries, or an empty list.
     def warden_get_clients(self):
         # make sure we have an authenticated cookie, then build the URL and
-        # headers to pass tow arden
-        assert self.warden_cookie is not None
+        # headers to pass to warden
+        if not self.warden_cookie:
+            return []
         url = "http://%s:%s/clients" % \
               (self.config.warden_addr, self.config.warden_port)
         headers = {"Cookie": self.warden_cookie}
