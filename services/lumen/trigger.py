@@ -3,6 +3,7 @@
 # Imports
 import os
 import sys
+from datetime import datetime
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -91,7 +92,7 @@ class DailyTimedTrigger(Trigger):
         self.fields += [
             ConfigField("hour",                 [int],      required=True),
             ConfigField("minute",               [int],      required=True),
-            ConfigField("minute_slack",         [float],    required=False,     default=0.5))
+            ConfigField("minute_slack",         [float],    required=False,     default=0.5)
         ]
 
     # Overridden 'is_ready' function.
@@ -101,6 +102,6 @@ class DailyTimedTrigger(Trigger):
         now = datetime.now()
         same_hour = now.hour == self.hour
         same_minute = now.minute >= (self.minute - self.minute_slack) and \
-                      now.minute <= (self..minute + self.minute_slack)
+                      now.minute <= (self.minute + self.minute_slack)
         return same_hour and same_minute
 
