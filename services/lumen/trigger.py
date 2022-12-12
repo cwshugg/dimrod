@@ -21,7 +21,8 @@ from async_actions import type_to_action, AsyncActionConfig
 # Returns None if no such match exists.
 def type_to_trigger(typestr):
     mapping = {
-        "device_connect": DeviceConnectTrigger
+        "device_connect": DeviceConnectTrigger,
+        "daily_timed": DailyTimedTrigger
     }
 
     # convert the string to lowercase and search the mapping
@@ -67,15 +68,39 @@ class Trigger(Config):
         for adata in self.actions:
             action = adata["class"](self.lumen, adata["data"])
             action.start()
+    
+    # Returns whether or not the trigger is ready. This may or may not be
+    # implemented by subclasses.
+    def is_ready(self):
+        return False
 
 
 # ========================== Device-Connect Trigger ========================== #
-# Config class.
 class DeviceConnectTrigger(Trigger):
     def __init__(self, lumen):
         super().__init__(lumen)
         self.fields += [
             ConfigField("macaddr",              [str],      required=True),
-            ConfigField("last_seen_threshold",  [int],      required=True)
         ]
+
+
+# ========================== "Daily Timed Triggers" ========================== #
+class DailyTimedTrigger(Trigger):
+    def __init__(self, lumen):
+        super().__init__(lumen)
+        self.fields += [
+            ConfigField("hour",                 [int],      required=True),
+            ConfigField("minute",               [int],      required=True),
+            ConfigField("minute_slack",         [float],    required=False,     default=0.5))
+        ]
+
+    # Overridden 'is_ready' function.
+    def is_ready(self):
+        # check the hour and minute of the day (give the minute-checking some
+        # slack)
+        now = datetime.now()
+        same_hour = now.hour == self.hour
+        same_minute = now.minute >= (self.minute - self.minute_slack) and \
+                      now.minute <= (self..minute + self.minute_slack)
+        return same_hour and same_minute
 

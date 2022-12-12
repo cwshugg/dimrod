@@ -125,7 +125,11 @@ class LumenService(Service):
                                            (c["macaddr"], t.name))
                             break
 
-                # TODO - implement scheduled triggers
+                # handle all other triggers by checking the generic 'is_ready'
+                # function
+                if t.is_ready():
+                    t.fire()
+                    self.log.write("Fired event: %s" % t.name)
 
             # sleep until the next tick
             clients_old = clients
