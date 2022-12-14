@@ -1,7 +1,8 @@
-# MADOC - Machine Assistant for Domicile Occupant Computing
+# MIDOS - Moderately-Intelligent Dwelling Operating System
 
-**MADOC** is a collection of programs and scripts that make up my home server.
-Ceaselessly obedient and versatile, MADOC is comprised of:
+**MIDOS** is a collection of programs and scripts that make up my home server.
+Somewhat intelligent and on its way to becoming the backbone of my smarthome,
+MIDOS is comprised of:
 
 1. An Nginx HTTP server hosting a web interface
 2. A Jellyfin media streaming server
@@ -16,13 +17,13 @@ Ceaselessly obedient and versatile, MADOC is comprised of:
 The top-level directories are:
 
 * `http/` - Scripts for setting up Nginx, and the server's HTML/JS/CSS.
-* `ifttt/` - IFTTT routines I've created that MADOC's services interact with.
+* `ifttt/` - IFTTT routines I've created that MIDOS's services interact with.
 * `jellyfin/` - Scripts for setting up a Jellyfin media server.
 * `pihole/` - Scripts for setting up a Pihole DNS ad-blocking server.
 * `scripts/` - Other general-purpose scripts.
 * `services/` - My Python-based custom services.
 
-## MADOC Services
+## MIDOS Services
 
 Within `services/` is the library code I implemented to create individual
 services that provide me with some sort of functionality. Each service:
@@ -40,9 +41,9 @@ services via the HTTP APIs.
 * Implement a weather service that uses [this API](https://www.weather.gov/documentation/services-web-api)
 * Implement a grocery list management service 
 * Implement a conversation service used to:
-    * Talk with MADOC
-    * Instruct MADOC to interact with other services to accomplish things
+    * Talk with MIDOS
+    * Instruct MIDOS to interact with other services to accomplish things
     * Generally make me feel like Tony Stark
-* Create microphone+speaker modules that allow me to speak with MADOC around
+* Create microphone+speaker modules that allow me to speak with MIDOS around
   the house.
 
