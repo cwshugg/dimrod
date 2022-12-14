@@ -1,7 +1,7 @@
-# CODAC - Ceaselessly Obedient Domicile Assistive Computer
+# MADOC - Machine Assistant for Domicile Occupant Computing
 
-**CODAC** is a collection of programs and scripts that make up my home server.
-Ceaselessly obedient and versatile, CODAC is comprised of:
+**MADOC** is a collection of programs and scripts that make up my home server.
+Ceaselessly obedient and versatile, MADOC is comprised of:
 
 1. An Nginx HTTP server hosting a web interface
 2. A Jellyfin media streaming server
@@ -16,13 +16,13 @@ Ceaselessly obedient and versatile, CODAC is comprised of:
 The top-level directories are:
 
 * `http/` - Scripts for setting up Nginx, and the server's HTML/JS/CSS.
-* `ifttt/` - IFTTT routines I've created that CODAC's services interact with.
+* `ifttt/` - IFTTT routines I've created that MADOC's services interact with.
 * `jellyfin/` - Scripts for setting up a Jellyfin media server.
 * `pihole/` - Scripts for setting up a Pihole DNS ad-blocking server.
 * `scripts/` - Other general-purpose scripts.
 * `services/` - My Python-based custom services.
 
-## CODAC Services
+## MADOC Services
 
 Within `services/` is the library code I implemented to create individual
 services that provide me with some sort of functionality. Each service:
@@ -40,9 +40,9 @@ services via the HTTP APIs.
 * Implement a weather service that uses [this API](https://www.weather.gov/documentation/services-web-api)
 * Implement a grocery list management service 
 * Implement a conversation service used to:
-    * Talk with CODAC
-    * Instruct CODAC to interact with other services to accomplish things
+    * Talk with MADOC
+    * Instruct MADOC to interact with other services to accomplish things
     * Generally make me feel like Tony Stark
-* Create microphone+speaker modules that allow me to speak with CODAC around
+* Create microphone+speaker modules that allow me to speak with MADOC around
   the house.
 
