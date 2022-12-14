@@ -1,8 +1,11 @@
 #!/bin/bash
 # Simple script to install flask for python.
 
-echo "Installing pip..."
-sudo apt install python3-pip -y
+pipout="$(python3 -m pip 2> /dev/null)"
+if [ -z "${pipout}" ]; then
+    echo "Installing pip..."
+    sudo apt install python3-pip -y
+fi
 
 echo "Installing flask..."
 python3 -m pip install Flask
@@ -14,4 +17,7 @@ python3 -m pip install PyJWT
 
 echo "Installing ipaddress..."
 python3 -m pip install ipaddress
+
+echo "Installing geopy..."
+python3 -m pip install geopy
 

@@ -66,16 +66,16 @@ class ServiceCLI:
             config = self.config_class()
             config.parse_file(config_path)
         except Exception as e:
-            self.panic("Failed to initialize %s: %s" %
-                       (self.config_class.__name__, e))
+            self.panic("Failed to initialize %s" % self.config_class.__name__,
+                       exception=e)
         
         # next, attempt to initialize the service
         global service
         try:
             service = self.service_class(config_path)
         except Exception as e:
-            self.panic("Failed to initialize %s: %s" %
-                       (self.service_class.__name__, e))
+            self.panic("Failed to initialize %s" % self.config_class.__name__,
+                       exception=e)
 
         # finally, if specified, attempt to initialize the oracle
         if "oracle" in args and args["oracle"]:
@@ -83,8 +83,8 @@ class ServiceCLI:
             try:
                 oracle = self.oracle_class(config_path, service)
             except Exception as e:
-                self.panic("Failed to initialize %s: %s" %
-                           (self.oracle_class.__name__, e))
+                self.panic("Failed to initialize %s" % self.config_class.__name__,
+                           exception=e)
 
         # establish the SIGINT handler
         signal.signal(signal.SIGINT, self.sigint_handler)
@@ -100,9 +100,12 @@ class ServiceCLI:
 
     # ------------------------------- Helpers -------------------------------- #
     # Pretty-prints an error message and exits.
-    def panic(self, msg):
+    def panic(self, msg, exception=None):
         prefix = "%s:" % exec_name if not config else "%s:" % config.service_name
         sys.stderr.write("%s%s%s %s\n" % (C_RED, prefix, C_NONE, msg))
+        # raise the given exception or just exit
+        if exception is not None:
+            raise exception
         sys.exit(1)
     
     # Pretty-prints a success message.

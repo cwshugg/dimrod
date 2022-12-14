@@ -1,0 +1,31 @@
+{
+    "service_name": "nimbus",
+    "service_log": "stdout",
+
+    "oracle_addr": "0.0.0.0",
+    "oracle_port": 2352,
+    "oracle_log": "stdout",
+    "oracle_auth_cookie": "nimbus_auth",
+    "oracle_auth_secret": "YOUR_JWT_SECRET_HERE",
+    "oracle_auth_users":
+    [
+        {
+            "username": "luke",
+            "password": "skywalker",
+            "privilege": 0
+        }
+    ],
+
+    "locations":
+    [
+        {
+            "name": "home",
+            "address": "1234 Fake Rd, Fake-Town, NY 99999"
+        },
+        {
+            "name": "treasure trove",
+            "longitude": 10.0,
+            "latitude": -20.0
+        }
+    ]
+}
