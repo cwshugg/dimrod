@@ -85,7 +85,7 @@ class DeviceConnectTrigger(Trigger):
         ]
 
 
-# ========================== "Daily Timed Triggers" ========================== #
+# =========================== Daily Timed Triggers =========================== #
 class DailyTimedTrigger(Trigger):
     def __init__(self, lumen):
         super().__init__(lumen)

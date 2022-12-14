@@ -41,7 +41,7 @@ class WardenConfig(ServiceConfig):
             ConfigField("ping_tries",       [int],  required=False,     default=2),
             ConfigField("sweep_threshold",  [int],  required=False,     default=600),
             ConfigField("initial_sweeps",   [int],  required=False,     default=4),
-            ConfigField("last_seen_online_threshold", [int], required=False, default=300)
+            ConfigField("last_seen_online_threshold", [int], required=False, default=900)
         ]
         self.fields += fields
 

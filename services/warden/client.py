@@ -61,6 +61,10 @@ class ClientLog:
     def __iter__(self):
         for entry in self.queue:
             yield entry
+
+    # Returns the length of the inner queue.
+    def __len__(self):
+        return len(self.queue)
     
     # Returns the latest entry in the queue, or None if the queue is empty.
     def get_latest(self):
@@ -75,5 +79,5 @@ class ClientLog:
         # pop the last entry from the queue, if necessary
         if len(self.queue) == self.maxlen:
             self.queue.pop(-1)
-        self.queue.push(dt)
+        self.queue.append(dt)
 
