@@ -1,8 +1,8 @@
-# DiMROD - Digital Modular Residence Operation Device
+# DImROD - Decently-Impressive Residence Operation Device
 
-**DiMROD** is a collection of programs and scripts that make up my home server.
+**DImROD** is a collection of programs and scripts that make up my home server.
 Somewhat intelligent and on its way to becoming the backbone of my smarthome,
-DiMROD is comprised of:
+DImROD is comprised of:
 
 1. An Nginx HTTP server hosting a web interface
 2. A Jellyfin media streaming server
@@ -17,13 +17,13 @@ DiMROD is comprised of:
 The top-level directories are:
 
 * `http/` - Scripts for setting up Nginx, and the server's HTML/JS/CSS.
-* `ifttt/` - IFTTT routines I've created that DiMROD's services interact with.
+* `ifttt/` - IFTTT routines I've created that DImROD's services interact with.
 * `jellyfin/` - Scripts for setting up a Jellyfin media server.
 * `pihole/` - Scripts for setting up a Pihole DNS ad-blocking server.
 * `scripts/` - Other general-purpose scripts.
 * `services/` - My Python-based custom services.
 
-## DiMROD Services
+## DImROD Services
 
 Within `services/` is the library code I implemented to create individual
 services that provide me with some sort of functionality. Each service:
@@ -41,9 +41,9 @@ services via the HTTP APIs.
 * Implement a weather service that uses [this API](https://www.weather.gov/documentation/services-web-api)
 * Implement a grocery list management service 
 * Implement a conversation service used to:
-    * Talk with DiMROD
-    * Instruct DiMROD to interact with other services to accomplish things
+    * Talk with DImROD
+    * Instruct DImROD to interact with other services to accomplish things
     * Generally make me feel like Tony Stark
-* Create microphone+speaker modules that allow me to speak with DiMROD around
+* Create microphone+speaker modules that allow me to speak with DImROD around
   the house.
 
