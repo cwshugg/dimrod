@@ -8,6 +8,8 @@ import os
 import sys
 import json
 import flask
+import requests
+from datetime import datetime
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -22,6 +24,7 @@ from lib.cli import ServiceCLI
 
 # Nimbus imports
 from location import Location
+from forecast import Forecast
 
 
 # =============================== Config Class =============================== #
@@ -32,7 +35,9 @@ class NimbusConfig(ServiceConfig):
         self.fields += [
             ConfigField("locations",            [list],     required=True),
             ConfigField("geopy_geocoder",       [str],      required=False,     default="nominatim"),
-            ConfigField("geopy_user_agent",     [str],      required=False,     default="private_app_nimbus")
+            ConfigField("geopy_user_agent",     [str],      required=False,     default="private_app_nimbus"),
+            ConfigField("api_address",          [str],      required=False,     default="api.weather.gov"),
+            ConfigField("api_user_agent",       [str],      required=False,     default="private_app_nimbus")
         ]
 
 
@@ -64,6 +69,43 @@ class NimbusService(Service):
     def run(self):
         super().run()
 
+    # ------------------------------ Interface ------------------------------- #
+    # Accepts a Location object and attempts to look up its weather status.
+    # Returns a Forecast object, or None if a forecast according to the 'when'
+    # time can't be found.
+    def forecast(self, location: Location, when: datetime):
+        # make sure we have a longitude and latitude for the location
+        if location.longitude is None or location.latitude is None:
+            location.locate()
+
+        # look up the correct URLs and parameters for the location via the API
+        url = "https://%s/points/%.4f,%.4f" % (self.config.api_address,
+                                               location.latitude,
+                                               location.longitude)
+        hdrs = {"User-Agent": self.config.api_user_agent}
+        r = requests.get(url, headers=hdrs)
+        rdata = r.json()
+        
+        # now that we have the apporpriate information for the given location,
+        # extract the correct URL to ping next for forecast information
+        properties = rdata["properties"]
+        url = properties["forecast"]
+        r = requests.get(url, headers=hdrs)
+        rdata = r.json()
+
+        periods = rdata["properties"]["periods"]
+        for pdata in periods:
+            fc = Forecast()
+            fc.parse_json(pdata)
+
+            # compare the datetimes and determine if the requested time has a
+            # matching forecast
+            wts = when.timestamp()
+            if wts >= fc.time_start.timestamp() and \
+               wts <= fc.time_end.timestamp():
+                return fc
+        return None
+
 
 # ============================== Service Oracle ============================== #
 class NimbusOracle(Oracle):
@@ -73,48 +115,32 @@ class NimbusOracle(Oracle):
         
         # Endpoint that takes in a location and looks up basic weather
         # statistics.
-        @self.server.route("/location/weather", methods=["POST"])
+        @self.server.route("/weather", methods=["POST"])
         def endpoint_hello():
-            return self.make_response(msg="Hello!")
-
-
-
-
-        # JSON tests endpoint.
-        @self.server.route("/json", methods=["GET", "POST"])
-        def endpoint_json():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
             if not flask.g.jdata:
                 return self.make_response(msg="No JSON data provided.")
-            # if JSON data was given, send it back
-            jmsg = json.dumps(flask.g.jdata, indent=4)
-            return self.make_response(msg=jmsg)
+            
+            # parse a location from the request payload and use geopy to look
+            # it up
+            location = Location()
+            location.parse_json(flask.g.jdata)
+            location.locate()
 
+            # if a "when" field is defined in the JSON data, interpret it as
+            # a timestamp (in seconds)
+            when = datetime.now()
+            if "when" in flask.g.jdata:
+                if type(flask.g.jdata["when"]) not in [int, float]:
+                    return self.make_response(msg="The \"when\" value must be in seconds.")
+                when = datetime.fromtimestamp(flask.g.jdata["when"])
 
-    # ------------------------------- Helpers -------------------------------- #
-    # Takes in a dictionary with *some* sort of location information and
-    # attempts to parse it out and return the appropriate information.
-    def parse_location(self, jdata: dict):
-        # the user can either pass in a "longitude"/"latitude" pair, or instead
-        # pass in an "address" field
-        expects = {
-            "longitude": float,
-            "latitude": float,
-            "address": str
-        }
-
-        # check for fields in the provided dictionary
-        result = {}
-        for field in expects:
-            if field in jdata:
-                # make sure the field is of the correct type if present
-                assert type(jdata[field] == expects[field]), \
-                       "\"%s\" must be of type %s" % (field, expects[field])
-                result[field] = jdata[field]
-        
-        # make sure either coordinates OR an address was provided
-        is_coordinates = "longitude" in result and "latitude" in result
-        is_address = "address" in result
-        assert is_coordinates or is_address, "longitude/latitude or an address must be given"
+            # next, look up the location's current weather
+            fc = self.service.forecast(location, when)
+            if fc is None:
+                return self.make_response(success=False, msg="No forecast for that time exists.")
+            return self.make_response(payload=fc.to_json())
 
 
 # =============================== Runner Code ================================ #

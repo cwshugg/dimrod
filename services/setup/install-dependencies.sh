@@ -21,3 +21,6 @@ python3 -m pip install ipaddress
 echo "Installing geopy..."
 python3 -m pip install geopy
 
+echo "Installing dateutil..."
+python3 -m pip install python-dateutil
+
