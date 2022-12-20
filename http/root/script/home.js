@@ -27,7 +27,10 @@ const services_me = [
                 "fas fa-lightbulb", "mdl-color-text--yellow-600"),
     new Service("warden", "Warden",
                 new URL(hostname, "2351", "/"),
-                "fas fa-shield", "mdl-color-text--blue-600")
+                "fas fa-shield", "mdl-color-text--blue-600"),
+    new Service("nimbus", "Nimbus",
+                new URL(hostname, "2352", "/"),
+                "fas fa-bolt", "mdl-color-text--purple-600")
 ];
 
 // Service-specific globals
