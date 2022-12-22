@@ -326,6 +326,8 @@ class WardenOracle(Oracle):
                 c = self.service.cache[addr]
                 if c.time_since_last_seen() < self.service.config.last_seen_online_threshold:
                     result.append(c.to_json())
+            self.log.write("Returning a list of %d connected clients to %s" %
+                           (len(result), flask.g.user.config.username))
             return self.make_response(payload=result)
 
 
