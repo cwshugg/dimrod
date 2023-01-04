@@ -115,8 +115,35 @@ class NimbusOracle(Oracle):
         
         # Endpoint that takes in a location and looks up basic weather
         # statistics.
-        @self.server.route("/weather", methods=["POST"])
-        def endpoint_hello():
+        @self.server.route("/weather/bylocation", methods=["POST"])
+        def endpoint_weather_bylocation():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="No JSON data provided.")
+            
+            # parse a location from the request payload
+            location = Location()
+            location.parse_json(flask.g.jdata)
+
+            # if a "when" field is defined in the JSON data, interpret it as
+            # a timestamp (in seconds)
+            when = datetime.now()
+            if "when" in flask.g.jdata:
+                if type(flask.g.jdata["when"]) not in [int, float]:
+                    return self.make_response(msg="The \"when\" value must be in seconds.")
+                when = datetime.fromtimestamp(flask.g.jdata["when"])
+
+            # next, look up the location's current weather
+            fc = self.service.forecast(location, when)
+            if fc is None:
+                return self.make_response(success=False, msg="No forecast for that time exists.")
+            return self.make_response(payload=fc.to_json())
+        
+        # Endpoint that takes in saved location's name and looks up basic
+        # weather statistics for it.
+        @self.server.route("/weather/byname", methods=["POST"])
+        def endpoint_weather_byname():
             if not flask.g.user:
                 return self.make_response(rstatus=404)
             if not flask.g.jdata:
@@ -124,9 +151,21 @@ class NimbusOracle(Oracle):
             
             # parse a location from the request payload and use geopy to look
             # it up
-            location = Location()
-            location.parse_json(flask.g.jdata)
-            location.locate()
+            if "name" not in flask.g.jdata:
+                return self.make_response(success=False, msg="No \"name\" field provided.")
+            name = flask.g.jdata["name"]
+
+            # try to match a name to a location
+            location = None
+            for l in self.service.locations:
+                if l.name == name:
+                    location = l
+                    break
+            
+            # if we couldn't find a location, stop here
+            if location is None:
+                return self.make_response(success=False,
+                                          msg="No known location by name \"%s\"" % name)
 
             # if a "when" field is defined in the JSON data, interpret it as
             # a timestamp (in seconds)

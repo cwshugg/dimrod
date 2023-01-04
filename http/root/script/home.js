@@ -47,13 +47,20 @@ window.onload = function()
 
     // TAB 2: HOME LIGHTING
     const tab_lighting = new Tab("lighting", false);
-    tab_lighting.set_title("Home Lighting");
+    tab_lighting.set_title("Lighting");
     content.appendChild(tab_lighting.html);
     tab_anchors.appendChild(tab_lighting.anchor);
+
+    // TAB 3: HOME WEATHER
+    const tab_weather = new Tab("weather", false);
+    tab_weather.set_title("Weather");
+    content.appendChild(tab_weather.html);
+    tab_anchors.appendChild(tab_weather.anchor);
 
     // initialize all tabs and their inner content
     init_tab_overview(tab_overview);
     init_tab_lighting(tab_lighting);
+    init_tab_weather(tab_weather);
 }
 
 
@@ -507,6 +514,22 @@ async function light_turn_off(ev)
     // set the light's icon css to update the change
     const icon = document.getElementById("lumenicon_" + lid);
     icon.className = lumen_icon_off_class;
+}
+
+// ============================== Weather Tab =============================== //
+// Initializes the weather tab.
+function init_tab_weather(tab)
+{
+    // add an initial card to the overview tab
+    const card_main = new Card("card_weather_man");
+    card_main.set_title("Home Weather");
+    tab.add_card(card_main);
+
+    // write weather information onto the  card
+    const p1 = document.createElement("p");
+    p1.innerHTML = "TODO - WEATHER";
+    card_main.add_html(p1);
+
 }
 
 
