@@ -10,3 +10,6 @@ cwshugg*.json
 # my systemd files
 dimrod*.service
 
+# log files
+*.log
+
