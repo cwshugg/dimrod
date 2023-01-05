@@ -10,6 +10,9 @@ fi
 echo "Installing flask..."
 python3 -m pip install Flask
 
+echo "Installing gevent..."
+python3 -m pip install gevent
+
 echo "Installing jwt..."
 python3 -m pip uninstall JWT
 python3 -m pip uninstall PyJWT

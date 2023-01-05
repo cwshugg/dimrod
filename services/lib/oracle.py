@@ -11,6 +11,7 @@ import json
 import flask
 import jwt
 from datetime import datetime
+from gevent.pywsgi import WSGIServer
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -34,6 +35,7 @@ class OracleConfig(lib.config.Config):
             lib.config.ConfigField("oracle_auth_secret",    [str],  required=True),
             lib.config.ConfigField("oracle_auth_users",     [list], required=True),
             lib.config.ConfigField("oracle_auth_exptime",   [int],  required=False),
+            lib.config.ConfigField("oracle_debug",          [bool], required=False, default=False)
         ]
 
 
@@ -92,11 +94,16 @@ class Oracle(threading.Thread):
         # ENDPOINT REGISTRATION
         self.endpoints()
 
-        # with all endpoints and handlers set up, run the server
+        # with all endpoints and handlers set up, run the server under a WSGI
+        # production server (unless debug is enabled)
         self.log.write("launching flask...")
         addr = self.config.oracle_addr
         port = self.config.oracle_port
-        self.server.run(addr, port=port)
+        if self.config.oracle_debug:
+            self.server.run(addr, port=port)
+        else:
+            serv = WSGIServer((addr, port), self.server, log=None)
+            serv.serve_forever()
         
     # ------------------- Server Processing and Endpoints -------------------- #
     # Function that defines a number of endpoints for the oracle. This is
