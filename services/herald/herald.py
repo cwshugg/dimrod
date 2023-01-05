@@ -20,18 +20,31 @@ from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
 from lib.cli import ServiceCLI
 
+# Service imports
+from event import HeraldEvent
+
 
 # =============================== Config Class =============================== #
 class HeraldConfig(ServiceConfig):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("herald_commands",  [list], required=True)
+            ConfigField("herald_events",  [list], required=True)
         ]
 
 
 # ============================== Service Class =============================== #
 class HeraldService(Service):
+    def __init__(self, config_path):
+        super().__init__(config_path)
+        self.config = HeraldConfig()
+        self.config.parse_file(config_path)
+
+        # parse each event as an event object
+        for edata in self.config.herald_events:
+            e = HeraldEvent(edata)
+            print("EVENT: %s" % e)
+
     # Overridden abstract class implementation for the service thread.
     def run(self):
         super().run()
