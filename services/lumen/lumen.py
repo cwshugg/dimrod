@@ -71,11 +71,6 @@ class LumenService(Service):
     # Overridden main function implementation.
     def run(self):
         super().run()
-        
-        # run this loop forever
-        while True:
-            # sleep until the next tick
-            time.sleep(self.config.refresh_rate)
 
     # ------------------------------ Lumen API ------------------------------- #
     # Takes in a light ID, and optional color and brightness parameters, and
