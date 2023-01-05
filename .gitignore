@@ -7,3 +7,6 @@ __pycache__
 # my service config files
 cwshugg*.json
 
+# my systemd files
+dimrod*.service
+
