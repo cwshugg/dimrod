@@ -1,0 +1,21 @@
+{
+    "services":
+    [
+        {
+            "executable": "/home/provolone/chs/services/lumen/lumen.py",
+            "config": "/home/provolone/chs/services/lumen/lumen.json",
+            "use_oracle": true
+        },
+        {
+            "executable": "/home/provolone/chs/services/warden/warden.py",
+            "config": "/home/provolone/chs/services/warden/warden.json",
+            "use_oracle": true
+        },
+        {
+            "executable": "/home/provolone/chs/services/nimbus/nimbus.py",
+            "config": "/home/provolone/chs/services/nimbus/nimbus.json",
+            "use_oracle": true
+        }
+    ]
+}
+
