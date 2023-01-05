@@ -45,7 +45,7 @@ class MasterServiceConfig(lib.config.Config):
 # =============================== Main Routine =============================== #
 def main():
     # if no argument was given, assume the file name and location
-    cpath = os.path.join(fdir, "srvmstr_config.json") 
+    cpath = os.path.join(fdir, "sm.json") 
     if len(sys.argv) > 1:
         cpath = sys.argv[1]
 
