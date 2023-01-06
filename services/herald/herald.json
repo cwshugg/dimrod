@@ -19,9 +19,17 @@
     "herald_events":
     [
         {
-            "name": "cam_motion_detect",
+            "name": "your_event_name_here",
             "subscribers":
             [
+                {
+                    "name": "subscriber1",
+                    "executable": "/path/to/subscriber1.py"
+                },
+                {
+                    "name": "subscriber2",
+                    "executable": "/path/to/subscriber2.sh"
+                }
             ]
         }
     ]
