@@ -38,7 +38,9 @@ class OracleConfig(lib.config.Config):
             lib.config.ConfigField("oracle_auth_secret",    [str],  required=True),
             lib.config.ConfigField("oracle_auth_users",     [list], required=True),
             lib.config.ConfigField("oracle_auth_exptime",   [int],  required=False),
-            lib.config.ConfigField("oracle_debug",          [bool], required=False, default=False)
+            lib.config.ConfigField("oracle_debug",          [bool], required=False, default=False),
+            lib.config.ConfigField("oracle_https_cert",     [str],  required=False),
+            lib.config.ConfigField("oracle_https_key",      [str],  required=False),
         ]
 
 
@@ -67,6 +69,15 @@ class Oracle(threading.Thread):
             self.config.oracle_auth_exptime = jwt_exptime
         else:
             self.config.oracle_auth_exptime = abs(self.config.oracle_auth_exptime)
+
+        # make sure both certification files were given
+        self.https_enabled = self.config.oracle_https_cert is not None and \
+                             self.config.oracle_https_key is not None
+        if self.https_enabled:
+            assert os.path.isfile(self.config.oracle_https_cert), \
+                   "the oracle_https_cert file does not exist"
+            assert os.path.isfile(self.config.oracle_https_key), \
+                   "the oracle_https_key file does not exist"
         
         # examine the config for a log stream
         log_file = sys.stdout
@@ -105,7 +116,13 @@ class Oracle(threading.Thread):
         if self.config.oracle_debug:
             self.server.run(addr, port=port)
         else:
-            serv = WSGIServer((addr, port), self.server, log=None)
+            # run with our without HTTPS certification
+            if self.https_enabled:
+                serv = WSGIServer((addr, port), self.server, log=None,
+                                  certfile=self.config.oracle_https_cert,
+                                  keyfile=self.config.oracle_https_key)
+            else:
+                serv = WSGIServer((addr, port), self.server, log=None)
             serv.serve_forever()
         
     # ------------------- Server Processing and Endpoints -------------------- #
