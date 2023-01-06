@@ -71,7 +71,6 @@ class HeraldService(Service):
                             stdout_pfx = "[\"%s\" STDOUT]" % name
                             stdout = subdata["stdout"].decode("utf-8")
                             for line in stdout.split("\n"):
-                                line = line.strip()
                                 if len(line) > 0:
                                     self.log.write("%s %s" % (stdout_pfx, line))
                         
@@ -80,7 +79,6 @@ class HeraldService(Service):
                             stderr_pfx = "[\"%s\" STDERR]" % name
                             stderr = subdata["stderr"].decode("utf-8")
                             for line in stderr.split("\n"):
-                                line = line.strip()
                                 if len(line) > 0:
                                     self.log.write("%s %s" % (stderr_pfx, line))
                     except Exception as e:

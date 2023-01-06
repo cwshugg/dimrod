@@ -39,9 +39,14 @@ def main():
     # decide what color to set the front lights
     color = [255, 255, 255]
     now = datetime.now()
-    if now.hour <= 5 or now.hour >= 22:     # during nighttime
+    if now.hour <= 5 or now.hour >= 22:         # nighttime
         color = [255, 0, 0] # red
+    elif now.hour >= 17 and now.hour <= 19:     # early evening
+        color = [255, 200, 0] # yellow-ish
+    elif now.hour >= 20 and now.hour <= 21:     # late evening
+        color = [255, 120, 0] # orange-ish
     color_str = "%d,%d,%d" % (color[0], color[1], color[2])
+    print("Color: \033[38;2;%d;%d;%dm%s\033[0m" % (color[0], color[1], color[2], color_str))
 
     # with the auth cookie stored, make a request to set the light color
     toggle_data = {
