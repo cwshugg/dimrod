@@ -16,10 +16,13 @@
         }
     ],
 
-    "herald_commands":
+    "herald_events":
     [
         {
-            "name": "light"
+            "name": "cam_motion_detect",
+            "subscribers":
+            [
+            ]
         }
     ]
 }
