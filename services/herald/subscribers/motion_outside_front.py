@@ -6,10 +6,89 @@
 import sys
 import json
 import requests
+import time
 from datetime import datetime
 
 # Globals
-lumen_config = "/home/provolone/chs/services/lumen/cwshugg_lumen.json"
+lumen_config_path = "/home/provolone/chs/services/lumen/cwshugg_lumen.json"
+lumen_config_data = None
+lumen_session = None
+light_cooldown = 180
+light_colors = [
+    # MORNING - red to white
+    [255,   0,      0],     # 12:00 am
+    [255,   65,     36],    # 1:00 am
+    [255,   96,     63],    # 2:00 am
+    [255,   122,    89],    # 3:00 am
+    [255,   146,    116],   # 4:00 am
+    [255,   168,    142],   # 5:00 am
+    [255,   190,    170],   # 6:00 am
+    [255,   212,    197],   # 7:00 am
+    [255,   234,    226],   # 8:00 am
+    [255,   255,    255],   # 9:00 am
+    # DAY - white to blue to white
+    [215,   221,    255],   # 10:00 am
+    [171,   187,    255],   # 11:00 am
+    [118,   156,    255],   # 12:00 pm
+    [0,     126,    255],   # 1:00 pm
+    [118,   156,    255],   # 2:00 pm
+    [171,   187,    255],   # 3:00 pm
+    [215,   221,    255],   # 4:00 pm
+    [255,   255,    255],   # 5:00 pm
+    # EVENING
+    [255,   228,    218],   # 6:00 pm
+    [255,   200,    182],   # 7:00 pm
+    [255,   172,    147],   # 8:00 pm
+    [255,   143,    112],   # 9:00 pm
+    [255,   112,    79],    # 10:00 pm
+    [255,   75,     45],    # 11:00 pm
+]
+
+# Helper function for talking with Lumen.
+def lumen_send(lid: str, action: str, color=None, brightness=None):
+    # open and read the config file, if necessary
+    global lumen_config_data
+    if lumen_config_data is None:
+        # parse the lumen config file
+        lumen_config_data = None
+        with open(lumen_config_path, "r") as fp:
+            lumen_config_data = json.load(fp)
+    
+    # build a URL base for requests
+    url_base = "http://%s:%d" % (lumen_config_data["oracle_addr"],
+                                 lumen_config_data["oracle_port"])
+
+    # set up the lumen session, if necessary
+    global lumen_session
+    if lumen_session is None: 
+        # retrieve a user to log in with
+        users = lumen_config_data["oracle_auth_users"]
+        user = users[0]
+
+        # create a session and send a login request
+        s = requests.Session()
+        login_data = {"username": user["username"], "password": user["password"]}
+        print("Logging into lumen... %s" % json.dumps(login_data))
+        r = s.post(url_base + "/auth/login", json=login_data)
+        print("Lumen response: %d (%s)" % (r.status_code, json.dumps(r.json(), indent=4)))
+        lumen_session = s
+    
+    # now, take the parameters and build a request payload
+    toggle_data = {
+        "id": lid,
+        "action": action
+    }
+    if color is not None:
+        toggle_data["color"] = "%d,%d,%d" % (color[0], color[1], color[2])
+    if brightness is not None:
+        toggle_data["brightness"] = brightness
+
+    # build the URL and send the request
+    url = url_base + "/toggle"
+    print("Sending Lumen toggle request: %s" % json.dumps(toggle_data))
+    r = lumen_session.post(url_base + "/toggle", json=toggle_data)
+    print("Lumen response: %d (%s)" % (r.status_code, json.dumps(r.json(), indent=4)))
+    return r
 
 # Main function.
 def main():
@@ -17,48 +96,20 @@ def main():
     data = {}
     if len(sys.argv) > 1:
         data = json.loads(sys.argv[1])
-    
-    # parse the lumen config file
-    lumen_data = None
-    with open(lumen_config, "r") as fp:
-        lumen_data = json.load(fp)
 
-    # retrieve a user to log in with
-    users = lumen_data["oracle_auth_users"]
-    user = users[0]
-
-    # create a session and send a login request
-    s = requests.Session()
-    url_base = "http://%s:%d" % (lumen_data["oracle_addr"],
-                                 lumen_data["oracle_port"])
-    login_data = {"username": user["username"], "password": user["password"]}
-    print("Logging into lumen... %s" % json.dumps(login_data))
-    r = s.post(url_base + "/auth/login", json=login_data)
-    print("Lumen response: %d (%s)" % (r.status_code, json.dumps(r.json(), indent=4)))
-
-    # decide what color to set the front lights
-    color = [255, 255, 255]
+    # ---------------------- Color/Brightness Decision ----------------------- #
     now = datetime.now()
-    if now.hour <= 5 or now.hour >= 22:         # nighttime
-        color = [255, 0, 0] # red
-    elif now.hour >= 17 and now.hour <= 19:     # early evening
-        color = [255, 200, 0] # yellow-ish
-    elif now.hour >= 20 and now.hour <= 21:     # late evening
-        color = [255, 120, 0] # orange-ish
-    color_str = "%d,%d,%d" % (color[0], color[1], color[2])
-    print("Color: \033[38;2;%d;%d;%dm%s\033[0m" % (color[0], color[1], color[2], color_str))
+    color = light_colors[now.hour]
+    brightness = 1.0
 
-    # with the auth cookie stored, make a request to set the light color
-    toggle_data = {
-        "id": "bulb_front_porch",
-        "action": "on",
-        "color": color_str
-    }
-    url = url_base + "/toggle"
-    print(url)
-    r = s.post(url_base + "/toggle", json=toggle_data)
-    print("Lumen response: %d (%s)" % (r.status_code, json.dumps(r.json(), indent=4)))
+    # ------------------------------ Lights On ------------------------------- #
+    lumen_send("bulb_front_porch", "on", color=color, brightness=brightness)
 
+    # wait a specified amount of time, then turn the light back off
+    time.sleep(light_cooldown)
+
+    # ------------------------------ Lights Off ------------------------------ #
+    lumen_send("bulb_front_porch", "off")
 # Runner code
 if __name__ == "__main__":
     sys.exit(main())
