@@ -22,6 +22,7 @@ The top-level directories are:
 * `pihole/` - Scripts for setting up a Pihole DNS ad-blocking server.
 * `scripts/` - Other general-purpose scripts.
 * `services/` - My Python-based custom services.
+* `cron/` - My cron jobs.
 
 ## DImROD Services
 
