@@ -1,5 +1,5 @@
 # This module defines classes/functions used to represent a single event. Events
-# have a specific JSON format and are received via an endpoint in the Herald
+# have a specific JSON format and are received via an endpoint in the Taskmaster
 # oracle. Each event can have a number of configurable "subscriber" scripts that
 # are executed whenever a specified event arrives.
 
@@ -16,13 +16,13 @@ if pdir not in sys.path:
 from lib.config import Config, ConfigField
 
 # Service imports
-from subscriber import HeraldSubscriber
+from subscriber import TaskmasterSubscriber
 
 
 # =============================== Event Config =============================== #
-# This config class represents the required data to be included in the Herald
+# This config class represents the required data to be included in the Taskmaster
 # config file.
-class HeraldEventConfig(Config):
+class TaskmasterEventConfig(Config):
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -30,9 +30,9 @@ class HeraldEventConfig(Config):
             ConfigField("subscribers",  [list],     required=True)
         ]
 
-# This config class represents the required data to be sent to Herald when an
+# This config class represents the required data to be sent to Taskmaster when an
 # event is posted from across the internet (via the oracle).
-class HeraldEventPostConfig(Config):
+class TaskmasterEventPostConfig(Config):
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -42,10 +42,10 @@ class HeraldEventPostConfig(Config):
 
 
 # =============================== Event Class ================================ #
-class HeraldEvent:
-    # Constructor. Takes in JSON data and parses it as a HeraldEventConfig.
+class TaskmasterEvent:
+    # Constructor. Takes in JSON data and parses it as a TaskmasterEventConfig.
     def __init__(self, jdata: dict):
-        self.config = HeraldEventConfig()
+        self.config = TaskmasterEventConfig()
         self.config.parse_json(jdata)
 
         # iterate through each subscriber and make sure the file exists. Also,
@@ -53,7 +53,7 @@ class HeraldEvent:
         self.subscribers = []
         for sdata in self.config.subscribers:
             # parse each entry as a subscriber object
-            sub = HeraldSubscriber(sdata)
+            sub = TaskmasterSubscriber(sdata)
             self.subscribers.append(sub)
 
     # String representation.

@@ -14,7 +14,7 @@ from datetime import datetime
 lumen_config_path = "/home/provolone/chs/services/lumen/cwshugg_lumen.json"
 lumen_config_data = None
 lumen_session = None
-tick_rate = 60
+tick_rate = 300
 light_ids = [
     "bulb_livingroom_1",
     "bulb_livingroom_2",
@@ -109,6 +109,7 @@ def main():
 
         # sleep until the next tick
         time.sleep(tick_rate)
+        now = datetime.now()
 
     # turn all the lights off
     print("Duration finished. Turning off all lights.")

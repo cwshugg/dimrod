@@ -1,6 +1,6 @@
 #!/usr/bin/python3
-# The Herald is the ONLY service allowed access to the internet. It's job is to
-# receive commands from my internet-connected devices and issue commands to
+# The Taskmaster is the ONLY service allowed access to the internet. It's job is
+# to receive commands from my internet-connected devices and issue commands to
 # the other services.
 
 # Imports
@@ -21,29 +21,29 @@ from lib.oracle import Oracle
 from lib.cli import ServiceCLI
 
 # Service imports
-from event import HeraldEvent, HeraldEventPostConfig
+from event import TaskmasterEvent, TaskmasterEventPostConfig
 
 
 # =============================== Config Class =============================== #
-class HeraldConfig(ServiceConfig):
+class TaskmasterConfig(ServiceConfig):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("herald_events",  [list], required=True)
+            ConfigField("taskmaster_events",  [list], required=True)
         ]
 
 
 # ============================== Service Class =============================== #
-class HeraldService(Service):
+class TaskmasterService(Service):
     def __init__(self, config_path):
         super().__init__(config_path)
-        self.config = HeraldConfig()
+        self.config = TaskmasterConfig()
         self.config.parse_file(config_path)
 
         # parse each event as an event object
         self.events = []
-        for edata in self.config.herald_events:
-            e = HeraldEvent(edata)
+        for edata in self.config.taskmaster_events:
+            e = TaskmasterEvent(edata)
             self.events.append(e)
             self.log.write("Loaded event: %s" % str(e))
 
@@ -51,10 +51,10 @@ class HeraldService(Service):
     def run(self):
         super().run()
 
-    # Accepts a HeraldEventPostConfig and searches the service's events for one
+    # Accepts a TaskmasterEventPostConfig and searches the service's events for one
     # with a matching name. Returns the number of events that were fired as a
     # result.
-    def post(self, pconf: HeraldEventPostConfig):
+    def post(self, pconf: TaskmasterEventPostConfig):
         matches = 0
         for e in self.events:
             # if the name matches the event, we'll fire it (and pass along any
@@ -67,7 +67,7 @@ class HeraldService(Service):
 
 
 # ============================== Service Oracle ============================== #
-class HeraldOracle(Oracle):
+class TaskmasterOracle(Oracle):
     # Endpoint definition function.
     def endpoints(self):
         super().endpoints()
@@ -93,9 +93,9 @@ class HeraldOracle(Oracle):
                 return self.make_response(msg="No JSON data provided.",
                                           success=False)
             
-            # interpret the data as a herald event post config object to ensure
+            # interpret the data as a taskmaster event post config object to ensure
             # all the correct fields were given
-            pconf = HeraldEventPostConfig()
+            pconf = TaskmasterEventPostConfig()
             try:
                 pconf.parse_json(flask.g.jdata)
             except Exception:
@@ -115,6 +115,6 @@ class HeraldOracle(Oracle):
         
 
 # =============================== Runner Code ================================ #
-cli = ServiceCLI(config=HeraldConfig, service=HeraldService, oracle=HeraldOracle)
+cli = ServiceCLI(config=TaskmasterConfig, service=TaskmasterService, oracle=TaskmasterOracle)
 cli.run()
 
