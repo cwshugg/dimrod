@@ -68,10 +68,3 @@ class HeraldEvent:
         for sub in self.subscribers:
             sub.spawn(data=data)
 
-        # now iterate, through the subscribers and wait for them to finish
-        result = {}
-        for sub in self.subscribers:
-            (stdout, stderr) = sub.reap()
-            result[sub.config.name] = {"stdout": stdout, "stderr": stderr}
-        return result
-

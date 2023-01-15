@@ -62,28 +62,6 @@ class HeraldService(Service):
             if e.config.name == pconf.name:
                 self.log.write("Firing event: %s" % e.config.name)
                 result = e.fire(data=pconf.data)
-                # iterate through the results and write them to the log
-                for name in result:
-                    try:
-                        subdata = result[name]
-                        # decode and write stdout
-                        if len(subdata["stdout"]) > 0:
-                            stdout_pfx = "[\"%s\" STDOUT]" % name
-                            stdout = subdata["stdout"].decode("utf-8")
-                            for line in stdout.split("\n"):
-                                if len(line) > 0:
-                                    self.log.write("%s %s" % (stdout_pfx, line))
-                        
-                        # decode and write stderr
-                        if len(subdata["stderr"]) > 0:
-                            stderr_pfx = "[\"%s\" STDERR]" % name
-                            stderr = subdata["stderr"].decode("utf-8")
-                            for line in stderr.split("\n"):
-                                if len(line) > 0:
-                                    self.log.write("%s %s" % (stderr_pfx, line))
-                    except Exception as e:
-                        self.log.write("[\"%s\"] Failed to retrieve output." % name)
-    
                 matches += 1
         return matches
 
