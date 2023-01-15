@@ -15,7 +15,7 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.config import Config, ConfigField
-from lib.ifttt import Webhook
+from lib.ifttt import WebhookConfig, Webhook
 
 
 # =============================== Config Class =============================== #
@@ -32,12 +32,12 @@ class MessengerConfig(Config):
 # Main messenger class.
 class Messenger:
     # Constructor.
-    def __init__(self, config_path):
-        self.config = MessengerConfig()
-        self.config.parse_file(config_path)
-
+    def __init__(self, config):
+        self.config = config
         # set up a IFTTT webhook object
-        self.webhooker = Webhook(config_path)
+        wbconf = WebhookConfig()
+        wbconf.parse_json(config.to_json())
+        self.webhooker = Webhook(wbconf)
     
     # Takes in an email address, a subject string, and a content string, and
     # sends an email.

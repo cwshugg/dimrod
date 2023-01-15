@@ -19,7 +19,7 @@ if pdir not in sys.path:
 from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
-from lib.ifttt import Webhook
+from lib.ifttt import WebhookConfig, Webhook
 from lib.cli import ServiceCLI
 
 # Service imports
@@ -48,7 +48,11 @@ class LumenService(Service):
         super().__init__(config_path)
         self.config = LumenConfig()
         self.config.parse_file(config_path)
-        self.webhooker = Webhook(config_path)
+        
+        # set up IFTTT webhook object
+        webhook_conf = WebhookConfig()
+        webhook_conf.parse_file(config_path)
+        self.webhooker = Webhook(webhook_conf)
 
         # for each of the entries in the config's 'lights' field, we'll create a
         # new Light object

@@ -29,9 +29,8 @@ class WebhookConfig(lib.config.Config):
 # This class defines a mechanism to send IFTTT webhook requests.
 class Webhook:
     # Constructor. Takes in a config file path.
-    def __init__(self, config_path):
-        self.config = WebhookConfig()
-        self.config.parse_file(config_path)
+    def __init__(self, config):
+        self.config = config
     
     # Takes in two parameters and sends a webhook:
     #   1. Webhook event name (string)

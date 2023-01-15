@@ -87,6 +87,17 @@ class Config:
             else:
                 # otherwise, set the value to the field's default
                 setattr(self, key, f.default)
+
+        # if there are any other fields in the config that aren't specified
+        # explicitly, we'll save them to a separate dictionary
+        field_names = []
+        for f in self.fields:
+            field_names.append(f.name)
+        self.extra_fields = {}
+        for key in jdata:
+            if key not in field_names:
+                self.extra_fields[key] = jdata[key]
+                setattr(self, key, jdata[key])
     
     # A custom assertion function for the config class.
     def check(self, condition, msg):
@@ -96,7 +107,11 @@ class Config:
     # Converts the config into a JSON dictionary and returns it.
     def to_json(self):
         result = {}
+        # convert all expected fields to JSON
         for f in self.fields:
             result[f.name] = getattr(self, f.name)
+        # convert all extra fields to JSON
+        for e in self.extra_fields:
+            result[e] = getattr(self, e)
         return result
 
