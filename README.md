@@ -39,6 +39,8 @@ services via the HTTP APIs.
 ## Future Plans
 
 * Implement a weather service that uses [this API](https://www.weather.gov/documentation/services-web-api)
+* Implement a reminder service
+* Implement a to-do list service
 * Implement a grocery list management service 
 * Implement a conversation service used to:
     * Talk with DImROD
