@@ -27,3 +27,6 @@ python3 -m pip install geopy
 echo "Installing dateutil..."
 python3 -m pip install python-dateutil
 
+echo "Installing sqlite3..."
+python3 -m pip install sqlite3
+

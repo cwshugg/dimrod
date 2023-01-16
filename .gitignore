@@ -13,3 +13,6 @@ dimrod*.service
 # log files
 *.log
 
+# database directories
+ldbs/
+
