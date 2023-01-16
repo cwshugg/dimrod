@@ -30,7 +30,13 @@ const services_me = [
                 "fas fa-shield", "mdl-color-text--blue-600"),
     new Service("nimbus", "Nimbus",
                 new URL(hostname, "2352", "/"),
-                "fas fa-bolt", "mdl-color-text--purple-600")
+                "fas fa-bolt", "mdl-color-text--purple-600"),
+    new Service("taskmaster", "Taskmaster",
+                new URL("dimrod.shugg.dev", "23232", "/"),
+                "fas fa-fist-raised", "mdl-color-text--red-600"),
+    new Service("scribble", "Scribble",
+                new URL(hostname, "2354", "/"),
+                "fas fa-pencil", "mdl-color-text--yellow-400")
 ];
 
 // Service-specific globals
