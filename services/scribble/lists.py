@@ -1,4 +1,4 @@
-# This module defines a simple List object, used by Scribo.
+# This module defines a simple List object, used by Scribble.
 
 # Imports
 import os
@@ -18,7 +18,7 @@ from lib.config import Config, ConfigField
 
 
 # ============================= List Item Class ============================== #
-class ScriboListItem:
+class ScribbleListItem:
     # Constructor.
     def __init__(self, text: str, iid=None):
         self.iid = iid
@@ -49,13 +49,13 @@ class ScriboListItem:
     def to_tuple(self):
         return (self.get_id(), self.text)
     
-    # Converts a given tuple into a ScriboListItem object.
+    # Converts a given tuple into a ScribbleListItem object.
     @staticmethod
     def from_tuple(t: tuple):
         assert len(t) >= 2, "not enough fields in the given tuple"
         assert type(t[0]) == str, "first tuple field must be a string"
         assert type(t[1]) == str, "second tuple field must be a string"
-        return ScriboListItem(t[1], iid=t[0])
+        return ScribbleListItem(t[1], iid=t[0])
 
     # --------------------------- JSON Conversion ---------------------------- #
     # Converts the object to JSON and returns it.
@@ -64,7 +64,7 @@ class ScriboListItem:
 
 
 # ================================ List Class ================================ #
-class ScriboList:
+class ScribbleList:
     # Constructor.
     def __init__(self, path: str):
         self.path = path
@@ -92,12 +92,12 @@ class ScriboList:
     
     # Adds a new item to the list. Throws an exception if the item already
     # exists in the list.
-    def add(self, item: ScriboListItem):
+    def add(self, item: ScribbleListItem):
         self.db_command("INSERT INTO items VALUES %s" % item.to_sqlite3_str(), commit=True)
     
     # Removes the given item from the list. Throws an exception if the item
     # isn't found in the list.
-    def remove(self, item: ScriboListItem):
+    def remove(self, item: ScribbleListItem):
         assert self.search_by_id(item.get_id()) is not None, \
                "an item with ID \"%s\" could not be found" % item.get_id()
         self.db_command("DELETE FROM items WHERE iid='%s'" % item.get_id(), commit=True)
@@ -135,7 +135,7 @@ class ScriboList:
             items = result.fetchall()
             result = []
             for i in items:
-                result.append(ScriboListItem.from_tuple(i))
+                result.append(ScribbleListItem.from_tuple(i))
             return result
         return []
 

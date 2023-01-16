@@ -20,14 +20,14 @@ from lib.oracle import Oracle
 from lib.cli import ServiceCLI
 
 # Service imports
-from lists import ScriboList, ScriboListItem
+from lists import ScribbleList, ScribbleListItem
 
 # Globals
 default_list_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "ldbs")
 
 
 # =============================== Config Class =============================== #
-class ScriboConfig(ServiceConfig):
+class ScribbleConfig(ServiceConfig):
     # Constructor.
     def __init__(self):
         super().__init__()
@@ -38,11 +38,11 @@ class ScriboConfig(ServiceConfig):
 
 
 # ============================== Service Class =============================== #
-class ScriboService(Service):
+class ScribbleService(Service):
     # Constructor.
     def __init__(self, config_path):
         super().__init__(config_path)
-        self.config = ScriboConfig()
+        self.config = ScribbleConfig()
         self.config.parse_file(config_path)
 
         # given the list directory, create it if it doesn't exist
@@ -83,7 +83,7 @@ class ScriboService(Service):
         paths = self.list_get_paths()
         for f in paths:
             if name == self.file_to_name(f):
-                return ScriboList(f)
+                return ScribbleList(f)
         return None
     
     # Creates a new list, given the name. Returns the new list.
@@ -91,18 +91,18 @@ class ScriboService(Service):
         # first, make sure the list doesn't already exist
         assert self.list_get(name) is None, \
                "a list already exists with the name \"%s\"" % name
-        # if the list doesn't exist, we'll create a new ScriboList object (it
+        # if the list doesn't exist, we'll create a new ScribbleList object (it
         # will initialize automatically)
-        l = ScriboList(self.name_to_file(name))
+        l = ScribbleList(self.name_to_file(name))
         return l
     
     # Deletes a list, given the name.
-    def list_delete(self, l: ScriboList):
+    def list_delete(self, l: ScribbleList):
         os.remove(l.path)
 
 
 # ============================== Service Oracle ============================== #
-class ScriboOracle(Oracle):
+class ScribbleOracle(Oracle):
     # Endpoint definition function.
     def endpoints(self):
         super().endpoints()
@@ -117,7 +117,7 @@ class ScriboOracle(Oracle):
             # them to a list
             result = []
             for path in self.service.list_get_paths():
-                l = ScriboList(path)
+                l = ScribbleList(path)
                 result.append(l.to_json())
             return self.make_response(payload=result)
     
@@ -220,7 +220,7 @@ class ScriboOracle(Oracle):
                                           success=False)
 
             # add the item to the list
-            i = ScriboListItem(text)
+            i = ScribbleListItem(text)
             try:
                 l.add(i)
                 return self.make_response(msg="Successfully added to list \"%s\"." % name)
@@ -253,7 +253,7 @@ class ScriboOracle(Oracle):
 
             # make a dummy list item, with the same ID number to use for
             # deleting the existing one in the database
-            i = ScriboListItem("", iid=iid)
+            i = ScribbleListItem("", iid=iid)
             try:
                 l.remove(i)
                 return self.make_response(msg="Successfully removed from list \"%s\"." % name)
@@ -263,6 +263,6 @@ class ScriboOracle(Oracle):
         
 
 # =============================== Runner Code ================================ #
-cli = ServiceCLI(config=ScriboConfig, service=ScriboService, oracle=ScriboOracle)
+cli = ServiceCLI(config=ScribbleConfig, service=ScribbleService, oracle=ScribbleOracle)
 cli.run()
 

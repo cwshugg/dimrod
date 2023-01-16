@@ -1,11 +1,11 @@
 {
-    "service_name": "scribo",
+    "service_name": "scribble",
     "service_log": "stdout",
 
     "oracle_addr": "0.0.0.0",
     "oracle_port": 2354,
     "oracle_log": "stdout",
-    "oracle_auth_cookie": "scribo_auth",
+    "oracle_auth_cookie": "scribble_auth",
     "oracle_auth_secret": "YOUR_JWT_SECRET_HERE",
     "oracle_auth_users":
     [
