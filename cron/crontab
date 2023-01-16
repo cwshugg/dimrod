@@ -1,2 +1,2 @@
-15 12 * * * provolone /home/provolone/chs/status-email.sh
+15 12 * * * /home/provolone/chs/cron/status-email.sh
 
