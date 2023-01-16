@@ -318,7 +318,7 @@ class Oracle(threading.Thread):
         rdata = {"success": success}
         if msg != None and msg != "":
             rdata["message"] = msg
-        if len(payload) > 0:
+        if len(payload) > 0 or payload == []:
             rdata["payload"] = payload
     
         # create the response object and set all headers

@@ -82,7 +82,6 @@ class ScriboService(Service):
         name = name.lower().replace(" ", "_")
         paths = self.list_get_paths()
         for f in paths:
-            print("DOES '%s' == '%s'?" % (name, self.file_to_name(f)))
             if name == self.file_to_name(f):
                 return ScriboList(f)
         return None
@@ -98,13 +97,8 @@ class ScriboService(Service):
         return l
     
     # Deletes a list, given the name.
-    def list_delete(self, name: str):
-        # find the list, and complain if it doesn't exist
-        l = self.list_get(name)
-        assert l is not None, "unable to find list with name \"%s\"" % name
-
-        # delete the database file that stores the list's items
-        os.remove(self.name_to_file(name))
+    def list_delete(self, l: ScriboList):
+        os.remove(l.path)
 
 
 # ============================== Service Oracle ============================== #
@@ -118,12 +112,14 @@ class ScriboOracle(Oracle):
         def endpoint_list_get_all():
             if not flask.g.user:
                 return self.make_response(rstatus=404)
-            if not flask.g.jdata:
-                return self.make_response("Missing JSON data.",
-                                          success=False, rstatus=400)
             
-            # TODO
-            pass
+            # get all list paths from the service and load each one in, adding
+            # them to a list
+            result = []
+            for path in self.service.list_get_paths():
+                l = ScriboList(path)
+                result.append(l.to_json())
+            return self.make_response(payload=result)
     
         # Retrieves and returns a single list.
         @self.server.route("/list/get", methods=["POST"])
@@ -131,59 +127,139 @@ class ScriboOracle(Oracle):
             if not flask.g.user:
                 return self.make_response(rstatus=404)
             if not flask.g.jdata:
-                return self.make_response("Missing JSON data.",
+                return self.make_response(msg="Missing JSON data.",
                                           success=False, rstatus=400)
             
-            # TODO
-            pass
+            # the user should have passed in a list name
+            if "name" not in flask.g.jdata:
+                return self.make_response(msg="Missing list name.",
+                                          success=False, rstatus=400)
+            name = flask.g.jdata["name"]
+
+            # use the name to search for a list
+            l = self.service.list_get(name)
+            if l is None:
+                return self.make_response(msg="No matching list found.",
+                                          success=False)
+            else:
+                return self.make_response(payload=l.to_json())
         
         # Creates a new list.
         @self.server.route("/list/create", methods=["POST"])
-        def endpoint_list_get():
+        def endpoint_list_create():
             if not flask.g.user:
                 return self.make_response(rstatus=404)
             if not flask.g.jdata:
-                return self.make_response("Missing JSON data.",
+                return self.make_response(msg="Missing JSON data.",
                                           success=False, rstatus=400)
             
-            # TODO
-            pass
+            # the user should have passed in a list name
+            if "name" not in flask.g.jdata:
+                return self.make_response(msg="Missing list name.",
+                                          success=False, rstatus=400)
+            name = flask.g.jdata["name"]
+
+            # use the name to create a new list
+            try:
+                l = self.service.list_create(name)
+                return self.make_response(msg="Successfully created new list \"%s\"" % name)
+            except Exception as e:
+                return self.make_response(msg="Failed to make a new list: %s" % e,
+                                          success=False)
         
         # Deletes an existing list.
         @self.server.route("/list/delete", methods=["POST"])
-        def endpoint_list_get():
+        def endpoint_list_delete():
             if not flask.g.user:
                 return self.make_response(rstatus=404)
             if not flask.g.jdata:
-                return self.make_response("Missing JSON data.",
+                return self.make_response(msg="Missing JSON data.",
                                           success=False, rstatus=400)
             
-            # TODO
-            pass
+            # the user should have passed in a list name
+            if "name" not in flask.g.jdata:
+                return self.make_response(msg="Missing list name.",
+                                          success=False, rstatus=400)
+            name = flask.g.jdata["name"]
+
+            # use the name to find the list
+            l = self.service.list_get(name)
+            if l is None:
+                return self.make_response(msg="No matching list found.",
+                                          success=False)
+
+            # now, pass the list to the service for deletion
+            try:
+                self.service.list_delete(l)
+                return self.make_response(msg="List deleted successfully")
+            except Exception as e:
+                return self.make_response(msg="Failed to delete list: %s" % e,
+                                          success=False)
+
         
         # Adds an entry to an existing list.
         @self.server.route("/list/append", methods=["POST"])
-        def endpoint_list_get():
+        def endpoint_list_append():
             if not flask.g.user:
                 return self.make_response(rstatus=404)
             if not flask.g.jdata:
-                return self.make_response("Missing JSON data.",
+                return self.make_response(msg="Missing JSON data.",
                                           success=False, rstatus=400)
             
-            # TODO
-            pass
-        
+            # the user should have passed in a list name and item string
+            if "name" not in flask.g.jdata or "item" not in flask.g.jdata:
+                return self.make_response(msg="Missing list fields.",
+                                          success=False, rstatus=400)
+            name = flask.g.jdata["name"]
+            text = flask.g.jdata["item"]
+            
+            # use the name to search for a list
+            l = self.service.list_get(name)
+            if l is None:
+                return self.make_response(msg="No matching list found.",
+                                          success=False)
+
+            # add the item to the list
+            i = ScriboListItem(text)
+            try:
+                l.add(i)
+                return self.make_response(msg="Successfully added to list \"%s\"." % name)
+            except Exception as e:
+                return self.make_response(msg="Failed to add item to list \"%s\": %s" % (name, e),
+                                          success=False)
+                                              
+ 
         # Removes an entry from an existing list.
         @self.server.route("/list/remove", methods=["POST"])
-        def endpoint_list_get():
+        def endpoint_list_remove():
             if not flask.g.user:
                 return self.make_response(rstatus=404)
             if not flask.g.jdata:
-                return self.make_response("Missing JSON data.",
+                return self.make_response(msg="Missing JSON data.",
                                           success=False, rstatus=400)
             
-            # TODO
-            pass
+            # the user should have passed in a list name and item ID
+            if "name" not in flask.g.jdata or "iid" not in flask.g.jdata:
+                return self.make_response(msg="Missing JSON fields.",
+                                          success=False, rstatus=400)
+            name = flask.g.jdata["name"]
+            iid = flask.g.jdata["iid"]
+            
+            # use the name to search for a list
+            l = self.service.list_get(name)
+            if l is None:
+                return self.make_response(msg="No matching list found.",
+                                          success=False)
+
+            # make a dummy list item, with the same ID number to use for
+            # deleting the existing one in the database
+            i = ScriboListItem("", iid=iid)
+            try:
+                l.remove(i)
+                return self.make_response(msg="Successfully removed from list \"%s\"." % name)
+            except Exception as e:
+                return self.make_response(msg="Failed to remove: %s" % e,
+                                          success=False)
         
 
 # =============================== Runner Code ================================ #

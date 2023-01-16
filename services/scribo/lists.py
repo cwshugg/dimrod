@@ -57,6 +57,12 @@ class ScriboListItem:
         assert type(t[1]) == str, "second tuple field must be a string"
         return ScriboListItem(t[1], iid=t[0])
 
+    # --------------------------- JSON Conversion ---------------------------- #
+    # Converts the object to JSON and returns it.
+    def to_json(self):
+        return {"iid": self.get_id(), "text": self.text}
+
+
 # ================================ List Class ================================ #
 class ScriboList:
     # Constructor.
@@ -92,6 +98,8 @@ class ScriboList:
     # Removes the given item from the list. Throws an exception if the item
     # isn't found in the list.
     def remove(self, item: ScriboListItem):
+        assert self.search_by_id(item.get_id()) is not None, \
+               "an item with ID \"%s\" could not be found" % item.get_id()
         self.db_command("DELETE FROM items WHERE iid='%s'" % item.get_id(), commit=True)
 
     # -------------------------- SQLite3 Interface --------------------------- #
@@ -130,4 +138,13 @@ class ScriboList:
                 result.append(ScriboListItem.from_tuple(i))
             return result
         return []
+
+    # --------------------------- JSON Conversion ---------------------------- #
+    # Converts the list to a JSON object and returns it.
+    def to_json(self):
+        result = []
+        items = self.get_all()
+        for i in items:
+            result.append(i.to_json())
+        return result
 
