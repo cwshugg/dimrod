@@ -2,18 +2,28 @@
     "services":
     [
         {
-            "executable": "/home/provolone/chs/services/lumen/lumen.py",
-            "config": "/home/provolone/chs/services/lumen/lumen.json",
+            "executable": "/path/to/dimrod/services/lumen/lumen.py",
+            "config": "/path/to/dimrod/services/lumen/lumen.json",
             "use_oracle": true
         },
         {
-            "executable": "/home/provolone/chs/services/warden/warden.py",
-            "config": "/home/provolone/chs/services/warden/warden.json",
+            "executable": "/path/to/dimrod/services/warden/warden.py",
+            "config": "/path/to/dimrod/services/warden/warden.json",
             "use_oracle": true
         },
         {
-            "executable": "/home/provolone/chs/services/nimbus/nimbus.py",
-            "config": "/home/provolone/chs/services/nimbus/nimbus.json",
+            "executable": "/path/to/dimrod/services/nimbus/nimbus.py",
+            "config": "/path/to/dimrod/services/nimbus/nimbus.json",
+            "use_oracle": true
+        },
+        {
+            "executable": "/path/to/dimrod/services/taskmaster/taskmaster.py",
+            "config": "/path/to/dimrod/services/taskmaster/taskmaster.json",
+            "use_oracle": true
+        },
+        {
+            "executable": "/path/to/dimrod/services/scribble/scribble.py",
+            "config": "/path/to/dimrod/services/scribble/scribble.json",
             "use_oracle": true
         }
     ]
