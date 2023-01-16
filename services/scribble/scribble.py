@@ -33,7 +33,6 @@ class ScribbleConfig(ServiceConfig):
         super().__init__()
         self.fields += [
             ConfigField("list_dir",         [str],      required=False,     default=default_list_dir),
-            ConfigField("list_extension",   [str],      required=False,     default="db")
         ]
 
 
@@ -53,26 +52,14 @@ class ScribbleService(Service):
     def run(self):
         super().run()
 
-    # ------------------------------- Helpers -------------------------------- #
-    # Converts a file path to a list name.
-    def file_to_name(self, path: str):
-        file = os.path.basename(path).lower().replace(" ", "_")
-        return file.replace(".%s" % self.config.list_extension, "")
-    
-    # Converts a list name to a file path.
-    def name_to_file(self, name: str):
-        path = os.path.join(self.config.list_dir, name.lower().replace(" ", "_"))
-        return path + ".%s" % self.config.list_extension
-
     # ------------------------------- List API ------------------------------- #
     # Returns an array of all currently-stored list paths.
     def list_get_paths(self):
         # iterate through the list directory and find all list databases
         paths = []
-        ext = ".%s" % self.config.list_extension
         for (root, dirs, files) in os.walk(self.config.list_dir):
             for f in files:
-                if f.endswith(ext):
+                if f.endswith(".db"):
                     paths.append(os.path.join(root, f))
         return paths
     
@@ -82,7 +69,7 @@ class ScribbleService(Service):
         name = name.lower().replace(" ", "_")
         paths = self.list_get_paths()
         for f in paths:
-            if name == self.file_to_name(f):
+            if name == ScribbleList.file_to_name(f):
                 return ScribbleList(f)
         return None
     
@@ -93,7 +80,7 @@ class ScribbleService(Service):
                "a list already exists with the name \"%s\"" % name
         # if the list doesn't exist, we'll create a new ScribbleList object (it
         # will initialize automatically)
-        l = ScribbleList(self.name_to_file(name))
+        l = ScribbleList(ScribbleList.name_to_file(name, self.config.list_dir))
         return l
     
     # Deletes a list, given the name.
@@ -191,7 +178,7 @@ class ScribbleOracle(Oracle):
             # now, pass the list to the service for deletion
             try:
                 self.service.list_delete(l)
-                return self.make_response(msg="List deleted successfully")
+                return self.make_response(msg="List deleted successfully.")
             except Exception as e:
                 return self.make_response(msg="Failed to delete list: %s" % e,
                                           success=False)
@@ -223,7 +210,7 @@ class ScribbleOracle(Oracle):
             i = ScribbleListItem(text)
             try:
                 l.add(i)
-                return self.make_response(msg="Successfully added to list \"%s\"." % name)
+                return self.make_response(msg="Successfully added \"%s\" to list \"%s\"." % (text, name))
             except Exception as e:
                 return self.make_response(msg="Failed to add item to list \"%s\": %s" % (name, e),
                                           success=False)

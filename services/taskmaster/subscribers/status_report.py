@@ -18,7 +18,7 @@ if pdir not in sys.path:
 from lib.mail import MessengerConfig, Messenger
 
 # Globals
-config_name = "cwshugg_status_config.json"
+config_name = "cwshugg_mail_config.json"
 config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), config_name)
 
 # Runs a command and returns the stdout.

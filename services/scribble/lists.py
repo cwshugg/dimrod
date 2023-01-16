@@ -70,6 +70,21 @@ class ScribbleList:
         self.path = path
         self.db_init()
 
+   # ------------------------------- Helpers -------------------------------- #
+    # Converts a file path to a list name.
+    @staticmethod
+    def file_to_name(path: str):
+        file = os.path.basename(path).lower().replace(" ", "_")
+        return file.replace(".db", "")
+    
+    # Converts a list name to a file path.
+    @staticmethod
+    def name_to_file(name: str, dirpath: str):
+        path = os.path.join(dirpath, name.lower().replace(" ", "_"))
+        return path + ".db" 
+
+    # ------------------------------ Interface ------------------------------- #
+
     # Returns all list items in the list.
     def get_all(self):
         return self.db_command("SELECT * FROM items", fetch=True)
@@ -142,9 +157,9 @@ class ScribbleList:
     # --------------------------- JSON Conversion ---------------------------- #
     # Converts the list to a JSON object and returns it.
     def to_json(self):
-        result = []
+        result = {"name": self.file_to_name(self.path), "items": []}
         items = self.get_all()
         for i in items:
-            result.append(i.to_json())
+            result["items"].append(i.to_json())
         return result
 
