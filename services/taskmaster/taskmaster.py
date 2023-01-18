@@ -8,6 +8,9 @@ import os
 import sys
 import json
 import flask
+import asyncio
+import threading
+from datetime import datetime
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -29,7 +32,8 @@ class TaskmasterConfig(ServiceConfig):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("taskmaster_events",  [list], required=True)
+            ConfigField("taskmaster_events",        [list], required=True),
+            ConfigField("taskmaster_thread_limit",  [int],  required=False, default=8)
         ]
 
 
@@ -39,6 +43,7 @@ class TaskmasterService(Service):
         super().__init__(config_path)
         self.config = TaskmasterConfig()
         self.config.parse_file(config_path)
+        self.threads = []
 
         # parse each event as an event object
         self.events = []
@@ -55,21 +60,42 @@ class TaskmasterService(Service):
     # with a matching name. Returns the number of events that were fired as a
     # result.
     def post(self, pconf: TaskmasterEventPostConfig):
+        # Helper function that fires a single event and all of its subscribers.
+        def run_event(e: TaskmasterEvent, out_fd, err_fd):
+            asyncio.run(e.fire(data=pconf.data,
+                                stdout_fd=out_fd,
+                                stderr_fd=err_fd))
+            self.log.return_fd(out_fd)
+        
+        # iterate through all events and fire off those that match
         matches = 0
         for e in self.events:
             # if the name matches the event, we'll fire it (and pass along any
             # extra data)
             if e.config.name == pconf.name:
-                self.log.write("Firing event: %s" % e.config.name)
-
-                # set up two file descriptors: one for STDOUT, and one for
-                # STDERR
+                # set up two file descriptors: (STDOUT and STDERR)
                 out_fd = self.log.rent_fd()
                 err_fd = out_fd
-                result = e.fire(data=pconf.data,
-                                stdout_fd=out_fd,
-                                stderr_fd=err_fd)
-                self.log.return_fd(out_fd)
+
+                # make sure we aren't maxed out on threads. If we are, we'll
+                # have to wait for one to complete before we spawn another
+                if len(self.threads) >= self.config.taskmaster_thread_limit:
+                    self.log.write("Joining old thread...")
+                    dt1 = datetime.now()
+                    old_thread = self.threads.pop(0)
+                    old_thread.join()
+
+                    # measure the time and report how long it took
+                    dt2 = datetime.now()
+                    timediff = dt2.timestamp() - dt1.timestamp()
+                    self.log.write("Joined thread after %d seconds." % timediff)
+
+                # otherwise, create the new thread, append it to our thread
+                # queue, then start it
+                self.log.write("Firing event: %s" % e.config.name)
+                t = threading.Thread(target=run_event, args=[e, out_fd, err_fd])
+                self.threads.append(t)
+                t.start()
                 matches += 1
         return matches
 

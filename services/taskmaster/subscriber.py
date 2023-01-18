@@ -6,7 +6,6 @@ import os
 import sys
 import json
 import subprocess
-import asyncio
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -44,7 +43,7 @@ class TaskmasterSubscriber:
     def spawn(self, data=None, stdout_fd=None, stderr_fd=None):
         # Helper function that spawns, then waits, for the subprocess to finish.
         # Upon completion, STDOUT and STDERR are written to the given locations.
-        async def spawn_and_wait(argv):
+        def spawn_and_wait(argv):
             process = subprocess.Popen(argv,
                                        stdout=None if stdout_fd is None else subprocess.PIPE,
                                        stderr=None if stdout_fd is None else subprocess.PIPE)
@@ -61,5 +60,5 @@ class TaskmasterSubscriber:
         if data is not None:
             # add a single argument containing all data as a JSON string
             args.append(json.dumps(data))
-        asyncio.run(spawn_and_wait(args))
+        spawn_and_wait(args)
 
