@@ -61,7 +61,15 @@ class TaskmasterService(Service):
             # extra data)
             if e.config.name == pconf.name:
                 self.log.write("Firing event: %s" % e.config.name)
-                result = e.fire(data=pconf.data)
+
+                # set up two file descriptors: one for STDOUT, and one for
+                # STDERR
+                out_fd = self.log.rent_fd()
+                err_fd = out_fd
+                result = e.fire(data=pconf.data,
+                                stdout_fd=out_fd,
+                                stderr_fd=err_fd)
+                self.log.return_fd(out_fd)
                 matches += 1
         return matches
 

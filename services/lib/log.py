@@ -16,13 +16,8 @@ if pdir not in sys.path:
 class Log:
     # Constructor. Requires a name for the log.
     #   stream      can be either sys.stdout, sys.stderr, or a file path
-    #   limit       defines the maximum number of lines that can be written to a
-    #               file before its contents are steadily replaced (to save
-    #               space)
-    def __init__(self, name, stream=sys.stdout, limit=2048):
+    def __init__(self, name, stream=sys.stdout):
         self.name = name
-        self.line_limit = limit
-        self.line_count = 0
 
         # check the log stream. If it's a string, we'll parse it and open a file
         self.stream = stream
@@ -45,21 +40,24 @@ class Log:
 
     # Writes a new line to the log with the given message.
     def write(self, msg, begin="", end="\n"):
-        # if the stream is a string, we'll interpret it as a file name
+        # rent a file descriptor, write the object, then return it
+        stream = self.rent_fd()
+        stream.write("%s[%s] %s%s" % (begin, self.name, msg, end))
+        self.return_fd(stream)
+    
+    # Retrieves a file descriptor that's "rented" by the caller for a brief
+    # period of time. Once the caller is done writing to the file, it must
+    # then call return_fd() to close it properly.
+    def rent_fd(self):
         is_file = type(self.stream) == str
         stream = self.stream
         if is_file:
-            # if we've reached the line limit, reset the file's contents
-            if self.line_count == self.line_limit:
-                stream = open(self.stream, "w")
-                self.line_count = 0
-            else:
-                stream = open(self.stream, "a")
-
-
-        # write the message
-        stream.write("%s[%s] %s%s" % (begin, self.name, msg, end))
+            stream = open(self.stream, "a")
+        return stream
+    
+    # Takes in the FD returned by rent_fd() and closes it properly.
+    def return_fd(self, fd):
+        is_file = type(self.stream) == str
         if is_file:
-            stream.close()
-        self.line_count += 1
+            fd.close()
 

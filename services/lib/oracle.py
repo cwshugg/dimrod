@@ -75,9 +75,9 @@ class Oracle(threading.Thread):
                              self.config.oracle_https_key is not None
         if self.https_enabled:
             assert os.path.isfile(self.config.oracle_https_cert), \
-                   "the oracle_https_cert file does not exist"
+                   "the oracle_https_cert could not be accessed"
             assert os.path.isfile(self.config.oracle_https_key), \
-                   "the oracle_https_key file does not exist"
+                   "the oracle_https_key could not be accessed"
         
         # examine the config for a log stream
         log_file = sys.stdout

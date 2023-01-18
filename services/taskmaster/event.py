@@ -58,13 +58,13 @@ class TaskmasterEvent:
 
     # String representation.
     def __str__(self):
-        return "%s: %d subscribers" % (self.config.name, len(self.config.subscribers))
+        return "%s: %d subscriber(s)" % (self.config.name, len(self.config.subscribers))
     
     # Fires the event, which executes all subscribers. Takes in an optional data
     # parameter. Returns a dictionary of stdout/stderr results corresponding to
     # each executed subscriber.
-    def fire(self, data=None):
+    def fire(self, data=None, stdout_fd=None, stderr_fd=None):
         # spawn each of the subscribers' child processes
         for sub in self.subscribers:
-            sub.spawn(data=data)
+            sub.spawn(data=data, stdout_fd=stdout_fd, stderr_fd=stderr_fd)
 
