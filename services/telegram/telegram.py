@@ -22,6 +22,7 @@ from lib.cli import ServiceCLI
 
 # Service imports
 from telegram_objects import TelegramChat, TelegramUser
+from command import TelegramCommand
 
 
 # =============================== Config Class =============================== #
@@ -30,9 +31,13 @@ class TelegramConfig(ServiceConfig):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("bot_api_key",      [str],      required=True),
-            ConfigField("bot_chats",        [list],     required=True),
-            ConfigField("bot_users",        [list],     required=True)
+            ConfigField("bot_api_key",          [str],      required=True),
+            ConfigField("bot_chats",            [list],     required=True),
+            ConfigField("bot_users",            [list],     required=True),
+            #ConfigField("lumen_address",        [str],      required=True),
+            #ConfigField("lumen_port",           [int],      required=True),
+            #ConfigField("lumen_auth_username",  [str],      required=True),
+            #ConfigField("lumen_auth_password",  [str],      required=True)
         ]
 
 
@@ -44,6 +49,31 @@ class TelegramService(Service):
         self.config = TelegramConfig()
         self.config.parse_file(config_path)
         self.bot = telebot.TeleBot(self.config.bot_api_key)
+
+        # define the bot's commands
+        self.commands = [
+            TelegramCommand(["help", "commands", "what"],
+                            "Presents this help menu.",
+                            self.command_help),
+            TelegramCommand(["check", "status", "vitals"],
+                            "Reports status information.",
+                            self.command_status),
+            TelegramCommand(["light", "lights", "lumen"],
+                            "Interacts with the home lights.",
+                            self.command_lights),
+            TelegramCommand(["net", "network", "wifi"],
+                            "Retrieves home network info.",
+                            self.command_network),
+            TelegramCommand(["weather", "forecast", "nimbus"],
+                            "Reports the weather.",
+                            self.command_weather),
+            TelegramCommand(["event", "task", "taskmaster"],
+                            "Carries out event-specific tasks.",
+                            self.command_event),
+            TelegramCommand(["list"],
+                            "Updates and retrieves lists.",
+                            self.command_list)
+        ]
 
         # parse each chat as a TelegramChat object
         self.chats = []
@@ -82,6 +112,47 @@ class TelegramService(Service):
                 break
         return user_is_valid
 
+    # ------------------------------- Commands ------------------------------- #
+    # The help command's handler function.
+    def command_help(self, message: dict, args: list):
+        # build a table of possible commands in HTML
+        # https://core.telegram.org/bots/api#markdownv2-style
+        msg = "<b>All possible commands</b>\n\n"
+        for command in self.commands:
+            msg += "<code>%s</code> - %s\n" % \
+                   (command.keywords[0], command.description)
+        self.bot.send_message(message.chat.id, msg, parse_mode="HTML")
+    
+    # The status command's handler.
+    def command_status(self, message: dict, args: list):
+        msg = "DImROD is up and running."
+        self.bot.send_message(message.chat.id, msg)
+
+    # The light command's handler.
+    def command_lights(self, message: dict, args: list):
+        msg = "TODO - lights"
+        self.bot.send_message(message.chat.id, msg)
+
+    # The network command's handler.
+    def command_network(self, message: dict, args: list):
+        msg = "TODO - network"
+        self.bot.send_message(message.chat.id, msg)
+
+    # The weather command's handler.
+    def command_weather(self, message: dict, args: list):
+        msg = "TODO - weather"
+        self.bot.send_message(message.chat.id, msg)
+
+    # The event command's handler.
+    def command_event(self, message: dict, args: list):
+        msg = "TODO - event"
+        self.bot.send_message(message.chat.id, msg)
+
+    # The list command's handler.
+    def command_list(self, message: dict, args: list):
+        msg = "TODO - list"
+        self.bot.send_message(message.chat.id, msg)
+
     # ------------------------------ Interface ------------------------------- #
     # Sends a message to the given Telegram chat ID.
     def send_message(self, chat_id: str, message: str):
@@ -97,7 +168,22 @@ class TelegramService(Service):
         def bot_handle_message(message):
             if not self.check_message(message):
                 return
-            self.bot.reply_to(message, "X")
+            reply = "Unknown command."
+
+            # split the message into pieces and look for a command name
+            args = message.text.split()
+            cmd = args[0].strip().lower()
+            matched = False
+            for command in self.commands:
+                if cmd in command.keywords:
+                    reply = command.run(message, args)
+                    matched = True
+                    break
+            
+            # if no command was found, pass the message to the chat library
+            if not matched:
+                # TODO
+                pass
 
         # start the bot and set it to poll periodically for updates
         self.bot.polling()

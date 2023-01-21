@@ -25,6 +25,11 @@
             "executable": "/path/to/dimrod/services/scribble/scribble.py",
             "config": "/path/to/dimrod/services/scribble/scribble.json",
             "use_oracle": true
+        },
+        {
+            "executable": "/path/to/dimrod/services/telegram/telegram.py",
+            "config": "/path/to/dimrod/services/telegram/telegram.json",
+            "use_oracle": true
         }
     ]
 }
