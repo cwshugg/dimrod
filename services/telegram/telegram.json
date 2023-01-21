@@ -1,0 +1,36 @@
+{
+    "service_name": "telegram",
+    "service_log": "stdout",
+
+    "oracle_addr": "0.0.0.0",
+    "oracle_port": 2355,
+    "oracle_log": "stdout",
+    "oracle_auth_cookie": "telegram_auth",
+    "oracle_auth_secret": "YOUR_JWT_SECRET_HERE",
+    "oracle_auth_users":
+    [],
+    
+    "bot_api_key": "YOUR_TELEGRAM_BOT_API_KEY_HERE",
+    "bot_chats":
+    [
+        {
+            "id": "CHAT1_ID",
+            "name": "CHAT1_NAME"
+        },
+        {
+            "id": "CHAT2_ID",
+            "name": "CHAT2_NAME"
+        }
+    ],
+    "bot_users":
+    [
+        {
+            "id": "USER1_ID",
+            "name": "USER1_NAME"
+        },
+        {
+            "id": "USER2_ID",
+            "name": "USER2_NAME"
+        }
+    ]
+}

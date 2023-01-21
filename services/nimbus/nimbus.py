@@ -183,6 +183,6 @@ class NimbusOracle(Oracle):
 
 
 # =============================== Runner Code ================================ #
-cli = ServiceCLI(service=NimbusService, oracle=NimbusOracle)
+cli = ServiceCLI(config=NimbusConfig, service=NimbusService, oracle=NimbusOracle)
 cli.run()
 
