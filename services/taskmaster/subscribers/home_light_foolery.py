@@ -3,12 +3,21 @@
 # onlookers into thinking we're home.
 
 # Imports
+import os
 import sys
 import json
 import requests
 import time
 import random
 from datetime import datetime
+
+# Enable import from the main directory
+pdir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+if pdir not in sys.path:
+    sys.path.append(pdir)
+
+# Local imports
+from lib.oracle import OracleSession
 
 # Globals
 lumen_config_path = "/home/provolone/chs/services/lumen/cwshugg_lumen.json"
@@ -36,20 +45,15 @@ def lumen_send(lid: str, action: str, color=None, brightness=None):
     url_base = "http://%s:%d" % (lumen_config_data["oracle_addr"],
                                  lumen_config_data["oracle_port"])
 
-    # set up the lumen session, if necessary
+    # set up the session, only the first time
     global lumen_session
-    if lumen_session is None: 
-        # retrieve a user to log in with
+    if lumen_session is None:
+        lumen_session = OracleSession(lumen_config_data["oracle_addr"],
+                                      lumen_config_data["oracle_port"])
+        # authenticate with the service
         users = lumen_config_data["oracle_auth_users"]
         user = users[0]
-
-        # create a session and send a login request
-        s = requests.Session()
-        login_data = {"username": user["username"], "password": user["password"]}
-        print("Logging into lumen... %s" % json.dumps(login_data))
-        r = s.post(url_base + "/auth/login", json=login_data)
-        print("Lumen response: %d (%s)" % (r.status_code, json.dumps(r.json(), indent=4)))
-        lumen_session = s
+        lumen_session.login(user["username"], user["password"])
     
     # now, take the parameters and build a request payload
     toggle_data = {
@@ -62,9 +66,8 @@ def lumen_send(lid: str, action: str, color=None, brightness=None):
         toggle_data["brightness"] = brightness
 
     # build the URL and send the request
-    url = url_base + "/toggle"
     print("Sending Lumen toggle request: %s" % json.dumps(toggle_data))
-    r = lumen_session.post(url_base + "/toggle", json=toggle_data)
+    r = lumen_session.post("/toggle", payload=toggle_data)
     print("Lumen response: %d (%s)" % (r.status_code, json.dumps(r.json(), indent=4)))
     return r
 
@@ -107,8 +110,9 @@ def main():
             brightness = 1.0
             lumen_send(light_id, action, color=color, brightness=brightness)
 
-        # sleep until the next tick
-        time.sleep(tick_rate)
+        # sleep until the next tick (or until the end)
+        time_until_end = max(end.timestamp() - now.timestamp(), 0)
+        time.sleep(min(tick_rate, time_until_end))
         now = datetime.now()
 
     # turn all the lights off

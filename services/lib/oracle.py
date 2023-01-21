@@ -10,6 +10,7 @@ import threading
 import json
 import flask
 import jwt
+import requests
 from datetime import datetime
 
 # Import(s) to run Flask in WSGI production
@@ -331,7 +332,8 @@ class Oracle(threading.Thread):
         return resp
 
 
-# ============================ Oracle User Config ============================ #
+# =============================== Oracle Users =============================== #
+# User Config object.
 class UserConfig(lib.config.Config):
     def __init__(self):
         super().__init__()
@@ -343,8 +345,7 @@ class UserConfig(lib.config.Config):
 
 
 
-# =============================== Oracle Users =============================== #
-# This small class represents a single user that can access the Oracle via HTTP.
+# User object.
 class User:
     # Constructor.
     def __init__(self, jdata):
@@ -354,4 +355,60 @@ class User:
     # Returns a string representation of the object.
     def __str__(self):
         return self.config.username
+
+
+# ============================== Oracle Session ============================== #
+# The OracleSession object serves as an interface for interacting with a
+# service's oracle. This is useful for scripts, or other services, that wish to
+# talk with oracles via HTTP.
+class OracleSession:
+    # Constructor. Takes in the oracle's address and port and sets up an
+    # internal session.
+    def __init__(self, address: str, port: int):
+        self.address = address
+        self.port = port
+        self.url_base = "http://%s:%d" % (address, port)
+        self.session = requests.Session()
+    
+    # Logs into the service, given the username and password.
+    def login(self, username: str, password: str):
+        url = self.url_base + "/auth/login"
+        login_data = {"username": username, "password": password}
+        return self.session.post(url, json=login_data)
+    
+    # Sends a POST request.
+    def post(self, endpoint: str, payload=None):
+        url = self.url_base + "/" + endpoint
+        return self.session.post(url, json=payload)
+
+    # Sends a GET request.
+    def get(self, endpoint: str):
+        url = self.url_base + "/" + endpoint
+
+    # --------------------------- Response Parsing --------------------------- #
+    # Retrieves and returns the JSON data from the response.
+    @staticmethod
+    def get_response_json(response):
+        return response.json()
+    
+    # Retrieves the 'success' field from the response's JSON data and returns
+    # its value.
+    @staticmethod
+    def get_response_success(response):
+        jdata = OracleSession.get_response_json(response)
+        return jdata["success"]
+    
+    # Retrieves the 'message' field from the response's JSON data and returns
+    # its value.
+    @staticmethod
+    def get_response_message(response):
+        jdata = OracleSession.get_response_json(response)
+        return jdata["message"]
+    
+    # Retrieves the 'payload' JSON data from within the response's JSON data and
+    # returns its value.
+    @staticmethod
+    def get_response_payload(response):
+        jdata = OracleSession.get_response_json(response)
+        return jdata["payload"]
 

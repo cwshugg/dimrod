@@ -3,11 +3,20 @@
 # the house.
 
 # Imports
+import os
 import sys
 import json
 import requests
 import time
 from datetime import datetime
+
+# Enable import from the main directory
+pdir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+if pdir not in sys.path:
+    sys.path.append(pdir)
+
+# Local imports
+from lib.oracle import OracleSession
 
 # Globals
 lumen_config_path = "/home/provolone/chs/services/lumen/cwshugg_lumen.json"
@@ -54,24 +63,15 @@ def lumen_send(lid: str, action: str, color=None, brightness=None):
         with open(lumen_config_path, "r") as fp:
             lumen_config_data = json.load(fp)
     
-    # build a URL base for requests
-    url_base = "http://%s:%d" % (lumen_config_data["oracle_addr"],
-                                 lumen_config_data["oracle_port"])
-
-    # set up the lumen session, if necessary
+    # set up the session, only the first time
     global lumen_session
-    if lumen_session is None: 
-        # retrieve a user to log in with
+    if lumen_session is None:
+        lumen_session = OracleSession(lumen_config_data["oracle_addr"],
+                                      lumen_config_data["oracle_port"])
+        # authenticate with the service
         users = lumen_config_data["oracle_auth_users"]
         user = users[0]
-
-        # create a session and send a login request
-        s = requests.Session()
-        login_data = {"username": user["username"], "password": user["password"]}
-        print("Logging into lumen... %s" % json.dumps(login_data))
-        r = s.post(url_base + "/auth/login", json=login_data)
-        print("Lumen response: %d (%s)" % (r.status_code, json.dumps(r.json(), indent=4)))
-        lumen_session = s
+        lumen_session.login(user["username"], user["password"])
     
     # now, take the parameters and build a request payload
     toggle_data = {
@@ -84,9 +84,8 @@ def lumen_send(lid: str, action: str, color=None, brightness=None):
         toggle_data["brightness"] = brightness
 
     # build the URL and send the request
-    url = url_base + "/toggle"
     print("Sending Lumen toggle request: %s" % json.dumps(toggle_data))
-    r = lumen_session.post(url_base + "/toggle", json=toggle_data)
+    r = lumen_session.post("/toggle", payload=toggle_data)
     print("Lumen response: %d (%s)" % (r.status_code, json.dumps(r.json(), indent=4)))
     return r
 
@@ -110,6 +109,7 @@ def main():
 
     # ------------------------------ Lights Off ------------------------------ #
     lumen_send("bulb_front_porch", "off")
+
 # Runner code
 if __name__ == "__main__":
     sys.exit(main())

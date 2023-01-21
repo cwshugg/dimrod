@@ -17,6 +17,7 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.mail import MessengerConfig, Messenger
+from lib.oracle import OracleSession
 
 # Globals
 scribble_config_path = "/home/provolone/chs/services/scribble/cwshugg_scribble.json"
@@ -42,21 +43,15 @@ def scribble_init():
     scribble_url_base = "http://%s:%d" % (scribble_config_data["oracle_addr"],
                                           scribble_config_data["oracle_port"])
     
-    # set up the scribble session, if necessary
+    # set up the session, only the first time
     global scribble_session
-    if scribble_session is None: 
-        # retrieve a user to log in with
+    if scribble_session is None:
+        scribble_session = OracleSession(scribble_config_data["oracle_addr"],
+                                         scribble_config_data["oracle_port"])
+        # authenticate with the service
         users = scribble_config_data["oracle_auth_users"]
         user = users[0]
-
-        # create a session and send a login request
-        s = requests.Session()
-        login_data = {"username": user["username"], "password": user["password"]}
-        print("Logging into scribble... %s" % json.dumps(login_data))
-        r = s.post(scribble_url_base + "/auth/login", json=login_data)
-        print("Scribble response: %d (%s)" % (r.status_code, json.dumps(r.json(), indent=4)))
-        scribble_session = s
-
+        scribble_session.login(user["username"], user["password"])
 
 # Helper function for talking with Scribble.
 def scribble_send(data: dict):
@@ -65,32 +60,32 @@ def scribble_send(data: dict):
     action = data["action"].strip().lower()
 
     # build a URL and any other parameters
-    url = scribble_url_base
+    endpoint = "/"
     method = "POST"
     payload = {}
     if action == "get_all":
-        url += "/list/get/all"
+        endpoint = "/list/get/all"
         method = "GET"
     elif action == "get":
-        url += "/list/get"
+        endpoint = "/list/get"
         assert "name" in data
         payload["name"] = data["name"]
     elif action == "create":
-        url += "/list/create"
+        endpoint = "/list/create"
         assert "name" in data
         payload["name"] = data["name"]
     elif action == "delete":
-        url += "/list/delete"
+        endpoint = "/list/delete"
         assert "name" in data
         payload["name"] = data["name"]
     elif action == "append":
-        url += "/list/append"
+        endpoint =  "/list/append"
         assert "name" in data
         assert "item" in data
         payload["name"] = data["name"]
         payload["item"] = data["item"]
     elif action == "remove":
-        url += "/list/remove"
+        endpoint = "/list/remove"
         assert "name" in data
         assert "item" in data
         payload["name"] = data["name"]
@@ -101,12 +96,12 @@ def scribble_send(data: dict):
 
 
     # send the request
-    print("Sending Scribble \"%s\" request: %s %s" % (action, url, json.dumps(payload)))
+    print("Sending Scribble \"%s\" request: %s %s" % (action, endpoint, json.dumps(payload)))
     r = None
     if method == "GET":
-        r = scribble_session.get(url)
+        r = scribble_session.get(endpoint)
     else:
-        r = scribble_session.post(url, json=payload)
+        r = scribble_session.post(endpoint, payload=payload)
     print("Scribble response: %d (%s)" % (r.status_code, json.dumps(r.json(), indent=4)))
     return r
 

@@ -32,8 +32,9 @@ class TaskmasterConfig(ServiceConfig):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("taskmaster_events",        [list], required=True),
-            ConfigField("taskmaster_thread_limit",  [int],  required=False, default=8)
+            ConfigField("taskmaster_events",            [list], required=True),
+            ConfigField("taskmaster_thread_limit",      [int],  required=False, default=8),
+            ConfigField("taskmaster_thread_timeout",    [int],  required=False, default=0.01)
         ]
 
 
@@ -79,16 +80,19 @@ class TaskmasterService(Service):
 
                 # make sure we aren't maxed out on threads. If we are, we'll
                 # have to wait for one to complete before we spawn another
-                if len(self.threads) >= self.config.taskmaster_thread_limit:
-                    self.log.write("Joining old thread...")
-                    dt1 = datetime.now()
-                    old_thread = self.threads.pop(0)
-                    old_thread.join()
-
-                    # measure the time and report how long it took
-                    dt2 = datetime.now()
-                    timediff = dt2.timestamp() - dt1.timestamp()
-                    self.log.write("Joined thread after %d seconds." % timediff)
+                join_dt1 = datetime.now()
+                join_idx = 0 if len(self.threads) >= self.config.taskmaster_thread_limit else -1
+                while len(self.threads) >= self.config.taskmaster_thread_limit:
+                    self.threads[join_idx].join(timeout=self.config.taskmaster_thread_timeout)
+                    if not self.threads[join_idx].is_alive():
+                        self.threads.pop(join_idx)
+                        break
+                # measure the time and report how long it took
+                join_dt2 = datetime.now()
+                join_diff = join_dt2.timestamp() - join_dt1.timestamp()
+                if join_idx > -1:
+                    self.log.write("Joined old thread (%d) after %d seconds." %
+                                   (join_idx, join_diff))
 
                 # otherwise, create the new thread, append it to our thread
                 # queue, then start it
