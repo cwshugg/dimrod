@@ -384,25 +384,27 @@ class OracleSession:
     # Sends a GET request.
     def get(self, endpoint: str):
         url = self.url_base + "/" + endpoint
+        return self.session.get(url)
 
     # --------------------------- Response Parsing --------------------------- #
     # Retrieves and returns the JSON data from the response.
     @staticmethod
     def get_response_json(response):
-        return response.json()
+        jdata = response.json()
+        return jdata["payload"]
     
     # Retrieves the 'success' field from the response's JSON data and returns
     # its value.
     @staticmethod
     def get_response_success(response):
-        jdata = OracleSession.get_response_json(response)
+        jdata = response.json()
         return jdata["success"]
     
     # Retrieves the 'message' field from the response's JSON data and returns
     # its value.
     @staticmethod
     def get_response_message(response):
-        jdata = OracleSession.get_response_json(response)
+        jdata = response.json()
         return jdata["message"]
     
     # Retrieves the 'payload' JSON data from within the response's JSON data and

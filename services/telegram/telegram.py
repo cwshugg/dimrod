@@ -8,6 +8,7 @@ import os
 import sys
 import flask
 import telebot
+from datetime import datetime
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -17,7 +18,7 @@ if pdir not in sys.path:
 # Local imports
 from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
-from lib.oracle import Oracle
+from lib.oracle import Oracle, OracleSession
 from lib.cli import ServiceCLI
 
 # Service imports
@@ -34,10 +35,10 @@ class TelegramConfig(ServiceConfig):
             ConfigField("bot_api_key",          [str],      required=True),
             ConfigField("bot_chats",            [list],     required=True),
             ConfigField("bot_users",            [list],     required=True),
-            #ConfigField("lumen_address",        [str],      required=True),
-            #ConfigField("lumen_port",           [int],      required=True),
-            #ConfigField("lumen_auth_username",  [str],      required=True),
-            #ConfigField("lumen_auth_password",  [str],      required=True)
+            ConfigField("lumen_address",        [str],      required=True),
+            ConfigField("lumen_port",           [int],      required=True),
+            ConfigField("lumen_auth_username",  [str],      required=True),
+            ConfigField("lumen_auth_password",  [str],      required=True)
         ]
 
 
@@ -58,7 +59,7 @@ class TelegramService(Service):
             TelegramCommand(["check", "status", "vitals"],
                             "Reports status information.",
                             self.command_status),
-            TelegramCommand(["light", "lights", "lumen"],
+            TelegramCommand(["lights", "light", "lumen"],
                             "Interacts with the home lights.",
                             self.command_lights),
             TelegramCommand(["net", "network", "wifi"],
@@ -130,12 +131,96 @@ class TelegramService(Service):
 
     # The light command's handler.
     def command_lights(self, message: dict, args: list):
-        msg = "TODO - lights"
+        # create a HTTP session with lumen
+        session = OracleSession(self.config.lumen_address,
+                                self.config.lumen_port)
+        try:
+            r = session.login(self.config.lumen_auth_username,
+                              self.config.lumen_auth_password)
+        except Exception as e:
+            self.bot.send_message(message.chat.id,
+                                  "Sorry, I couldn't reach Lumen. "
+                                  "It might be offline.")
+            return False
+
+        # check the login response
+        if r.status_code != 200:
+            self.bot.send_message(message.chat.id,
+                                  "Sorry, I couldn't authenticate with Lumen.")
+            return False
+        if not session.get_response_success(r):
+            self.bot.send_message(message.chat.id,
+                                  "Sorry, I couldn't authenticate with Lumen. "
+                                  "(%s)" % session.get_response_message(r))
+            return False
+
+        # if no other arguments were specified, we'll generate a list of names
+        # for the lights around the house
+        if len(args) == 1:
+            r = session.get("/lights")
+            try:
+                lights = session.get_response_json(r)
+                msg = "<b>All connected lights</b>\n\n"
+                for light in lights:
+                    msg += "• <code>%s</code> - %s\n" % \
+                            (light["id"], light["description"])
+                self.bot.send_message(message.chat.id, msg, parse_mode="HTML")
+                return True
+            except Exception as e:
+                self.bot.send_message(message.chat.id,
+                                      "Sorry, I couldn't retrieve light data. "
+                                      "(%s)" % e)
+                return False
+
+        msg = "I'm not sure what you meant."
         self.bot.send_message(message.chat.id, msg)
 
     # The network command's handler.
     def command_network(self, message: dict, args: list):
-        msg = "TODO - network"
+        # create a HTTP session with warden
+        session = OracleSession(self.config.warden_address,
+                                self.config.warden_port)
+        try:
+            r = session.login(self.config.warden_auth_username,
+                              self.config.warden_auth_password)
+        except Exception as e:
+            self.bot.send_message(message.chat.id,
+                                  "Sorry, I couldn't reach Warden. "
+                                  "It might be offline.")
+            return False
+
+        # check the login response
+        if r.status_code != 200:
+            self.bot.send_message(message.chat.id,
+                                  "Sorry, I couldn't authenticate with Warden.")
+            return False
+        if not session.get_response_success(r):
+            self.bot.send_message(message.chat.id,
+                                  "Sorry, I couldn't authenticate with Warden. "
+                                  "(%s)" % session.get_response_message(r))
+            return False
+
+        # if no arguments are specified, we'll list the connected devices
+        if len(args) == 1:
+            msg = "<b>All cached devices</b>\n\n"
+            r = session.get("/clients")
+            try:
+                clients = session.get_response_json(r)
+                for client in clients:
+                    last_seen = datetime.fromtimestamp(client["last_seen"])
+                    msg += "• <code>%s</code>\n" % client["macaddr"]
+                    if "name" in client:
+                        msg += "    • <b>Name:</b> %s\n" % client["name"]
+                    msg += "    • <b>IP Address:</b> <code>%s</code>\n" % client["ipaddr"]
+                    msg += "    • <b>Last seen:</b> %s\n" % \
+                           last_seen.strftime("%Y-%m-%d at %H:%M:%S %p")
+                self.bot.send_message(message.chat.id, msg, parse_mode="HTML")
+            except Exception as e:
+                self.bot.send_message(message.chat.id,
+                                      "Sorry, I couldn't retrieve network data. "
+                                      "(%s)" % e)
+
+        msg = "I'm not sure what you meant."
         self.bot.send_message(message.chat.id, msg)
 
     # The weather command's handler.

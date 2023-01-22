@@ -1,5 +1,6 @@
 # vim swapfiles
 *.swp
+*.swo
 
 # python artifacts
 __pycache__

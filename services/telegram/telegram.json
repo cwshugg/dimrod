@@ -32,5 +32,15 @@
             "id": "USER2_ID",
             "name": "USER2_NAME"
         }
-    ]
+    ],
+
+    "lumen_address": "0.0.0.0",
+    "lumen_port": 2350,
+    "lumen_auth_username": "ABC",
+    "lumen_auth_password": "XYZ",
+
+    "warden_address": "0.0.0.0",
+    "warden_port": 2351,
+    "warden_auth_username": "ABC",
+    "warden_auth_password": "XYZ"
 }

@@ -325,7 +325,13 @@ class WardenOracle(Oracle):
             for addr in self.service.cache:
                 c = self.service.cache[addr]
                 if c.time_since_last_seen() < self.service.config.last_seen_online_threshold:
-                    result.append(c.to_json())
+                    jdata = c.to_json()
+                    # cross-reference with our list of devices and see if this
+                    # device has a name (if so, add it)
+                    for device in self.service.devices:
+                        if device.config.macaddr.lower() == c.macaddr.lower():
+                            jdata["name"] = device.config.name
+                    result.append(jdata)
             self.log.write("Returning a list of %d connected clients to %s" %
                            (len(result), flask.g.user.config.username))
             return self.make_response(payload=result)
