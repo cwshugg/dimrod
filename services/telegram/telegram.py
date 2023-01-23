@@ -25,7 +25,7 @@ from lib.cli import ServiceCLI
 from telegram_objects import TelegramChat, TelegramUser
 from command import TelegramCommand
 from commands.help import command_help
-from commands.status import command_status
+from commands.system import command_system
 from commands.lights import command_lights
 from commands.network import command_network
 from commands.weather import command_weather
@@ -64,8 +64,8 @@ class TelegramService(Service):
                             "Presents this help menu.",
                             command_help),
             TelegramCommand(["system", "status", "vitals"],
-                            "Reports status information.",
-                            command_status),
+                            "Reports system information.",
+                            command_system),
             TelegramCommand(["lights", "light", "lumen"],
                             "Interacts with the home lights.",
                             command_lights),

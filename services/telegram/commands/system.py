@@ -1,4 +1,4 @@
-# Implements the /status bot command.
+# Implements the /system bot command.
 
 # Imports
 import os
@@ -10,7 +10,7 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 # Main function.
-def command_status(service, message, args: list):
+def command_system(service, message, args: list):
     msg = "DImROD is up and running."
     service.bot.send_message(message.chat.id, msg)
 
