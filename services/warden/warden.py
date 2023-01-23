@@ -40,8 +40,7 @@ class WardenConfig(ServiceConfig):
             ConfigField("ping_timeout",     [int],  required=False,     default=0.1),
             ConfigField("ping_tries",       [int],  required=False,     default=2),
             ConfigField("sweep_threshold",  [int],  required=False,     default=600),
-            ConfigField("initial_sweeps",   [int],  required=False,     default=4),
-            ConfigField("last_seen_online_threshold", [int], required=False, default=900)
+            ConfigField("initial_sweeps",   [int],  required=False,     default=4)
         ]
         self.fields += fields
 
@@ -318,20 +317,17 @@ class WardenOracle(Oracle):
                 return self.make_response(rstatus=404)
 
             # retrieve all clients from the warden's cache and build a JSON
-            # dictionary to return. Only include the clients whose 'last_seen'
-            # is within a configured threshold (i.e. meaning they're most likely
-            # still on the network)
+            # dictionary to return.
             result = []
             for addr in self.service.cache:
                 c = self.service.cache[addr]
-                if c.time_since_last_seen() < self.service.config.last_seen_online_threshold:
-                    jdata = c.to_json()
-                    # cross-reference with our list of devices and see if this
-                    # device has a name (if so, add it)
-                    for device in self.service.devices:
-                        if device.config.macaddr.lower() == c.macaddr.lower():
-                            jdata["name"] = device.config.name
-                    result.append(jdata)
+                jdata = c.to_json()
+                # cross-reference with our list of devices and see if this
+                # device has a name (if so, add it)
+                for device in self.service.devices:
+                    if device.config.macaddr.lower() == c.macaddr.lower():
+                        jdata["name"] = device.config.name
+                result.append(jdata)
             self.log.write("Returning a list of %d connected clients to %s" %
                            (len(result), flask.g.user.config.username))
             return self.make_response(payload=result)

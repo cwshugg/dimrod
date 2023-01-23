@@ -10,7 +10,6 @@ class Client:
     def __init__(self, macaddr: str, log_maxlen=100):
         self.macaddr = macaddr.lower()
         self.ipaddr = None
-        self.last_seen = datetime.fromtimestamp(0)
         self.log = ClientLog(log_maxlen)
 
     # Creates and returns a string representation of the client.
@@ -79,5 +78,5 @@ class ClientLog:
         # pop the last entry from the queue, if necessary
         if len(self.queue) == self.maxlen:
             self.queue.pop(-1)
-        self.queue.append(dt)
+        self.queue.insert(0, dt)
 
