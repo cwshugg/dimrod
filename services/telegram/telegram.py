@@ -24,6 +24,13 @@ from lib.cli import ServiceCLI
 # Service imports
 from telegram_objects import TelegramChat, TelegramUser
 from command import TelegramCommand
+from commands.help import command_help
+from commands.status import command_status
+from commands.lights import command_lights
+from commands.network import command_network
+from commands.weather import command_weather
+from commands.event import command_event
+from commands.list import command_list
 
 
 # =============================== Config Class =============================== #
@@ -55,25 +62,25 @@ class TelegramService(Service):
         self.commands = [
             TelegramCommand(["help", "commands", "what"],
                             "Presents this help menu.",
-                            self.command_help),
-            TelegramCommand(["check", "status", "vitals"],
+                            command_help),
+            TelegramCommand(["system", "status", "vitals"],
                             "Reports status information.",
-                            self.command_status),
+                            command_status),
             TelegramCommand(["lights", "light", "lumen"],
                             "Interacts with the home lights.",
-                            self.command_lights),
+                            command_lights),
             TelegramCommand(["net", "network", "wifi"],
                             "Retrieves home network info.",
-                            self.command_network),
+                            command_network),
             TelegramCommand(["weather", "forecast", "nimbus"],
                             "Reports the weather.",
-                            self.command_weather),
+                            command_weather),
             TelegramCommand(["event", "task", "taskmaster"],
                             "Carries out event-specific tasks.",
-                            self.command_event),
+                            command_event),
             TelegramCommand(["list"],
                             "Updates and retrieves lists.",
-                            self.command_list)
+                            command_list)
         ]
 
         # parse each chat as a TelegramChat object
@@ -113,136 +120,6 @@ class TelegramService(Service):
                 break
         return user_is_valid
 
-    # ------------------------------- Commands ------------------------------- #
-    # The help command's handler function.
-    def command_help(self, message: dict, args: list):
-        # build a table of possible commands in HTML
-        # https://core.telegram.org/bots/api#markdownv2-style
-        msg = "<b>All possible commands</b>\n\n"
-        for command in self.commands:
-            msg += "<code>%s</code> - %s\n" % \
-                   (command.keywords[0], command.description)
-        self.bot.send_message(message.chat.id, msg, parse_mode="HTML")
-    
-    # The status command's handler.
-    def command_status(self, message: dict, args: list):
-        msg = "DImROD is up and running."
-        self.bot.send_message(message.chat.id, msg)
-
-    # The light command's handler.
-    def command_lights(self, message: dict, args: list):
-        # create a HTTP session with lumen
-        session = OracleSession(self.config.lumen_address,
-                                self.config.lumen_port)
-        try:
-            r = session.login(self.config.lumen_auth_username,
-                              self.config.lumen_auth_password)
-        except Exception as e:
-            self.bot.send_message(message.chat.id,
-                                  "Sorry, I couldn't reach Lumen. "
-                                  "It might be offline.")
-            return False
-
-        # check the login response
-        if r.status_code != 200:
-            self.bot.send_message(message.chat.id,
-                                  "Sorry, I couldn't authenticate with Lumen.")
-            return False
-        if not session.get_response_success(r):
-            self.bot.send_message(message.chat.id,
-                                  "Sorry, I couldn't authenticate with Lumen. "
-                                  "(%s)" % session.get_response_message(r))
-            return False
-
-        # if no other arguments were specified, we'll generate a list of names
-        # for the lights around the house
-        if len(args) == 1:
-            r = session.get("/lights")
-            try:
-                lights = session.get_response_json(r)
-                msg = "<b>All connected lights</b>\n\n"
-                for light in lights:
-                    msg += "• <code>%s</code> - %s\n" % \
-                            (light["id"], light["description"])
-                self.bot.send_message(message.chat.id, msg, parse_mode="HTML")
-                return True
-            except Exception as e:
-                self.bot.send_message(message.chat.id,
-                                      "Sorry, I couldn't retrieve light data. "
-                                      "(%s)" % e)
-                return False
-
-        msg = "I'm not sure what you meant."
-        self.bot.send_message(message.chat.id, msg)
-
-    # The network command's handler.
-    def command_network(self, message: dict, args: list):
-        # create a HTTP session with warden
-        session = OracleSession(self.config.warden_address,
-                                self.config.warden_port)
-        try:
-            r = session.login(self.config.warden_auth_username,
-                              self.config.warden_auth_password)
-        except Exception as e:
-            self.bot.send_message(message.chat.id,
-                                  "Sorry, I couldn't reach Warden. "
-                                  "It might be offline.")
-            return False
-
-        # check the login response
-        if r.status_code != 200:
-            self.bot.send_message(message.chat.id,
-                                  "Sorry, I couldn't authenticate with Warden.")
-            return False
-        if not session.get_response_success(r):
-            self.bot.send_message(message.chat.id,
-                                  "Sorry, I couldn't authenticate with Warden. "
-                                  "(%s)" % session.get_response_message(r))
-            return False
-
-        # if no arguments are specified, we'll list the connected devices
-        if len(args) == 1:
-            msg = "<b>All cached devices</b>\n\n"
-            r = session.get("/clients")
-            try:
-                clients = session.get_response_json(r)
-                for client in clients:
-                    last_seen = datetime.fromtimestamp(client["last_seen"])
-                    msg += "• <code>%s</code>\n" % client["macaddr"]
-                    if "name" in client:
-                        msg += "    • <b>Name:</b> %s\n" % client["name"]
-                    msg += "    • <b>IP Address:</b> <code>%s</code>\n" % client["ipaddr"]
-                    msg += "    • <b>Last seen:</b> %s\n" % \
-                           last_seen.strftime("%Y-%m-%d at %H:%M:%S %p")
-                self.bot.send_message(message.chat.id, msg, parse_mode="HTML")
-            except Exception as e:
-                self.bot.send_message(message.chat.id,
-                                      "Sorry, I couldn't retrieve network data. "
-                                      "(%s)" % e)
-
-        msg = "I'm not sure what you meant."
-        self.bot.send_message(message.chat.id, msg)
-
-    # The weather command's handler.
-    def command_weather(self, message: dict, args: list):
-        msg = "TODO - weather"
-        self.bot.send_message(message.chat.id, msg)
-
-    # The event command's handler.
-    def command_event(self, message: dict, args: list):
-        msg = "TODO - event"
-        self.bot.send_message(message.chat.id, msg)
-
-    # The list command's handler.
-    def command_list(self, message: dict, args: list):
-        msg = "TODO - list"
-        self.bot.send_message(message.chat.id, msg)
-
-    # ------------------------------ Interface ------------------------------- #
-    # Sends a message to the given Telegram chat ID.
-    def send_message(self, chat_id: str, message: str):
-        self.bot.send_message(chat_id, message)
-    
     # ----------------------------- Bot Behavior ----------------------------- #
     # Main runner function.
     def run(self):
@@ -253,22 +130,28 @@ class TelegramService(Service):
         def bot_handle_message(message):
             if not self.check_message(message):
                 return
-            reply = "Unknown command."
 
-            # split the message into pieces and look for a command name
+            # split the message into pieces and look for a command name (it must
+            # begin with a "/" to be a command)
             args = message.text.split()
-            cmd = args[0].strip().lower()
-            matched = False
-            for command in self.commands:
-                if cmd in command.keywords:
-                    reply = command.run(message, args)
-                    matched = True
-                    break
-            
-            # if no command was found, pass the message to the chat library
-            if not matched:
-                # TODO
-                pass
+            first = args[0].strip().lower()
+            if first.startswith(TelegramCommand.prefix):
+                for command in self.commands:
+                    if command.match(first):
+                        command.run(self, message, args)
+                        return
+                # if we didn't find a matching command, tell the user
+                self.bot.send_message(message.chat.id,
+                                      "Sorry, that's not a valid command.\n"
+                                      "Try /help.")
+                return
+
+            # if a matching command wasn't found, we'll interpret it as a chat
+            # message to dimrod
+            # TODO
+            self.bot.send_message(message.chat.id,
+                                  "Sorry, I'm not sure what you mean.\n"
+                                  "Try /help.")
 
         # start the bot and set it to poll periodically for updates
         self.bot.polling()
@@ -344,7 +227,7 @@ class TelegramOracle(Oracle):
                                           msg="No chat or user provided.")
 
             # send the message and respond
-            self.service.send_message(chat_id, flask.g.jdata["message"])
+            self.service.bot.send_message(chat_id, flask.g.jdata["message"])
             return self.make_response(msg="Message sent successfully.")
 
 # =============================== Runner Code ================================ #
