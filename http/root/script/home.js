@@ -36,7 +36,10 @@ const services_me = [
                 "fas fa-fist-raised", "mdl-color-text--red-600"),
     new Service("scribble", "Scribble",
                 new URL(hostname, "2354", "/"),
-                "fas fa-pencil", "mdl-color-text--yellow-400")
+                "fas fa-pencil", "mdl-color-text--yellow-400"),
+    new Service("telegram", "Telegram",
+                new URL(hostname, "2355", "/"),
+                "fas fa-paper-plane", "mdl-color-text--light-blue-400")
 ];
 
 // Service-specific globals
