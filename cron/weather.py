@@ -53,7 +53,7 @@ def main():
     msg = None
     
     # CASE 1 - freezing overnight!
-    if weather_night["temperature_value"] <= 36:
+    if weather_night["temperature_value"] <= 32:
         msg = "It's going to freeze tonight at home!\n" \
               "Keep the house warm and protect the car windshields from ice!"
 
