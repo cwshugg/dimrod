@@ -25,7 +25,8 @@ class LightConfig(Config):
             ConfigField("id",               [str],      required=True),
             ConfigField("description",      [str],      required=True),
             ConfigField("has_color",        [bool],     required=True),
-            ConfigField("has_brightness",   [bool],     required=True)
+            ConfigField("has_brightness",   [bool],     required=True),
+            ConfigField("tags",             [list],     required=False,     default=[])
         ]
 
 
@@ -35,11 +36,12 @@ class LightConfig(Config):
 class Light:
     # Constructor. Takes in the light's ID and a number of flags indicating if
     # special features are present.
-    def __init__(self, lid, description, has_color, has_brightness):
-        self.lid = lid
-        self.description = description
-        self.has_color = has_color
-        self.has_brightness = has_brightness
+    def __init__(self, config: LightConfig):
+        self.lid = config.id
+        self.description = config.description
+        self.has_color = config.has_color
+        self.has_brightness = config.has_brightness
+        self.tags = config.tags
 
         # internal light status trackers
         self.status = {"power": False, "color": "255,255,255", "brightness": 1.0}
@@ -58,6 +60,20 @@ class Light:
             "has_brightness": self.has_brightness,
             "status": self.status
         }
+    
+    # Uses the light's name to match text. Returns True if the name contains the
+    # given text.
+    def match_id(self, text: str):
+        return text.lower() in self.lid.lower()
+
+    # Uses the light's tags to match text. Returns True if the tags contain the
+    # given text.
+    def match_tags(self, text: str):
+        tl = text.lower()
+        for tag in self.tags:
+            if tl in tag.lower():
+                return True
+        return False
 
     # -------------------------- Status Operations --------------------------- #
     # Retrieves the last-known status of the light's power.

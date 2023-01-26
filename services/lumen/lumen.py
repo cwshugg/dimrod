@@ -67,8 +67,7 @@ class LumenService(Service):
 
             # if we're good, initialize a new Light object and append it to our
             # list of lights
-            light = Light(lconfig.id, lconfig.description,
-                          lconfig.has_color, lconfig.has_brightness)
+            light = Light(lconfig)
             self.lights.append(light)
             self.log.write("loaded light: %s" % light)
 
