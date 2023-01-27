@@ -21,13 +21,14 @@ def network_list_times(service, message, args, clients):
 
     # sort the clients into buckets based on last-seen time
     buckets = [
-        {"name": "5 minutes",   "time": 300,    "list": []},
-        {"name": "30 minutes",  "time": 1800,   "list": []},
-        {"name": "1 hour",      "time": 3600,   "list": []},
-        {"name": "4 hours",     "time": 14400,  "list": []},
-        {"name": "8 hours",     "time": 28800,  "list": []},
-        {"name": "1 day",       "time": 86400,  "list": []},
-        {"name": "1 week",      "time": 604800, "list": []}
+        {"name": "Currently online",            "time": 120,    "list": []},
+        {"name": "Last seen 5 minutes ago",     "time": 300,    "list": []},
+        {"name": "Last seen 30 minutes ago",    "time": 1800,   "list": []},
+        {"name": "Last seen 1 hour ago",        "time": 3600,   "list": []},
+        {"name": "Last seen 4 hours ago",       "time": 14400,  "list": []},
+        {"name": "Last seen 8 hours ago",       "time": 28800,  "list": []},
+        {"name": "Last seen 1 day ago",         "time": 86400,  "list": []},
+        {"name": "Last seen 1 week ago",        "time": 604800, "list": []}
     ]
     now = datetime.now()
     for client in clients:
@@ -44,7 +45,7 @@ def network_list_times(service, message, args, clients):
     for b in buckets:
         if len(b["list"]) == 0:
             continue
-        msg += "<b>Last seen within %s:</b>\n" % b["name"]
+        msg += "<b>%s:</b>\n" % b["name"]
         for client in b["list"]:
             # add the client's name or MAC address to the message
             if "name" in client:
