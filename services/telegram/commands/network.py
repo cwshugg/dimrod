@@ -45,6 +45,10 @@ def command_network(service, message, args: list):
         try:
             clients = session.get_response_json(r)
             clients = reversed(sorted(clients, key=lambda c: c["last_seen"]))
+            
+            # sort the clients into buckets based on last-seen time
+            # TODO
+
             for client in clients:
                 last_seen = datetime.fromtimestamp(client["last_seen"])
                 cname_str = ""

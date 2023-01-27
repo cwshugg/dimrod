@@ -35,6 +35,8 @@ def lights_on(service, message, args: list, session, lights: list):
     # if no third argument was given, we'll turn ALL lights on
     if len(args) < 3:
         successes = 0
+        service.send_message(message.chat.id,
+                             "Hang tight. I'm turning on all the lights.")
         for light in lights:
             jdata = {"id": light.lid, "action": "on"}
             r = session.post("/toggle", payload=jdata)
@@ -43,10 +45,13 @@ def lights_on(service, message, args: list, session, lights: list):
             if r.status_code == 200 and session.get_response_success(r):
                 successes += 1
                 continue
-            service.send_message(message.chat.id, "I couldn't turn on %s." % light.lid)
+            service.send_message(message.chat.id,
+                                 "I couldn't turn on <code>%s</code>." % light.lid,
+                                 parse_mode="HTML")
         if successes > 0:
             service.send_message(message.chat.id, "I turned on %d/%d lights." %
                                      (successes, len(lights)))
+        return
     
     # match the lights to the given arguments, then turn them each on
     matches = match_lights(args[2:], lights)
@@ -56,15 +61,21 @@ def lights_on(service, message, args: list, session, lights: list):
 
         # check the response for success
         if r.status_code == 200 and session.get_response_success(r):
-            service.send_message(message.chat.id, "I turned on %s." % light.lid)
+            service.send_message(message.chat.id,
+                                 "I turned on <code>%s</code>." % light.lid,
+                                 parse_mode="HTML")
         else:
-            service.send_message(message.chat.id, "I couldn't turn on %s." % light.lid)
+            service.send_message(message.chat.id,
+                                 "I couldn't turn on <code>%s</code>." % light.lid,
+                                 parse_mode="HTML")
 
 # Turns the lights off.
 def lights_off(service, message, args: list, session, lights: list):
     # if no third argument was given, we'll turn ALL lights off
     if len(args) < 3:
         successes = 0
+        service.send_message(message.chat.id,
+                             "Hang tight. I'm turning off all the lights.")
         for light in lights:
             jdata = {"id": light.lid, "action": "off"}
             r = session.post("/toggle", payload=jdata)
@@ -73,10 +84,13 @@ def lights_off(service, message, args: list, session, lights: list):
             if r.status_code == 200 and session.get_response_success(r):
                 successes += 1
                 continue
-            service.send_message(message.chat.id, "I couldn't turn off %s." % light.lid)
+            service.send_message(message.chat.id,
+                                 "I couldn't turn off <code>%s</code>." % light.lid,
+                                 parse_mode="HTML")
         if successes > 0:
             service.send_message(message.chat.id, "I turned off %d/%d lights." %
                                      (successes, len(lights)))
+        return
     
     # match the lights to the given arguments, then turn them each on
     matches = match_lights(args[2:], lights)
@@ -86,9 +100,13 @@ def lights_off(service, message, args: list, session, lights: list):
 
         # check the response for success
         if r.status_code == 200 and session.get_response_success(r):
-            service.send_message(message.chat.id, "I turned off %s." % light.lid)
+            service.send_message(message.chat.id,
+                                 "I turned off <code>%s</code>." % light.lid,
+                                 parse_mode="HTML")
         else:
-            service.send_message(message.chat.id, "I couldn't turn off %s." % light.lid)
+            service.send_message(message.chat.id,
+                                 "I couldn't turn off <code>%s</code>." % light.lid,
+                                 parse_mode="HTML")
 
 
 # =================================== Main =================================== #
