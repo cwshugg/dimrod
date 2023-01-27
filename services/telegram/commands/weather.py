@@ -12,5 +12,5 @@ if pdir not in sys.path:
 # Main function.
 def command_weather(service, message, args: list):
     msg = "TODO - weather"
-    service.bot.send_message(message.chat.id, msg)
+    service.send_message(message.chat.id, msg)
 

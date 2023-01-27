@@ -43,9 +43,9 @@ def lights_on(service, message, args: list, session, lights: list):
             if r.status_code == 200 and session.get_response_success(r):
                 successes += 1
                 continue
-            service.bot.send_message(message.chat.id, "I couldn't turn on %s." % light.lid)
+            service.send_message(message.chat.id, "I couldn't turn on %s." % light.lid)
         if successes > 0:
-            service.bot.send_message(message.chat.id, "I turned on %d/%d lights." %
+            service.send_message(message.chat.id, "I turned on %d/%d lights." %
                                      (successes, len(lights)))
     
     # match the lights to the given arguments, then turn them each on
@@ -56,9 +56,9 @@ def lights_on(service, message, args: list, session, lights: list):
 
         # check the response for success
         if r.status_code == 200 and session.get_response_success(r):
-            service.bot.send_message(message.chat.id, "I turned on %s." % light.lid)
+            service.send_message(message.chat.id, "I turned on %s." % light.lid)
         else:
-            service.bot.send_message(message.chat.id, "I couldn't turn on %s." % light.lid)
+            service.send_message(message.chat.id, "I couldn't turn on %s." % light.lid)
 
 # Turns the lights off.
 def lights_off(service, message, args: list, session, lights: list):
@@ -73,9 +73,9 @@ def lights_off(service, message, args: list, session, lights: list):
             if r.status_code == 200 and session.get_response_success(r):
                 successes += 1
                 continue
-            service.bot.send_message(message.chat.id, "I couldn't turn off %s." % light.lid)
+            service.send_message(message.chat.id, "I couldn't turn off %s." % light.lid)
         if successes > 0:
-            service.bot.send_message(message.chat.id, "I turned off %d/%d lights." %
+            service.send_message(message.chat.id, "I turned off %d/%d lights." %
                                      (successes, len(lights)))
     
     # match the lights to the given arguments, then turn them each on
@@ -86,9 +86,9 @@ def lights_off(service, message, args: list, session, lights: list):
 
         # check the response for success
         if r.status_code == 200 and session.get_response_success(r):
-            service.bot.send_message(message.chat.id, "I turned off %s." % light.lid)
+            service.send_message(message.chat.id, "I turned off %s." % light.lid)
         else:
-            service.bot.send_message(message.chat.id, "I couldn't turn off %s." % light.lid)
+            service.send_message(message.chat.id, "I couldn't turn off %s." % light.lid)
 
 
 # =================================== Main =================================== #
@@ -101,20 +101,20 @@ def command_lights(service, message, args: list):
         r = session.login(service.config.lumen_auth_username,
                             service.config.lumen_auth_password)
     except Exception as e:
-        service.bot.send_message(message.chat.id,
-                                "Sorry, I couldn't reach Lumen. "
-                                "It might be offline.")
+        service.send_message(message.chat.id,
+                             "Sorry, I couldn't reach Lumen. "
+                             "It might be offline.")
         return False
     
     # check the login response
     if r.status_code != 200:
-        service.bot.send_message(message.chat.id,
-                                "Sorry, I couldn't authenticate with Lumen.")
+        service.send_message(message.chat.id,
+                             "Sorry, I couldn't authenticate with Lumen.")
         return False
     if not session.get_response_success(r):
-        service.bot.send_message(message.chat.id,
-                                "Sorry, I couldn't authenticate with Lumen. "
-                                "(%s)" % session.get_response_message(r))
+        service.send_message(message.chat.id,
+                             "Sorry, I couldn't authenticate with Lumen. "
+                             "(%s)" % session.get_response_message(r))
         return False
 
     # retrieve a list of lights and convert them into objects
@@ -127,8 +127,8 @@ def command_lights(service, message, args: list):
             lconf.parse_json(l)
             lights.append(Light(lconf))
     except Exception as e:
-        service.bot.send_message(message.chat.id,
-                                 "Sorry, I couldn't retrieve light data. (%s)" % e)
+        service.send_message(message.chat.id,
+                              "Sorry, I couldn't retrieve light data. (%s)" % e)
     
     # if no other arguments were specified, we'll generate a list of names
     # for the lights around the house
@@ -137,7 +137,7 @@ def command_lights(service, message, args: list):
         for light in lights:
             msg += "• <code>%s</code> - %s\n" % \
                    (light.lid, light.description)
-        service.bot.send_message(message.chat.id, msg, parse_mode="HTML")
+        service.send_message(message.chat.id, msg, parse_mode="HTML")
         return True
 
     # if the second argument is "on", we'll turn lights on
@@ -150,5 +150,5 @@ def command_lights(service, message, args: list):
         return lights_off(service, message, args, session, lights)
 
     msg = "I'm not sure what you meant."
-    service.bot.send_message(message.chat.id, msg)
+    service.send_message(message.chat.id, msg)
 

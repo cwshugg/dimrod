@@ -22,20 +22,20 @@ def command_network(service, message, args: list):
         r = session.login(service.config.warden_auth_username,
                             service.config.warden_auth_password)
     except Exception as e:
-        service.bot.send_message(message.chat.id,
-                                "Sorry, I couldn't reach Warden. "
-                                "It might be offline.")
+        service.send_message(message.chat.id,
+                             "Sorry, I couldn't reach Warden. "
+                             "It might be offline.")
         return False
 
     # check the login response
     if r.status_code != 200:
-        service.bot.send_message(message.chat.id,
-                                "Sorry, I couldn't authenticate with Warden.")
+        service.send_message(message.chat.id,
+                             "Sorry, I couldn't authenticate with Warden.")
         return False
     if not session.get_response_success(r):
-        service.bot.send_message(message.chat.id,
-                                "Sorry, I couldn't authenticate with Warden. "
-                                "(%s)" % session.get_response_message(r))
+        service.send_message(message.chat.id,
+                             "Sorry, I couldn't authenticate with Warden. "
+                             "(%s)" % session.get_response_message(r))
         return False
 
     # if no arguments are specified, we'll list the connected devices
@@ -54,13 +54,13 @@ def command_network(service, message, args: list):
                 msg += "    • <b>IP Address:</b> <code>%s</code>\n" % client["ipaddr"]
                 msg += "    • <b>Last seen:</b> %s\n" % \
                         last_seen.strftime("%Y-%m-%d at %I:%M:%S %p")
-            service.bot.send_message(message.chat.id, msg, parse_mode="HTML")
+            service.send_message(message.chat.id, msg, parse_mode="HTML")
             return True
         except Exception as e:
-            service.bot.send_message(message.chat.id,
-                                    "Sorry, I couldn't retrieve network data. "
-                                    "(%s)" % e)
+            service.send_message(message.chat.id,
+                                 "Sorry, I couldn't retrieve network data. "
+                                 "(%s)" % e)
             return False
 
     msg = "I'm not sure what you meant."
-    service.bot.send_message(message.chat.id, msg)
+    service.send_message(message.chat.id, msg)

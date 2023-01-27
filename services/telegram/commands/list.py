@@ -12,5 +12,5 @@ if pdir not in sys.path:
 # Main function.
 def command_list(service, message, args: list):
     msg = "TODO - list"
-    service.bot.send_message(message.chat.id, msg)
+    service.send_message(message.chat.id, msg)
 

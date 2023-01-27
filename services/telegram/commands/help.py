@@ -20,5 +20,5 @@ def command_help(service, message, args: list):
     for command in service.commands:
         msg += "/%s - %s\n" % \
                 (command.keywords[0], command.description)
-    service.bot.send_message(message.chat.id, msg, parse_mode="HTML")
+    service.send_message(message.chat.id, msg, parse_mode="HTML")
 

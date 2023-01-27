@@ -12,5 +12,5 @@ if pdir not in sys.path:
 # Main function.
 def command_system(service, message, args: list):
     msg = "DImROD is up and running."
-    service.bot.send_message(message.chat.id, msg)
+    service.send_message(message.chat.id, msg)
 

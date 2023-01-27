@@ -6,6 +6,7 @@
 # Imports
 import os
 import sys
+import time
 import flask
 import telebot
 from datetime import datetime
@@ -120,6 +121,21 @@ class TelegramService(Service):
                 break
         return user_is_valid
 
+    # ------------------------------ Messaging ------------------------------- #
+    # Wrapper for sending a message.
+    def send_message(self, chat_id, message, parse_mode=None):
+        # try sending the message a finite number of times
+        tries = 8
+        for i in range(tries):
+            try:
+                return self.bot.send_message(chat_id, message, parse_mode=parse_mode)
+            except Exception as e:
+                # on failure, sleep for a small amount of time
+                self.log("Failed to send message: %s.\n"
+                         "Sleeping for a short time and trying again.")
+                time.sleep(1)
+        self.log("Failed to send message %d times. Giving up." % tries)
+
     # ----------------------------- Bot Behavior ----------------------------- #
     # Main runner function.
     def run(self):
@@ -141,7 +157,7 @@ class TelegramService(Service):
                         command.run(self, message, args)
                         return
                 # if we didn't find a matching command, tell the user
-                self.bot.send_message(message.chat.id,
+                self.send_message(message.chat.id,
                                       "Sorry, that's not a valid command.\n"
                                       "Try /help.")
                 return
@@ -149,7 +165,7 @@ class TelegramService(Service):
             # if a matching command wasn't found, we'll interpret it as a chat
             # message to dimrod
             # TODO
-            self.bot.send_message(message.chat.id,
+            self.send_message(message.chat.id,
                                   "Sorry, I'm not sure what you mean.\n"
                                   "Try /help.")
 
@@ -227,7 +243,7 @@ class TelegramOracle(Oracle):
                                           msg="No chat or user provided.")
 
             # send the message and respond
-            self.service.bot.send_message(chat_id, flask.g.jdata["message"])
+            self.service.send_message(chat_id, flask.g.jdata["message"])
             return self.make_response(msg="Message sent successfully.")
 
 # =============================== Runner Code ================================ #
