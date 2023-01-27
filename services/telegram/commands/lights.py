@@ -53,8 +53,14 @@ def lights_on(service, message, args: list, session, lights: list):
                                      (successes, len(lights)))
         return
     
-    # match the lights to the given arguments, then turn them each on
+    # match the lights to the given arguments
     matches = match_lights(args[2:], lights)
+    if len(matches) == 0:
+        service.send_message(message.chat.id,
+                             "Sorry, I couldn't find any matching lights.")
+        return
+
+    # turn each light on
     for light in matches:
         jdata = {"id": light.lid, "action": "on"}
         r = session.post("/toggle", payload=jdata)
@@ -94,6 +100,11 @@ def lights_off(service, message, args: list, session, lights: list):
     
     # match the lights to the given arguments, then turn them each on
     matches = match_lights(args[2:], lights)
+    if len(matches) == 0:
+        service.send_message(message.chat.id,
+                             "Sorry, I couldn't find any matching lights.")
+        return
+
     for light in matches:
         jdata = {"id": light.lid, "action": "off"}
         r = session.post("/toggle", payload=jdata)

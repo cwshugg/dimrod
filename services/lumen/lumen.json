@@ -26,6 +26,7 @@
         {
             "id": "bulb_front_porch",
             "description": "The lightbulb above the front door.",
+            "tags": ["outdoor", "front", "porch", "light", "bulb"],
             "has_color": true,
             "has_brightness": true
         }

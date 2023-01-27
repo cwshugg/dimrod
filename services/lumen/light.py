@@ -56,6 +56,7 @@ class Light:
         return {
             "id": self.lid,
             "description": self.description,
+            "tags": self.tags,
             "has_color": self.has_color,
             "has_brightness": self.has_brightness,
             "status": self.status
