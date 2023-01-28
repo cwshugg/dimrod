@@ -40,13 +40,21 @@ class TelegramConfig(ServiceConfig):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("bot_api_key",          [str],      required=True),
-            ConfigField("bot_chats",            [list],     required=True),
-            ConfigField("bot_users",            [list],     required=True),
-            ConfigField("lumen_address",        [str],      required=True),
-            ConfigField("lumen_port",           [int],      required=True),
-            ConfigField("lumen_auth_username",  [str],      required=True),
-            ConfigField("lumen_auth_password",  [str],      required=True)
+            ConfigField("bot_api_key",              [str],      required=True),
+            ConfigField("bot_chats",                [list],     required=True),
+            ConfigField("bot_users",                [list],     required=True),
+            ConfigField("lumen_address",            [str],      required=True),
+            ConfigField("lumen_port",               [int],      required=True),
+            ConfigField("lumen_auth_username",      [str],      required=True),
+            ConfigField("lumen_auth_password",      [str],      required=True),
+            ConfigField("warden_address",           [str],      required=True),
+            ConfigField("warden_port",              [int],      required=True),
+            ConfigField("warden_auth_username",     [str],      required=True),
+            ConfigField("warden_auth_password",     [str],      required=True),
+            ConfigField("scribble_address",         [str],      required=True),
+            ConfigField("scribble_port",            [int],      required=True),
+            ConfigField("scribble_auth_username",   [str],      required=True),
+            ConfigField("scribble_auth_password",   [str],      required=True)
         ]
 
 
