@@ -65,7 +65,7 @@ class TelegramService(Service):
         super().__init__(config_path)
         self.config = TelegramConfig()
         self.config.parse_file(config_path)
-        self.bot = telebot.TeleBot(self.config.bot_api_key)
+        self.refresh()
 
         # define the bot's commands
         self.commands = [
@@ -107,6 +107,10 @@ class TelegramService(Service):
             self.users.append(tu)
     
     # ------------------------------- Helpers -------------------------------- #
+    # Sets up a new TeleBot instance.
+    def refresh(self):
+        self.bot = telebot.TeleBot(self.config.bot_api_key)
+
     # Takes in a message and checks the chat-of-origin (or user-of-origin) and
     # returns True if the user/chat is whitelisted. Returns False otherwise.
     def check_message(self, message):
@@ -138,11 +142,14 @@ class TelegramService(Service):
             try:
                 return self.bot.send_message(chat_id, message, parse_mode=parse_mode)
             except Exception as e:
-                # on failure, sleep for a small amount of time
-                self.log("Failed to send message: %s.\n"
-                         "Sleeping for a short time and trying again.")
+                # on failure, sleep for a small amount of time, and get a new
+                # bot instance
+                self.log.write("Failed to send message. "
+                               "Resetting the bot, sleeping for a short time, "
+                               "and trying again.")
+                self.refresh()
                 time.sleep(1)
-        self.log("Failed to send message %d times. Giving up." % tries)
+        self.log.write("Failed to send message %d times. Giving up." % tries)
 
     # ----------------------------- Bot Behavior ----------------------------- #
     # Main runner function.
@@ -177,8 +184,16 @@ class TelegramService(Service):
                                   "Sorry, I'm not sure what you mean.\n"
                                   "Try /help.")
 
-        # start the bot and set it to poll periodically for updates
-        self.bot.polling()
+        # start the bot and set it to poll periodically for updates (catch
+        # errors and restart when necessary)
+        while True:
+            try:
+                self.log.write("Beginning to poll Telegram API...")
+                self.bot.polling()
+            except Exception as e:
+                self.log.write("Polling failed: %s" % e)
+                self.log.write("Waiting for a short time and restarting...")
+                time.sleep(5)
 
 
 # ============================== Service Oracle ============================== #
