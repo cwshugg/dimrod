@@ -40,10 +40,6 @@ echo -e "${C_ACC1}Installing dateutil...${C_NONE}"
 python3 -m pip install python-dateutil
 echo ""
 
-echo -e "${C_ACC1}Installing sqlite3...${C_NONE}"
-python3 -m pip install sqlite3
-echo ""
-
 echo -e "${C_ACC1}Installing pyTelegramBotAPI...${C_NONE}"
 python3 -m pip install pyTelegramBotAPI
 echo ""

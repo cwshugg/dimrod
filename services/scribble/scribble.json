@@ -19,5 +19,8 @@
             "password": "elf",
             "privilege": 0
         }
-    ]
+    ],
+
+    "ticktick_auth_username": "YOUR_TICKTICK_USERNAME",
+    "ticktick_auth_password": "YOUR_TICKTICK_PASSWORD"
 }

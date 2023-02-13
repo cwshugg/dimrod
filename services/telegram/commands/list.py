@@ -15,7 +15,7 @@ from lib.oracle import OracleSession
 def summarize(service, message, args, session, lists):
     msg = "<b>All Lists</b>\n\n"
     for l in lists:
-        length = len(l["items"])
+        length = len(l["tasks"])
         msg += "• <b>%s</b> - %d item%s\n" % \
                (l["name"], length, "s" if length != 1 else "")
     service.send_message(message.chat.id, msg, parse_mode="HTML")
@@ -28,65 +28,38 @@ def show(service, message, args, session, lists):
                              "You need to specify a name.")
         return
     name = args[1].strip().lower()
-
-    # find the list by name
+    
+    # find the list by using each arg as a word to match
+    words = args[1:]
     lst = None
     for l in lists:
-        if name == l["name"]:
+        lname = l["name"].strip().lower()
+        matches = 0
+        for w in words:
+            if w.strip().lower() in lname:
+                matches += 1
+        # if all words matched, we found our list
+        if matches == len(words):
             lst = l
             break
+
     if lst is None:
         service.send_message(message.chat.id,
-                             "Sorry, I couldn't find a list named \"%s\"." % name)
+                             "Sorry, I couldn't find a list with those "
+                             "keywords in the name.")
         return
     
     # craft and send a message
-    msg = "<b>%s</b>\n\n" % l["name"]
-    for item in lst["items"]:
-        msg += "• %s\n" % item["text"]
+    msg = "<b>%s</b>\n" % l["name"]
+    count = 1
+    for item in lst["tasks"]:
+        msg += "\n<b>[%d]</b> %s\n" % (count, item["title"])
+        if len(item["content"]) > 0:
+            clines = item["content"].split("\n")
+            for cl in clines:
+                msg += "• %s\n" % cl
+        count += 1
     service.send_message(message.chat.id, msg, parse_mode="HTML")
-
-# Creates a new list.
-def create(service, message, args, session, lists):
-    # make sure a name was provided
-    if len(args) < 3:
-        service.send_message(message.chat.id,
-                             "You need to specify a name.")
-        return
-
-    # parse the name and make sure it doesn't already exist
-    name = args[2].strip().lower()
-    for l in lists:
-        if name == l["name"]:
-            service.send_message(message.chat.id,
-                                 "There's already a list with that name.")
-            return
-
-    # request to create the list
-    try:
-        r = session.post("/list/create", payload={"name": name})
-        service.send_message(message.chat.id,
-                             session.get_response_message(r))
-    except Exception as e:
-        service.send_message(message.chat.id,
-                             "Sorry, I couldn't create the list (%s)" % e)
-
-# Deletes a list.
-def delete(service, message, args, session, lists):
-    # make sure a name was provided
-    if len(args) < 3:
-        service.send_message(message.chat.id,
-                             "You need to specify a name.")
-        return
-
-    name = args[2].strip().lower()
-    try:
-        r = session.post("/list/delete", payload={"name": name})
-        service.send_message(message.chat.id,
-                             session.get_response_message(r))
-    except Exception as e:
-        service.send_message(message.chat.id,
-                             "Sorry, I couldn't delete the list (%s)" % e)
 
 # Adds to a list.
 def add(service, message, args, session, lists):
@@ -191,11 +164,7 @@ def command_list(service, message, args: list):
 
     # look for sub-commands
     subcmd = args[1].strip().lower()
-    if subcmd in ["new", "create"]:
-        return create(service, message, args, session, lists)
-    elif subcmd in ["delete"]:
-        return delete(service, message, args, session, lists)
-    elif subcmd in ["add", "append"]:
+    if subcmd in ["add", "append"]:
         return add(service, message, args, session, lists)
     elif subcmd in ["remove", "cut"]:
         return remove(service, message, args, session, lists)
