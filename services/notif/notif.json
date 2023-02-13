@@ -1,0 +1,32 @@
+{
+    "service_name": "notif",
+    "service_log": "stdout",
+
+    "oracle_addr": "0.0.0.0",
+    "oracle_port": 2356,
+    "oracle_log": "stdout",
+    "oracle_auth_cookie": "notif_auth",
+    "oracle_auth_secret": "YOUR_JWT_SECRET_HERE",
+    "oracle_auth_users":
+    [
+        {
+            "username": "beren",
+            "password": "man",
+            "privilege": 0
+        },
+        {
+            "username": "luthien",
+            "password": "elf",
+            "privilege": 0
+        }
+    ],
+
+    "reminder_dir": "/path/to/reminders",
+    
+    "telegram_addr": "0.0.0.0",
+    "telegram_port": 2355,
+    "telegram_auth_username": "__notif",
+    "telegram_auth_password": "PASSWORD",
+    "messenger_webhook_event": "IFTTT_EVENT_NAME",
+    "webhook_key": "IFTTT_WEBHOOK_KEY"
+}

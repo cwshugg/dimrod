@@ -5,8 +5,9 @@
 # python artifacts
 __pycache__
 
-# my service config files
+# my service config files and other private files
 cwshugg*.json
+cwshugg_*
 
 # my systemd files
 dimrod*.service

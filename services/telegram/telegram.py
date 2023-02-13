@@ -266,7 +266,7 @@ class TelegramOracle(Oracle):
                                           msg="No chat or user provided.")
 
             # send the message and respond
-            self.service.send_message(chat_id, flask.g.jdata["message"])
+            self.service.send_message(chat_id, flask.g.jdata["message"], parse_mode="HTML")
             return self.make_response(msg="Message sent successfully.")
 
 # =============================== Runner Code ================================ #
