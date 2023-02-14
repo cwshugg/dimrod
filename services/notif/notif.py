@@ -64,28 +64,44 @@ class NotifService(Service):
             os.mkdir(self.config.reminder_dir)
 
         # Helper function that runs through a list of reminders and checks each
-        # one for triggering.
+        # one for triggering. Returns the number of reminders that were fired.
         def check_all(rems: list):
+            count = 0
             for rem in rems:
                 if not rem.ready():
                     continue
                 self.log.write("Ready reminder: %s" % rem)
                 self.send_reminder(rem)
+                count += 1
+            return count
 
         # loop indefinitely, checking for reminders every minute
         while True:
             # iterate through all files in the reminder directory
             for (root, dirs, files) in os.walk(self.config.reminder_dir):
                 for f in files:
-                    # load JSON files as a list of reminders
-                    if f.endswith(".json"):
-                        rems = []
-                        try:
-                            rems = self.load_reminders(os.path.join(root, f))
-                        except Exception as e:
-                            self.log.write("Failed to load reminder JSON file: %s" % e)
-                        # check all reminders for readiness
-                        check_all(rems)
+                    # skip non-JSON files
+                    if not f.endswith(".json"):
+                        continue
+                    
+                    # load the JSON file and parse its reminders
+                    fpath = os.path.join(root, f)
+                    rems = []
+                    try:
+                        rems = self.load_reminders(fpath)
+                    except Exception as e:
+                        self.log.write("Failed to load reminder JSON file %s: %s" %
+                                        (f, e))
+                    
+                    # check all reminders for readiness
+                    count = check_all(rems)
+                    if count > 0:
+                        self.log.write("Sent %d reminders from %s." % (count, f))
+                    
+                    # while we're at it, look at all the reminders that were
+                    # loaded in. If *all* of them exist in the past, we can
+                    # delete this file to prevent buildup
+                    # TODO TODO TODO
 
             time.sleep(60)
     
