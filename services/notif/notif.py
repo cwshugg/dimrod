@@ -7,6 +7,7 @@ import sys
 import json
 import flask
 import time
+import re
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -77,6 +78,8 @@ class NotifService(Service):
 
         # loop indefinitely, checking for reminders every minute
         while True:
+            prune_list = []
+
             # iterate through all files in the reminder directory
             for (root, dirs, files) in os.walk(self.config.reminder_dir):
                 for f in files:
@@ -94,14 +97,27 @@ class NotifService(Service):
                                         (f, e))
                     
                     # check all reminders for readiness
-                    count = check_all(rems)
-                    if count > 0:
-                        self.log.write("Sent %d reminders from %s." % (count, f))
+                    check_all(rems)
                     
                     # while we're at it, look at all the reminders that were
                     # loaded in. If *all* of them exist in the past, we can
                     # delete this file to prevent buildup
-                    # TODO TODO TODO
+                    expired = 0
+                    for rem in rems:
+                        expired += 1 if rem.expired() else 0
+                    if expired == len(rems):
+                        prune_list.append(fpath)
+
+            # any files that were deemed to contain only expired reminders will
+            # be deleted
+            for fpath in prune_list:
+                try:
+                    self.log.write("Deleting expired reminder file %s." %
+                                   os.path.basename(fpath))
+                    os.remove(fpath)
+                except Exception as e:
+                    self.log.write("Failed to delete expired reminder file %s: %s" %
+                                   (os.path.basename(fpath), e))
 
             time.sleep(60)
     
@@ -117,6 +133,13 @@ class NotifService(Service):
                 r.parse_json(entry)
                 rems.append(r)
         return rems
+    
+    # Saves the given reminder to its own file in the reminder directory.
+    def save_reminder(self, rem: Reminder):
+        fname = ".%s.json" % rem.get_id()
+        fpath = os.path.join(self.config.reminder_dir, fname)
+        with open(fpath, "w") as fp:
+            fp.write(json.dumps([rem.to_json()], indent=4))
  
     # --------------------------- Reminder Sending --------------------------- #
     # Sends a reminder over one or more mediums, depending on how the reminder
@@ -161,8 +184,16 @@ class NotifService(Service):
                                chat)
                 continue
             
-            # compose a message and send it to the telegram service for delivery
-            msg = "<b>%s</b>\n\n%s" % (rem.title, rem.message)
+            # compose a message (include the title only if it's not empty)
+            msg = rem.message
+            title_str = ""
+            if len(rem.title) > 0:
+                title_has_letters = re.search("[a-zA-Z]", rem.title) is not None
+                title_str = "<b>%s%s</b>" % (rem.title, ":" if title_has_letters else "")
+                msg = "%s %s" % (title_str, rem.message)
+
+            # pack the message into a payload and send it to the telegram
+            # service for delivery
             msg_data = {"chat": matched_chat, "message": msg}
             r = telegram_session.post("/bot/send", payload=msg_data)
             self.log.write(" - Telegrammed \"%s\"." % matched_chat["name"])
@@ -197,7 +228,23 @@ class NotifOracle(Oracle):
                 return self.make_response(msg="Missing JSON data.",
                                           success=False, rstatus=400)
             
-            # TODO create the reminder
+            # attempt to create a reminder object from the JSON payload
+            rem = Reminder()
+            try:
+                rem.parse_json(flask.g.jdata)
+            except Exception as e:
+                return self.make_response(msg="Invalid JSON data: %s" % e,
+                                          success=False, rstatus=400)
+            
+            # save the reminder
+            try:
+                self.service.save_reminder(rem)
+            except Exception as e:
+                return self.make_response(msg="Failed to save reminder: %s" % e,
+                                          success=False, rstatus=400)
+
+            return self.make_response(msg="Reminder created successfully.",
+                                      payload=rem.to_json())
         
 
 # =============================== Runner Code ================================ #

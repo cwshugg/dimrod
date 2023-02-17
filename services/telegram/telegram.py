@@ -32,6 +32,7 @@ from commands.network import command_network
 from commands.weather import command_weather
 from commands.event import command_event
 from commands.list import command_list
+from commands.remind import command_remind
 
 
 # =============================== Config Class =============================== #
@@ -54,7 +55,11 @@ class TelegramConfig(ServiceConfig):
             ConfigField("scribble_address",         [str],      required=True),
             ConfigField("scribble_port",            [int],      required=True),
             ConfigField("scribble_auth_username",   [str],      required=True),
-            ConfigField("scribble_auth_password",   [str],      required=True)
+            ConfigField("scribble_auth_password",   [str],      required=True),
+            ConfigField("notif_address",            [str],      required=True),
+            ConfigField("notif_port",               [int],      required=True),
+            ConfigField("notif_auth_username",      [str],      required=True),
+            ConfigField("notif_auth_password",      [str],      required=True)
         ]
 
 
@@ -89,7 +94,10 @@ class TelegramService(Service):
                             command_event),
             TelegramCommand(["list"],
                             "Updates and retrieves lists.",
-                            command_list)
+                            command_list),
+            TelegramCommand(["remind", "reminder", "rem"],
+                            "Sets reminders.",
+                            command_remind)
         ]
 
         # parse each chat as a TelegramChat object

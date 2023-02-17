@@ -30,6 +30,11 @@
             "executable": "/path/to/dimrod/services/telegram/telegram.py",
             "config": "/path/to/dimrod/services/telegram/telegram.json",
             "use_oracle": true
+        },
+        {
+            "executable": "/path/to/dimrod/services/notif/notif.py",
+            "config": "/path/to/dimrod/services/notif/notif.json",
+            "use_oracle": true
         }
     ]
 }
