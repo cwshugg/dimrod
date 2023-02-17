@@ -39,7 +39,10 @@ const services_me = [
                 "fas fa-pencil", "mdl-color-text--yellow-400"),
     new Service("telegram", "Telegram",
                 new URL(hostname, "2355", "/"),
-                "fas fa-paper-plane", "mdl-color-text--light-blue-400")
+                "fas fa-paper-plane", "mdl-color-text--light-blue-400"),
+    new Service("notif", "Notif",
+                new URL(hostname, "2356", "/"),
+                "fas fa-bell", "mdl-color-text--green-400")
 ];
 
 // Service-specific globals
