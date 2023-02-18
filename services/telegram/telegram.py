@@ -130,6 +130,7 @@ class TelegramService(Service):
                 chat_is_valid = True
                 break
         if not chat_is_valid:
+            self.log.write("Message from unrecognized chat: %s" % chat_id)
             return False
 
         # next, check the user ID
@@ -138,7 +139,11 @@ class TelegramService(Service):
         for user in self.users:
             if user.id == user_id:
                 user_is_valid = True
+                self.log.write("Message from %s in chat \"%s\"." %
+                               (user.name, chat.name))
                 break
+        if not user_is_valid:
+            self.log.write("Message from unrecognized user: %s" % user_id)
         return user_is_valid
 
     # ------------------------------ Messaging ------------------------------- #
