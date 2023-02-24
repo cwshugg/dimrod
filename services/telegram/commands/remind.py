@@ -55,6 +55,35 @@ def parse_time_offset(text: str):
         return multiplier * suffixes[suffix]
     return 0.0
 
+# Attempts to parse timestamps such as "9pm" or "10:30am".
+# Returns an (hour, minute) tuple.
+def parse_time_clock(text: str):
+    text = text.strip().lower()
+
+    # if the string doesn't end in AM/PM, return None
+    am = text.endswith("am")
+    pm = text.endswith("pm")
+    if not am and not pm:
+        return None
+    text = text.replace("am", "") if am else text.replace("pm", "")
+
+    # if there's a colon, split the string into hour and minute sections
+    pieces = text.split(":")
+    hour_str = pieces[0]
+    minute_str = pieces[1] if len(pieces) > 1 else "0"
+
+    # parse each string accordingly
+    try:
+        hour = int(hour_str)
+        minute = int(minute_str)
+
+        # account for PM time
+        if pm and hour < 12:
+            hour += 12
+        return (hour, minute)
+    except Exception as e:
+        return None
+
 # Parses the datetime from the user's arguments.
 def parse_datetime(args: list):
     # Takes in a value (float or int) and adds/subtracts it from the datetime
@@ -64,9 +93,14 @@ def parse_datetime(args: list):
     
     # start with the current date/time
     dt = datetime.now()
+    now = datetime.now()
     
     # iterate through the arguments and look for keywords
     for arg in args:
+        same_day = now.year == dt.year and \
+                   now.month == dt.month and \
+                   now.day == dt.day
+
         # look for mention of a weekday
         wd = parse_weekday(arg)
         if wd is not None:
@@ -75,6 +109,24 @@ def parse_datetime(args: list):
             dt = adjust_dt(dt, 86400)
             while get_weekday(dt) != wd:
                 dt = adjust_dt(dt, 86400)
+            continue
+
+        # look for 'am'/'pm'-suffixed times
+        clocktime = parse_time_clock(arg)
+        if clocktime is not None:
+            h = clocktime[0]
+            m = clocktime[1]
+
+            # compute an offset based on the hour and minute (jump to the next
+            # day if 'dt' is still set to the current day and the hour/minute
+            # have already passed today)
+            offset = 0.0
+            if dt.hour > h and same_day:
+                offset += 86400
+            offset += (h - dt.hour) * 3600
+            offset += (m - dt.minute) * 60
+            dt = adjust_dt(dt, offset)
+            continue
 
         # look for suffixed time offsets ("1d", "2h", "3m")
         offset = parse_time_offset(arg)
