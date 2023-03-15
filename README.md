@@ -10,6 +10,9 @@ DImROD is comprised of:
 4. A number of python services responsible for:
     * Interacting with WiFi lights/plugs
     * Monitoring the network
+    * Manage and send me reminders
+    * Interact with public APIs (weather, to-do list apps, etc.)
+    * Processing remote commands via a Telegram bot
     * ...and more to come!
 
 ## File Layout
@@ -30,7 +33,7 @@ Within `services/` is the library code I implemented to create individual
 services that provide me with some sort of functionality. Each service:
 
 * Runs a machine-local process that periodically performs its job, *and*
-* Exposes a HTTP API to my home network for communication (with built-in
+* Exposes an HTTP API to my home network for communication (with built-in
   authentication).
 
 These services are implemented in Python and will process authenticated requests
@@ -39,10 +42,6 @@ services via the HTTP APIs.
 
 ## Future Plans
 
-* Implement a weather service that uses [this API](https://www.weather.gov/documentation/services-web-api)
-* Implement a reminder service
-* Implement a to-do list service
-* Implement a grocery list management service 
 * Implement a conversation service used to:
     * Talk with DImROD
     * Instruct DImROD to interact with other services to accomplish things
