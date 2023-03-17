@@ -149,7 +149,10 @@ def command_remind(service, message, args: list):
     # find where a "." appears first in the arguments. This is where we'll
     # separate datetime and message
     all_args = " ".join(args[1:])
-    pieces = all_args.split(".")
+    first_dot = all_args.index(".")
+    pieces = all_args
+    if first_dot >= 0 and len(all_args) > first_dot + 1:
+        pieces = [all_args[:first_dot], all_args[first_dot + 1:]]
     dt_args = pieces[0].split()
     msg_args = [] if len(pieces) < 2 else ". ".join(pieces[1:]).split()
 

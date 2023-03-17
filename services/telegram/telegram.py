@@ -7,6 +7,7 @@
 import os
 import sys
 import time
+import re
 import flask
 import telebot
 from datetime import datetime
@@ -149,6 +150,20 @@ class TelegramService(Service):
     # ------------------------------ Messaging ------------------------------- #
     # Wrapper for sending a message.
     def send_message(self, chat_id, message, parse_mode=None):
+        # modify the message, if necessary, before sending
+        if parse_mode.lower() == "html":
+            # adjust hyperlinks
+            url_starts = ["http://", "https://"]
+            for url_start in url_starts:
+                # find all string indexes where URLs begin
+                idxs = [m.start() for m in re.finditer(url_start, message)]
+                for idx in idxs:
+                    # for each index, insert a "<a>" and "</a>" at the front and
+                    # end of the string
+                    message = message[:idx] + "<a>" + message[idx:]
+                    end_idx = idx + len(message[idx:].split()[0])
+                    message = message[:end_idx] + "</a>" + message[end_idx:]
+
         # try sending the message a finite number of times
         tries = 8
         for i in range(tries):
