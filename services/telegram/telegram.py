@@ -10,6 +10,7 @@ import time
 import re
 import flask
 import telebot
+import traceback
 from datetime import datetime
 
 # Enable import from the parent directory
@@ -151,7 +152,7 @@ class TelegramService(Service):
     # Wrapper for sending a message.
     def send_message(self, chat_id, message, parse_mode=None):
         # modify the message, if necessary, before sending
-        if parse_mode.lower() == "html":
+        if parse_mode is not None and parse_mode.lower() == "html":
             # adjust hyperlinks
             url_starts = ["http://", "https://"]
             for url_start in url_starts:
@@ -219,7 +220,10 @@ class TelegramService(Service):
                 self.log.write("Beginning to poll Telegram API...")
                 self.bot.polling()
             except Exception as e:
-                self.log.write("Polling failed: %s" % e)
+                self.log.write("Polling failed:")
+                tb = traceback.format_exc()
+                for line in tb.split("\n"):
+                    self.log.write(line)
                 self.log.write("Waiting for a short time and restarting...")
                 time.sleep(5)
 

@@ -149,12 +149,18 @@ def command_remind(service, message, args: list):
     # find where a "." appears first in the arguments. This is where we'll
     # separate datetime and message
     all_args = " ".join(args[1:])
-    first_dot = all_args.index(".")
-    pieces = all_args
-    if first_dot >= 0 and len(all_args) > first_dot + 1:
+    first_dot = all_args.index(".") if "." in all_args else len(all_args)
+    pieces = [all_args]
+    if first_dot >= 0 and len(all_args) >= first_dot + 1:
         pieces = [all_args[:first_dot], all_args[first_dot + 1:]]
     dt_args = pieces[0].split()
     msg_args = [] if len(pieces) < 2 else ". ".join(pieces[1:]).split()
+
+    # if the message is in reply to another, we'll use the original message's
+    # text as this reminder's message
+    is_reply = message.reply_to_message is not None
+    if is_reply:
+        msg_args = [message.reply_to_message.text]
 
     # if we're missing either group of args, send back an error
     if len(dt_args) == 0:
@@ -197,7 +203,7 @@ def command_remind(service, message, args: list):
     
     # create the reminder by talking to notif's oracle
     payload = {
-        "title": "🔔",
+        "title": "" if is_reply else "🔔",
         "message": msg,
         "send_telegrams": [str(message.chat.id)],
         "trigger_years": [dt.year],
