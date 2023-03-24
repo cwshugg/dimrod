@@ -44,5 +44,9 @@ echo -e "${C_ACC1}Installing pyTelegramBotAPI...${C_NONE}"
 python3 -m pip install pyTelegramBotAPI
 echo ""
 
+echo -e "${C_ACC1}Installing openai...${C_NONE}"
+python3 -m pip install openai
+echo ""
+
 echo -e "${C_GOOD}Finished.${C_NONE}"
 

@@ -8,10 +8,10 @@ import os
 import sys
 import time
 import re
+from datetime import datetime
 import flask
 import telebot
 import traceback
-from datetime import datetime
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -23,6 +23,7 @@ from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle, OracleSession
 from lib.cli import ServiceCLI
+from lib.dialogue import DialogueInterface, DialogueConfig
 
 # Service imports
 from telegram_objects import TelegramChat, TelegramUser
@@ -115,6 +116,12 @@ class TelegramService(Service):
             tu = TelegramUser()
             tu.parse_json(udata)
             self.users.append(tu)
+
+        # set up the dialogue interface
+        dialogue_conf = DialogueConfig()
+        dialogue_conf.parse_file(config_path)
+        self.dialogue = DialogueInterface(dialogue_conf)
+        self.conversations = {}
     
     # ------------------------------- Helpers -------------------------------- #
     # Sets up a new TeleBot instance.
@@ -190,6 +197,7 @@ class TelegramService(Service):
         def bot_handle_message(message):
             if not self.check_message(message):
                 return
+            now = datetime.now()
 
             # split the message into pieces and look for a command name (it must
             # begin with a "/" to be a command)
@@ -207,11 +215,28 @@ class TelegramService(Service):
                 return
 
             # if a matching command wasn't found, we'll interpret it as a chat
-            # message to dimrod
-            # TODO
-            self.send_message(message.chat.id,
-                                  "Sorry, I'm not sure what you mean.\n"
-                                  "Try /help.")
+            # message to dimrod. First, look for an existing conversation object
+            # for this specific chat. If one exists, AND it hasn't been too long
+            # since it was last touched, we'll use it
+            convo_id = str(message.chat.id)
+            convo = None
+            if convo_id in self.conversations:
+                timediff = now.timestamp() - self.conversations[convo_id].time_latest.timestamp()
+                if timediff < 300:
+                    convo = self.conversations[convo_id]
+                else:
+                    self.log.write("Conversation for chat \"%s\" has expired." % message.chat.id)
+
+            # next, pass the message (and conversation, if we found one) to the
+            # dialogue interface
+            try:
+                convo = self.dialogue.talk(message.text, conversation=convo)
+                self.send_message(message.chat.id, convo.latest_response())
+                self.conversations[convo_id] = convo
+            except Exception as e:
+                self.send_message(message.chat.id,
+                                  "I'm not sure what you mean. Try /help.")
+                raise e
 
         # start the bot and set it to poll periodically for updates (catch
         # errors and restart when necessary)
