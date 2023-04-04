@@ -154,6 +154,17 @@ class TelegramService(Service):
         if not user_is_valid:
             self.log.write("Message from unrecognized user: %s" % user_id)
         return user_is_valid
+    
+    # Takes in a string message and attempts to reword it. On failure it will
+    # return the original string.
+    def reword_message(self, message: str):
+        # attempt to use a dialogue interface
+        try:
+            return self.dialogue.reword(message)
+        except Exception as e:
+            raise e # FIXME REMOVE
+            self.log.write("Failed to generate rewording for message: %s" % e)
+            return message
 
     # ------------------------------ Messaging ------------------------------- #
     # Wrapper for sending a message.
