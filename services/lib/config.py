@@ -59,7 +59,7 @@ class Config:
         self.parse_json(jdata)
 
     # Used to parse config entries from a dictionary.
-    def parse_json(self, jdata):
+    def parse_json(self, jdata: dict):
         # iterate through each field we expect to see
         for f in self.fields:
             key = f.name

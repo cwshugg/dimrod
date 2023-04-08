@@ -58,8 +58,8 @@ def lights_on(service, message, args: list, session, lights: list):
     # match the lights to the given arguments
     matches = match_lights(args[2:], lights)
     if len(matches) == 0:
-        service.send_message(message.chat.id,
-                             "Sorry, I couldn't find any matching lights.")
+        msg = service.reword_message("I couldn't find any matching lights.")
+        service.send_message(message.chat.id, msg)
         return
 
     # turn each light on
@@ -69,13 +69,11 @@ def lights_on(service, message, args: list, session, lights: list):
 
         # check the response for success
         if r.status_code == 200 and session.get_response_success(r):
-            service.send_message(message.chat.id,
-                                 "I turned on <code>%s</code>." % light.lid,
-                                 parse_mode="HTML")
+            msg = service.reword_message("I turned on <code>%s</code>." % light.lid)
+            service.send_message(message.chat.id, msg, parse_mode="HTML")
         else:
-            service.send_message(message.chat.id,
-                                 "I couldn't turn on <code>%s</code>." % light.lid,
-                                 parse_mode="HTML")
+            msg = service.reword_message("I couldn't turn on <code>%s</code>." % light.lid)
+            service.send_message(message.chat.id, msg, parse_mode="HTML")
 
 # Turns the lights off.
 def lights_off(service, message, args: list, session, lights: list):
@@ -113,10 +111,10 @@ def lights_off(service, message, args: list, session, lights: list):
 
         # check the response for success
         if r.status_code == 200 and session.get_response_success(r):
-            msg = service.reword_message("I turned off <code>%s</code>" % light.lid)
+            msg = service.reword_message("I turned off <code>%s</code>." % light.lid)
             service.send_message(message.chat.id, msg, parse_mode="HTML")
         else:
-            msg = service.reword_message("I turned off <code>%s</code>" % light.lid)
+            msg = service.reword_message("I couldn't turn off <code>%s</code>." % light.lid)
             service.send_message(message.chat.id, msg, parse_mode="HTML")
 
 

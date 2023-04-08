@@ -242,7 +242,7 @@ class TelegramService(Service):
             # dialogue interface
             try:
                 convo = self.dialogue.talk(message.text, conversation=convo)
-                self.send_message(message.chat.id, convo.latest_response())
+                self.send_message(message.chat.id, convo.latest_response().content)
                 self.conversations[convo_id] = convo
             except Exception as e:
                 self.send_message(message.chat.id,
