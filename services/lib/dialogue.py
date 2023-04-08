@@ -10,6 +10,7 @@ import hashlib
 from datetime import datetime
 from enum import Enum
 import openai
+import sqlite3
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -93,13 +94,18 @@ class DialogueAuthor:
         self.aid = aid
         if self.aid is None:
             self.get_id()
+
+    # Returns a string representation of the object.
+    def __str__(self):
+        return "DialogueAuthor: [%d-%s] %s" % \
+               (self.atype.value, self.atype.name, self.name)
     
     # Returns the author's unique ID. If one hasn't been created yet for this
     # instance, one is generated here.
     def get_id(self):
         if self.aid is None:
             data = "%s-%s" % (self.name, self.atype.name)
-            data = data.encode("utf-8") + os.urandom(8)
+            data = data.encode("utf-8")
             self.aid = hashlib.sha256(data).hexdigest()
         return self.aid
     
@@ -115,14 +121,15 @@ class DialogueAuthor:
     # ------------------------------- SQLite3 -------------------------------- #
     # Creates and returns an SQLite3-friendly tuple version of the object.
     def to_sqlite3(self):
-        result = (self.get_id(), self.name, self.atype.value)
+        result = (self.get_id(), self.atype.value, self.name)
+        return result
     
     # Takes in a SQLite3 tuple and creates a DialogueAuthor object.
     @staticmethod
-    def from_sqlite3(self, tdata: tuple):
+    def from_sqlite3(tdata: tuple):
         assert len(tdata) >= 3
-        atype = DialogueAuthorType(tdata[2])
-        return DialogueAuthor(tdata[1], atype, aid=tdata[0])
+        atype = DialogueAuthorType(tdata[1])
+        return DialogueAuthor(tdata[2], atype, aid=tdata[0])
 
 # This class represents a single message passed between a user and DImROD.
 class DialogueMessage:
@@ -156,10 +163,11 @@ class DialogueMessage:
     # Converts the object into a SQLite3-friendly tuple.
     def to_sqlite3(self):
         result = (self.get_id(), self.author.get_id(), self.content, self.timestamp.timestamp())
+        return
     
     # Converts the given SQlite3 tuple into a DialogueMessage object.
     @staticmethod
-    def from_sqlite3(self, tdata: tuple):
+    def from_sqlite3(tdata: tuple):
         assert len(tdata) >= 4
         ts = datetime.fromtimestamp(tdata[3])
         author = tdata[1] # FIXME NEED TO TURN AUTHOR ID INTO AUTHOR OBJECT REFERENCE
@@ -226,11 +234,18 @@ class DialogueConfig(lib.config.Config):
                        openai_behavior_rules + \
                        openai_behavior_commands
 
+        # set up default database locations
+        default_db_dir = os.path.dirname(__file__)
+        default_author_db_path = os.path.join(default_db_dir, ".dialogue_authors.db")
+        default_convo_db_path = os.path.join(default_db_dir, ".dialogue_conversations.db")
+
         # set up fields
         self.fields = [
-            lib.config.ConfigField("openai_api_key",        [str],  required=True),
-            lib.config.ConfigField("openai_chat_model",     [str],  required=False, default="gpt-3.5-turbo"),
-            lib.config.ConfigField("openai_chat_behavior",  [str],  required=False, default=openai_intro),
+            lib.config.ConfigField("openai_api_key",            [str],  required=True),
+            lib.config.ConfigField("openai_chat_model",         [str],  required=False, default="gpt-3.5-turbo"),
+            lib.config.ConfigField("openai_chat_behavior",      [str],  required=False, default=openai_intro),
+            lib.config.ConfigField("dialogue_author_db",        [str],  required=False, default=default_author_db_path),
+            lib.config.ConfigField("dialogue_conversation_db",  [str],  required=False, default=default_convo_db_path)
         ]
 
 
@@ -255,11 +270,13 @@ class DialogueInterface:
         if c is None:
             c = DialogueConversation()
             a = DialogueAuthor("system", DialogueAuthorType.UNKNOWN)
+            self.save_author(a)
             m = DialogueMessage(a, self.conf.openai_chat_behavior)
             c.add(m)
 
         # add the user's message to the conversation and contact OpenAI
         a = DialogueAuthor("user", DialogueAuthorType.USER)
+        self.save_author(a)
         m = DialogueMessage(a, prompt)
         c.add(m)
         result = openai.ChatCompletion.create(model=self.conf.openai_chat_model,
@@ -269,6 +286,7 @@ class DialogueInterface:
         choices = result["choices"]
         response = choices[0]
         a = DialogueAuthor("assistant", DialogueAuthorType.SYSTEM)
+        self.save_author(a)
         m = DialogueMessage(a, response["message"]["content"])
         c.add(m)
         return c
@@ -289,5 +307,63 @@ class DialogueInterface:
         result = openai.ChatCompletion.create(model=self.conf.openai_chat_model,
                                               messages=c.to_openai_json())
         result = result["choices"][0]["message"]["content"]
+        return result
+
+    # -------------------------- SQLite3 Databasing -------------------------- #
+    # Saves an author to the author database.
+    def save_author(self, author: DialogueAuthor, db_path=None):
+        db_path = self.conf.dialogue_author_db if db_path is None else db_path
+
+        # connect and make sure the table exists
+        con = sqlite3.connect(db_path)
+        cur = con.cursor()
+        cur.execute("CREATE TABLE IF NOT EXISTS authors (\n"
+                    "aid TEXT PRIMARY KEY, "
+                    "atype INTEGER, "
+                    "name TEXT)")
+
+        # insert the author into the database
+        cur.execute("INSERT OR REPLACE INTO authors VALUES %s" %
+                    str(author.to_sqlite3()))
+        con.commit()
+    
+    # Searches for authors in the database based on one or more authors fields.
+    # (If NO fields are specified, all stored authors are returned.)
+    # Returns an empty list or a list of matching DialogueAuthor objects.
+    def search_author(self, aid=None, name=None, atype=None, db_path=None):
+        db_path = self.conf.dialogue_author_db if db_path is None else db_path
+
+        # if the database doesn't exist, don't bother
+        if not os.path.isfile(db_path):
+            return []
+
+        # otherwise, connect to the database
+        con = sqlite3.connect(db_path)
+        cur = con.cursor()
+
+        # build a command
+        cmd = "SELECT * FROM authors"
+        conditions = []
+        if aid is not None:
+            conditions.append("aid == \"%s\"" % aid)
+        if name is not None:
+            conditions.append("name == \"%s\"" % name)
+        if atype is not None:
+            conditions.append("atype == %d" % atype)
+        if len(conditions) > 0:
+            cmd += " WHERE "
+        for (i, c) in enumerate(conditions):
+            if i == 0:
+                cmd += " WHERE "
+            cmd += c
+            if i < len(conditions) - 1:
+                cmd += " AND "
+
+        # execute the search and build an array of authors
+        result = []
+        for row in cur.execute(cmd):
+            author = DialogueAuthor.from_sqlite3(row)
+            result.append(author)
+        con.close()
         return result
 
