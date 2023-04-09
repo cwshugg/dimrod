@@ -11,6 +11,7 @@ from datetime import datetime
 from enum import Enum
 import openai
 import sqlite3
+import zlib
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -19,7 +20,6 @@ if pdir not in sys.path:
 
 # Local imports
 import lib.config
-import lib.pack
 
 # =========================== OpenAI Introduction ============================ #
 # This is the prompt that will be fed to OpenAI to allow it to understand its
@@ -162,16 +162,30 @@ class DialogueMessage:
     # ------------------------------- SQLite3 -------------------------------- #
     # Converts the object into a SQLite3-friendly tuple.
     def to_sqlite3(self):
-        result = (self.get_id(), self.author.get_id(), self.content, self.timestamp.timestamp())
-        return
+        # compress the message before storing the string
+        cmsg = zlib.compress(self.content.encode())
+        result = (self.get_id(), self.author.get_id(), cmsg, self.timestamp.timestamp())
+        return result
     
     # Converts the given SQlite3 tuple into a DialogueMessage object.
+    # Takes in a reference to the DialogueInterface to use for looking up the
+    # message's author for object linkage.
     @staticmethod
-    def from_sqlite3(tdata: tuple):
+    def from_sqlite3(tdata: tuple, interface):
         assert len(tdata) >= 4
         ts = datetime.fromtimestamp(tdata[3])
-        author = tdata[1] # FIXME NEED TO TURN AUTHOR ID INTO AUTHOR OBJECT REFERENCE
-        m = DialogueMessage(tdata[1], tdata[2], mid=tdata[0], timestamp=ts)
+
+        # use the interface to look up the author by ID
+        aid = tdata[1]
+        authors = interface.search_author(aid=aid)
+        assert len(authors) == 1, "found %d matching authors for ID \"%s\"" % \
+               (len(authors), aid)
+
+        # decompress the message content
+        dmsg = zlib.decompress(tdata[2]).decode()
+
+        # create the object and return
+        m = DialogueMessage(authors[0], dmsg, mid=tdata[0], timestamp=ts)
         return m
 
 # This class represents a single conversation had between a user and DImROD. It
@@ -199,6 +213,7 @@ class DialogueConversation:
     # Adds a role/message pair to the conversation.
     def add(self, msg: DialogueMessage):
         self.messages.append(msg)
+        self.time_latest = datetime.now()
     
     # Returns the latest user request (role = "user"), or None.
     def latest_request(self):
@@ -221,6 +236,35 @@ class DialogueConversation:
         for m in self.messages:
             result.append(m.to_openai_json())
         return result
+    
+    # Creates and returns a unique string to use as a table to store this
+    # conversation's messages.
+    def to_sqlite3_table(self):
+        return "conversation_%s" % self.get_id()
+    
+    # Converts the object into a SQLite3-friendly tuple. This includes the name
+    # of the conversation's message table.
+    def to_sqlite3(self):
+        return (self.get_id(), self.to_sqlite3_table(),
+                self.time_start.timestamp(), self.time_latest.timestamp())
+
+    # Converts the given tuple into a conversation object.
+    # Takes in a DialogueInterface reference to look up messages in the
+    # conversation's message table, to link objects together.
+    @staticmethod
+    def from_sqlite3(tdata: tuple, interface):
+        assert len(tdata) >= 4
+        c = DialogueConversation(cid=tdata[0])
+        c.time_start = datetime.fromtimestamp(tdata[2])
+        c.time_latest = datetime.fromtimestamp(tdata[3])
+
+        # query the database (using the interface) for the correct table, and
+        # load in any messages
+        for row in interface.search(c.to_sqlite3_table()):
+            m = DialogueMessage.from_sqlite3(row)
+            m.conversation = c
+            c.messages.append(m)
+        return c
 
 
 # ============================= Dialogue Config ============================== #
@@ -234,18 +278,18 @@ class DialogueConfig(lib.config.Config):
                        openai_behavior_rules + \
                        openai_behavior_commands
 
-        # set up default database locations
+        # set up default database location
         default_db_dir = os.path.dirname(__file__)
-        default_author_db_path = os.path.join(default_db_dir, ".dialogue_authors.db")
-        default_convo_db_path = os.path.join(default_db_dir, ".dialogue_conversations.db")
+        default_db_path = os.path.join(default_db_dir, ".dialogue.db")
 
         # set up fields
         self.fields = [
             lib.config.ConfigField("openai_api_key",            [str],  required=True),
             lib.config.ConfigField("openai_chat_model",         [str],  required=False, default="gpt-3.5-turbo"),
             lib.config.ConfigField("openai_chat_behavior",      [str],  required=False, default=openai_intro),
-            lib.config.ConfigField("dialogue_author_db",        [str],  required=False, default=default_author_db_path),
-            lib.config.ConfigField("dialogue_conversation_db",  [str],  required=False, default=default_convo_db_path)
+            lib.config.ConfigField("dialogue_db",               [str],  required=False, default=default_db_path),
+            lib.config.ConfigField("dialogue_prune_threshold",  [int],  required=False, default=2592000),
+            lib.config.ConfigField("dialogue_prune_rate",       [int],  required=False, default=3600)
         ]
 
 
@@ -256,6 +300,7 @@ class DialogueInterface:
         self.conf = conf
         # set the OpenAI API key
         openai.api_key = self.conf.openai_api_key
+        self.last_prune = datetime.now()
     
     # Takes in a question, request, or statement, and passes it along to the
     # OpenAI chat API. If 'conversation' is specified, the given message will be
@@ -289,6 +334,9 @@ class DialogueInterface:
         self.save_author(a)
         m = DialogueMessage(a, response["message"]["content"])
         c.add(m)
+
+        # save conversation to the database and return
+        self.save_conversation(c)
         return c
     
     # Takes in a sentence and rewords it such that it appears to have come from
@@ -310,14 +358,60 @@ class DialogueInterface:
         return result
 
     # -------------------------- SQLite3 Databasing -------------------------- #
+    # Deletes old conversations whose last-updated-time have passed the
+    # configured threshold. Returns the number of deleted conversations.
+    def prune(self, db_path=None):
+        db_path = self.conf.dialogue_db if db_path is None else db_path
+        convos = self.search_conversation(db_path=db_path)
+        now = datetime.now()
+
+        # get a connection and cursor
+        con = sqlite3.connect(db_path)
+        cur = con.cursor()
+
+        # iterate through each conversation
+        deletions = 0
+        for convo in convos:
+            # if the conversation's last-updated time is behind the threshold,
+            # we'll delete it
+            threshold = now.timestamp() - self.conf.dialogue_prune_threshold
+            if convo.time_latest.timestamp() < threshold:
+                # delete the conversation's message table, then delete its entry
+                # from the global conversation table
+                cur.execute("DROP TABLE IF EXISTS %s" % convo.to_sqlite3_table())
+                cur.execute("DELETE FROM conversations WHERE cid == \"%s\"" % convo.get_id())
+                deletions += 1
+
+        # commit and close the connection
+        if deletions > 0:
+            con.commit()
+        con.close()
+        return deletions
+
+    # Performs a search of the database and returns tuples in a list.
+    def search(self, table: str, condition: str, db_path=None):
+        db_path = self.conf.dialogue_db if db_path is None else db_path
+
+        # build a SELECT command
+        cmd = "SELECT * FROM %s" % table
+        if condition is not None and len(condition) > 0:
+            cmd += " WHERE %s" % condition
+
+        # connect, query, and return
+        con = sqlite3.connect(db_path)
+        cur = con.cursor()
+        result = cur.execute(cmd)
+        con.close()
+        return result
+
     # Saves an author to the author database.
     def save_author(self, author: DialogueAuthor, db_path=None):
-        db_path = self.conf.dialogue_author_db if db_path is None else db_path
+        db_path = self.conf.dialogue_db if db_path is None else db_path
 
         # connect and make sure the table exists
         con = sqlite3.connect(db_path)
         cur = con.cursor()
-        cur.execute("CREATE TABLE IF NOT EXISTS authors (\n"
+        cur.execute("CREATE TABLE IF NOT EXISTS authors ("
                     "aid TEXT PRIMARY KEY, "
                     "atype INTEGER, "
                     "name TEXT)")
@@ -326,14 +420,18 @@ class DialogueInterface:
         cur.execute("INSERT OR REPLACE INTO authors VALUES %s" %
                     str(author.to_sqlite3()))
         con.commit()
+
+        # determine if we need to prune the database
+        now = datetime.now()
+        prune_threshold = now.timestamp() - self.conf.dialogue_prune_rate
+        if self.last_prune.timestamp() < prune_threshold:
+            self.prune(db_path=db_path)
     
     # Searches for authors in the database based on one or more authors fields.
     # (If NO fields are specified, all stored authors are returned.)
     # Returns an empty list or a list of matching DialogueAuthor objects.
     def search_author(self, aid=None, name=None, atype=None, db_path=None):
-        db_path = self.conf.dialogue_author_db if db_path is None else db_path
-
-        # if the database doesn't exist, don't bother
+        db_path = self.conf.dialogue_db if db_path is None else db_path
         if not os.path.isfile(db_path):
             return []
 
@@ -341,8 +439,7 @@ class DialogueInterface:
         con = sqlite3.connect(db_path)
         cur = con.cursor()
 
-        # build a command
-        cmd = "SELECT * FROM authors"
+        # build a set of conditions
         conditions = []
         if aid is not None:
             conditions.append("aid == \"%s\"" % aid)
@@ -350,20 +447,126 @@ class DialogueInterface:
             conditions.append("name == \"%s\"" % name)
         if atype is not None:
             conditions.append("atype == %d" % atype)
-        if len(conditions) > 0:
-            cmd += " WHERE "
+        cstr = ""
         for (i, c) in enumerate(conditions):
-            if i == 0:
-                cmd += " WHERE "
-            cmd += c
-            if i < len(conditions) - 1:
-                cmd += " AND "
+            cstr += c
+            cstr += " AND " if i < len(conditions) - 1 else ""
 
         # execute the search and build an array of authors
         result = []
-        for row in cur.execute(cmd):
-            author = DialogueAuthor.from_sqlite3(row)
+        for row in self.search("authors", cstr, db_path=db_path):
+            author = DialogueAuthor.from_sqlite3(row, self)
             result.append(author)
         con.close()
+        return result
+
+    def save_conversation(self, convo: DialogueConversation, db_path=None):
+        db_path = self.conf.dialogue_db if db_path is None else db_path
+
+        # conversation metadata will be stored in a single table, whereas each
+        # conversation's messages will be stored in separate tables. First, make
+        # sure the 'conversations' table exists and the conversation is logged
+        con = sqlite3.connect(db_path)
+        cur = con.cursor()
+        cur.execute("CREATE TABLE IF NOT EXISTS conversations ("
+                    "cid TEXT PRIMARY KEY, "
+                    "message_table_name TEXT, "
+                    "time_start INTEGER, "
+                    "time_latest INTEGER)")
+        cur.execute("INSERT OR REPLACE INTO conversations VALUES (?, ?, ?, ?)",
+                    convo.to_sqlite3())
+
+        # next, make sure the conversation's message table exists
+        mtable = convo.to_sqlite3_table()
+        cur.execute("CREATE TABLE IF NOT EXISTS %s ("
+                    "mid TEXT PRIMARY KEY, "
+                    "aid TEXT, "
+                    "content BLOB, "
+                    "timestamp INTEGER)" % mtable)
+
+        # now, for each message in the conversation table, save/update it
+        for msg in convo.messages:
+            cmd = "INSERT OR REPLACE INTO %s VALUES (?, ?, ?, ?)" % mtable
+            cur.execute(cmd, msg.to_sqlite3())
+        con.commit()
+        
+        # determine if we need to prune the database
+        now = datetime.now()
+        prune_threshold = now.timestamp() - self.conf.dialogue_prune_rate
+        if self.last_prune.timestamp() < prune_threshold:
+            self.prune(db_path=db_path)
+ 
+    # Searches for a conversation based on ID and/or start-time range. Returns
+    # all matching conversations (or ALL conversations if no parameters are
+    # specified).
+    def search_conversation(self, cid=None, time_range=None, db_path=None):
+        db_path = self.conf.dialogue_db if db_path is None else db_path
+        if not os.path.isfile(db_path):
+            return []
+            
+        # connect and grab a cursor
+        con = sqlite3.connect(db_path)
+        cur = con.cursor()
+
+        # build a set of conditions
+        conditions = []
+        if cid is not None:
+            conditions.append("cid == \"%s\"" % cid)
+        if time_range is not None:
+            assert type(time_range) == list and len(time_range) >= 2, \
+                   "time_range must a list of two timestamp ranges"
+            conditions.append("time_start >= %d AND time_start <= %d" %
+                              (time_range[0].timestamp(),
+                               time_range[1].timestamp()))
+        cstr = ""
+        for (i, c) in enumerate(conditions):
+            cstr += c
+            cstr += " AND " if i < len(conditions) - 1 else ""
+
+        # execute the search and build an array of conversations
+        result = []
+        for row in self.search("conversations", cstr, db_path=db_path):
+            convo = DialogueConversation.from_sqlite3(row, self)
+            result.append(convo)
+        con.close()
+        return result
+    
+    # Searches all conversation tables for any messages with the matching
+    # parameters. Reeturns a list of DialogueMessage objects.
+    def search_message(self, mid=None, aid=None, time_range=None, keywords=[],
+                       db_path=None):
+        db_path = self.conf.dialogue_db if db_path is None else db_path
+        if not os.path.isfile(db_path):
+            return []
+
+        # retrieve all conversations via the conversation table and iterate
+        # through them
+        result = []
+        convos = self.search_conversation(db_path=db_path)
+        for convo in convos:
+            # iterate through all messages in each conversation
+            for msg in convo.messages:
+                add = False
+                # CHECK 1 - message ID
+                if mid is not None:
+                    add = add and msg.mid.lower() == mid.lower()
+                # CHECK 2 - author ID
+                if aid is not None:
+                    add = add and msg.author.aid.lower() == aid.lower()
+                # CHECK 3 - time range
+                if time_range is not None:
+                    assert type(time_range) == list and len(time_range) >= 2, \
+                           "time_range must a list of two timestamp ranges"
+                    ts = msg.timestamp.timestamp()
+                    add = add and (ts >= time_range[0].timestamp() and
+                                   ts <= time_range[1].timestamp())
+                # CHECK 4 - keywords
+                if len(keywords) > 0:
+                    for word in keywords:
+                        add = add and word.lower() in msg.content.lower()
+
+                # add to the resulting list if all conditions pass
+                if add:
+                    result.append(msg)
         return result
 
