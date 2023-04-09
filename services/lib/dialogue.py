@@ -142,6 +142,11 @@ class DialogueMessage:
         self.mid = mid
         if self.mid is None:
             self.get_id()
+
+    # Returns a string representation of the message.
+    def __str__(self):
+        return "DialogueMessage: %s [author: %s] \"%s\"" % \
+               (self.get_id(), self.author.get_id(), self.content)
     
     # Returns the message ID. If one hasn't been created yet for this instance,
     # one is generated here.
@@ -201,6 +206,10 @@ class DialogueConversation:
         # collect various timestamps
         self.time_start = datetime.now()
         self.time_latest = self.time_start
+
+    # Returns a string representation of the conversation object.
+    def __str__(self):
+        return "DialogueConversation: %s [%d messages]" % (self.get_id(), len(self.messages))
     
     # Returns the conversation ID. If one hasn't been created yet for this
     # instance, one is generated here.
@@ -260,8 +269,8 @@ class DialogueConversation:
 
         # query the database (using the interface) for the correct table, and
         # load in any messages
-        for row in interface.search(c.to_sqlite3_table()):
-            m = DialogueMessage.from_sqlite3(row)
+        for row in interface.search(c.to_sqlite3_table(), None):
+            m = DialogueMessage.from_sqlite3(row, interface)
             m.conversation = c
             c.messages.append(m)
         return c
@@ -360,9 +369,9 @@ class DialogueInterface:
     # -------------------------- SQLite3 Databasing -------------------------- #
     # Deletes old conversations whose last-updated-time have passed the
     # configured threshold. Returns the number of deleted conversations.
-    def prune(self, db_path=None):
-        db_path = self.conf.dialogue_db if db_path is None else db_path
-        convos = self.search_conversation(db_path=db_path)
+    def prune(self):
+        db_path = self.conf.dialogue_db
+        convos = self.search_conversation()
         now = datetime.now()
 
         # get a connection and cursor
@@ -389,8 +398,8 @@ class DialogueInterface:
         return deletions
 
     # Performs a search of the database and returns tuples in a list.
-    def search(self, table: str, condition: str, db_path=None):
-        db_path = self.conf.dialogue_db if db_path is None else db_path
+    def search(self, table: str, condition: str):
+        db_path = self.conf.dialogue_db
 
         # build a SELECT command
         cmd = "SELECT * FROM %s" % table
@@ -401,12 +410,11 @@ class DialogueInterface:
         con = sqlite3.connect(db_path)
         cur = con.cursor()
         result = cur.execute(cmd)
-        con.close()
         return result
 
     # Saves an author to the author database.
-    def save_author(self, author: DialogueAuthor, db_path=None):
-        db_path = self.conf.dialogue_db if db_path is None else db_path
+    def save_author(self, author: DialogueAuthor):
+        db_path = self.conf.dialogue_db
 
         # connect and make sure the table exists
         con = sqlite3.connect(db_path)
@@ -420,24 +428,21 @@ class DialogueInterface:
         cur.execute("INSERT OR REPLACE INTO authors VALUES %s" %
                     str(author.to_sqlite3()))
         con.commit()
+        con.close()
 
         # determine if we need to prune the database
         now = datetime.now()
         prune_threshold = now.timestamp() - self.conf.dialogue_prune_rate
         if self.last_prune.timestamp() < prune_threshold:
-            self.prune(db_path=db_path)
+            self.prune()
     
     # Searches for authors in the database based on one or more authors fields.
     # (If NO fields are specified, all stored authors are returned.)
     # Returns an empty list or a list of matching DialogueAuthor objects.
-    def search_author(self, aid=None, name=None, atype=None, db_path=None):
-        db_path = self.conf.dialogue_db if db_path is None else db_path
+    def search_author(self, aid=None, name=None, atype=None):
+        db_path = self.conf.dialogue_db
         if not os.path.isfile(db_path):
             return []
-
-        # otherwise, connect to the database
-        con = sqlite3.connect(db_path)
-        cur = con.cursor()
 
         # build a set of conditions
         conditions = []
@@ -454,14 +459,13 @@ class DialogueInterface:
 
         # execute the search and build an array of authors
         result = []
-        for row in self.search("authors", cstr, db_path=db_path):
-            author = DialogueAuthor.from_sqlite3(row, self)
+        for row in self.search("authors", cstr):
+            author = DialogueAuthor.from_sqlite3(row)
             result.append(author)
-        con.close()
         return result
 
-    def save_conversation(self, convo: DialogueConversation, db_path=None):
-        db_path = self.conf.dialogue_db if db_path is None else db_path
+    def save_conversation(self, convo: DialogueConversation):
+        db_path = self.conf.dialogue_db
 
         # conversation metadata will be stored in a single table, whereas each
         # conversation's messages will be stored in separate tables. First, make
@@ -489,25 +493,22 @@ class DialogueInterface:
             cmd = "INSERT OR REPLACE INTO %s VALUES (?, ?, ?, ?)" % mtable
             cur.execute(cmd, msg.to_sqlite3())
         con.commit()
-        
+        con.close()
+
         # determine if we need to prune the database
         now = datetime.now()
         prune_threshold = now.timestamp() - self.conf.dialogue_prune_rate
         if self.last_prune.timestamp() < prune_threshold:
-            self.prune(db_path=db_path)
+            self.prune()
  
     # Searches for a conversation based on ID and/or start-time range. Returns
     # all matching conversations (or ALL conversations if no parameters are
     # specified).
-    def search_conversation(self, cid=None, time_range=None, db_path=None):
-        db_path = self.conf.dialogue_db if db_path is None else db_path
+    def search_conversation(self, cid=None, time_range=None):
+        db_path = self.conf.dialogue_db
         if not os.path.isfile(db_path):
             return []
             
-        # connect and grab a cursor
-        con = sqlite3.connect(db_path)
-        cur = con.cursor()
-
         # build a set of conditions
         conditions = []
         if cid is not None:
@@ -525,28 +526,26 @@ class DialogueInterface:
 
         # execute the search and build an array of conversations
         result = []
-        for row in self.search("conversations", cstr, db_path=db_path):
+        for row in self.search("conversations", cstr):
             convo = DialogueConversation.from_sqlite3(row, self)
             result.append(convo)
-        con.close()
         return result
     
     # Searches all conversation tables for any messages with the matching
     # parameters. Reeturns a list of DialogueMessage objects.
-    def search_message(self, mid=None, aid=None, time_range=None, keywords=[],
-                       db_path=None):
-        db_path = self.conf.dialogue_db if db_path is None else db_path
+    def search_message(self, mid=None, aid=None, time_range=None, keywords=[]):
+        db_path = self.conf.dialogue_db
         if not os.path.isfile(db_path):
             return []
 
         # retrieve all conversations via the conversation table and iterate
         # through them
         result = []
-        convos = self.search_conversation(db_path=db_path)
+        convos = self.search_conversation()
         for convo in convos:
             # iterate through all messages in each conversation
             for msg in convo.messages:
-                add = False
+                add = True
                 # CHECK 1 - message ID
                 if mid is not None:
                     add = add and msg.mid.lower() == mid.lower()
