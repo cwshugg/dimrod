@@ -92,7 +92,7 @@ class TelegramService(Service):
             #TelegramCommand(["weather", "forecast", "nimbus"],
             #                "Reports the weather.",
             #                command_weather),
-            #TelegramCommand(["event", "task", "taskmaster"],
+            #TelegramCommand(["event", "task"],
             #                "Carries out event-specific tasks.",
             #                command_event),
             TelegramCommand(["list"],

@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# The Taskmaster is the ONLY service allowed access to the internet. It's job is
+# The Gatekeeper is the ONLY service allowed access to the internet. It's job is
 # to receive commands from my internet-connected devices and issue commands to
 # the other services.
 
@@ -24,32 +24,32 @@ from lib.oracle import Oracle
 from lib.cli import ServiceCLI
 
 # Service imports
-from event import TaskmasterEvent, TaskmasterEventPostConfig
+from event import GatekeeperEvent, GatekeeperEventPostConfig
 
 
 # =============================== Config Class =============================== #
-class TaskmasterConfig(ServiceConfig):
+class GatekeeperConfig(ServiceConfig):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("taskmaster_events",            [list], required=True),
-            ConfigField("taskmaster_thread_limit",      [int],  required=False, default=8),
-            ConfigField("taskmaster_thread_timeout",    [int],  required=False, default=0.01)
+            ConfigField("gatekeeper_events",            [list], required=True),
+            ConfigField("gatekeeper_thread_limit",      [int],  required=False, default=8),
+            ConfigField("gatekeeper_thread_timeout",    [int],  required=False, default=0.01)
         ]
 
 
 # ============================== Service Class =============================== #
-class TaskmasterService(Service):
+class GatekeeperService(Service):
     def __init__(self, config_path):
         super().__init__(config_path)
-        self.config = TaskmasterConfig()
+        self.config = GatekeeperConfig()
         self.config.parse_file(config_path)
         self.threads = []
 
         # parse each event as an event object
         self.events = []
-        for edata in self.config.taskmaster_events:
-            e = TaskmasterEvent(edata)
+        for edata in self.config.gatekeeper_events:
+            e = GatekeeperEvent(edata)
             self.events.append(e)
             self.log.write("Loaded event: %s" % str(e))
 
@@ -57,12 +57,12 @@ class TaskmasterService(Service):
     def run(self):
         super().run()
 
-    # Accepts a TaskmasterEventPostConfig and searches the service's events for one
+    # Accepts a GatekeeperEventPostConfig and searches the service's events for one
     # with a matching name. Returns the number of events that were fired as a
     # result.
-    def post(self, pconf: TaskmasterEventPostConfig):
+    def post(self, pconf: GatekeeperEventPostConfig):
         # Helper function that fires a single event and all of its subscribers.
-        def run_event(e: TaskmasterEvent, out_fd, err_fd):
+        def run_event(e: GatekeeperEvent, out_fd, err_fd):
             asyncio.run(e.fire(data=pconf.data,
                                 stdout_fd=out_fd,
                                 stderr_fd=err_fd))
@@ -81,9 +81,9 @@ class TaskmasterService(Service):
                 # make sure we aren't maxed out on threads. If we are, we'll
                 # have to wait for one to complete before we spawn another
                 join_dt1 = datetime.now()
-                join_idx = 0 if len(self.threads) >= self.config.taskmaster_thread_limit else -1
-                while len(self.threads) >= self.config.taskmaster_thread_limit:
-                    self.threads[join_idx].join(timeout=self.config.taskmaster_thread_timeout)
+                join_idx = 0 if len(self.threads) >= self.config.gatekeeper_thread_limit else -1
+                while len(self.threads) >= self.config.gatekeeper_thread_limit:
+                    self.threads[join_idx].join(timeout=self.config.gatekeeper_thread_timeout)
                     if not self.threads[join_idx].is_alive():
                         self.threads.pop(join_idx)
                         break
@@ -105,7 +105,7 @@ class TaskmasterService(Service):
 
 
 # ============================== Service Oracle ============================== #
-class TaskmasterOracle(Oracle):
+class GatekeeperOracle(Oracle):
     # Endpoint definition function.
     def endpoints(self):
         super().endpoints()
@@ -131,9 +131,9 @@ class TaskmasterOracle(Oracle):
                 return self.make_response(msg="No JSON data provided.",
                                           success=False)
             
-            # interpret the data as a taskmaster event post config object to ensure
+            # interpret the data as a gatekeeper event post config object to ensure
             # all the correct fields were given
-            pconf = TaskmasterEventPostConfig()
+            pconf = GatekeeperEventPostConfig()
             try:
                 pconf.parse_json(flask.g.jdata)
             except Exception:
@@ -153,6 +153,6 @@ class TaskmasterOracle(Oracle):
         
 
 # =============================== Runner Code ================================ #
-cli = ServiceCLI(config=TaskmasterConfig, service=TaskmasterService, oracle=TaskmasterOracle)
+cli = ServiceCLI(config=GatekeeperConfig, service=GatekeeperService, oracle=GatekeeperOracle)
 cli.run()
 

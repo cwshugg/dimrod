@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# This routine is invoked when I ping the taskmaster to perform some operation
+# This routine is invoked when I ping the gatekeeper to perform some operation
 # on a list with Scribble.
 
 # Imports

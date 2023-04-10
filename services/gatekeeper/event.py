@@ -1,5 +1,5 @@
 # This module defines classes/functions used to represent a single event. Events
-# have a specific JSON format and are received via an endpoint in the Taskmaster
+# have a specific JSON format and are received via an endpoint in the Gatekeeper
 # oracle. Each event can have a number of configurable "subscriber" scripts that
 # are executed whenever a specified event arrives.
 
@@ -16,13 +16,13 @@ if pdir not in sys.path:
 from lib.config import Config, ConfigField
 
 # Service imports
-from subscriber import TaskmasterSubscriber
+from subscriber import GatekeeperSubscriber
 
 
 # =============================== Event Config =============================== #
-# This config class represents the required data to be included in the Taskmaster
+# This config class represents the required data to be included in the Gatekeeper
 # config file.
-class TaskmasterEventConfig(Config):
+class GatekeeperEventConfig(Config):
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -30,9 +30,9 @@ class TaskmasterEventConfig(Config):
             ConfigField("subscribers",  [list],     required=True)
         ]
 
-# This config class represents the required data to be sent to Taskmaster when an
+# This config class represents the required data to be sent to Gatekeeper when an
 # event is posted from across the internet (via the oracle).
-class TaskmasterEventPostConfig(Config):
+class GatekeeperEventPostConfig(Config):
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -42,10 +42,10 @@ class TaskmasterEventPostConfig(Config):
 
 
 # =============================== Event Class ================================ #
-class TaskmasterEvent:
-    # Constructor. Takes in JSON data and parses it as a TaskmasterEventConfig.
+class GatekeeperEvent:
+    # Constructor. Takes in JSON data and parses it as a GatekeeperEventConfig.
     def __init__(self, jdata: dict):
-        self.config = TaskmasterEventConfig()
+        self.config = GatekeeperEventConfig()
         self.config.parse_json(jdata)
 
         # iterate through each subscriber and make sure the file exists. Also,
@@ -53,7 +53,7 @@ class TaskmasterEvent:
         self.subscribers = []
         for sdata in self.config.subscribers:
             # parse each entry as a subscriber object
-            sub = TaskmasterSubscriber(sdata)
+            sub = GatekeeperSubscriber(sdata)
             self.subscribers.append(sub)
 
     # String representation.

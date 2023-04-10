@@ -17,7 +17,7 @@ from lib.config import Config, ConfigField
 
 
 # ============================ Subscriber Config ============================= #
-class TaskmasterSubscriberConfig(Config):
+class GatekeeperSubscriberConfig(Config):
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -27,10 +27,10 @@ class TaskmasterSubscriberConfig(Config):
 
 
 # ============================= Subscriber Class ============================= #
-class TaskmasterSubscriber:
+class GatekeeperSubscriber:
     # Constructor. Takes in JSON data and parses it as a subscriber config.
     def __init__(self, jdata: dict):
-        self.config = TaskmasterSubscriberConfig()
+        self.config = GatekeeperSubscriberConfig()
         self.config.parse_json(jdata)
 
         # make sure the executable file exists

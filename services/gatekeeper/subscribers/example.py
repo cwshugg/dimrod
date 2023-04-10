@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # This represents a simple, example subscriber script that can be called by
-# Taskmaster. Taskmaster will pass a JSON string of data to a subscriber as the second
-# command-line argument.
+# Gatekeeper. Gatekeeper will pass a JSON string of data to a subscriber as the
+# second command-line argument.
 
 # Imports
 import sys

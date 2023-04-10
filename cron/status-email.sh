@@ -4,7 +4,7 @@
 
 # find the script file
 top="$(dirname $(dirname $(realpath $0)))"
-script="${top}/services/taskmaster/subscribers/status_report.py"
+script="${top}/services/gatekeeper/subscribers/status_report.py"
 
 # create JSON data to pass into the script"
 jdata="{\"emails\": [\"connorshugg@gmail.com\"]}"

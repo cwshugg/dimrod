@@ -17,8 +17,8 @@
             "use_oracle": true
         },
         {
-            "executable": "/path/to/dimrod/services/taskmaster/taskmaster.py",
-            "config": "/path/to/dimrod/services/taskmaster/taskmaster.json",
+            "executable": "/path/to/dimrod/services/gatekeeper/gatekeeper.py",
+            "config": "/path/to/dimrod/services/gatekeeper/gatekeeper.json",
             "use_oracle": true
         },
         {
