@@ -80,9 +80,11 @@ class DialogueAuthorType(Enum):
     # DImROD author types
     SYSTEM = 0
     SYSTEM_TELEGRAM = 1
+    SYSTEM_ORACLE = 2
     # User author types
     USER = 1000
     USER_TELEGRAM = 1001
+    USER_ORACLE = 1002
 
 # This class represents a single speaker in a dialogue (ex: DImROD itself, a
 # telegram user, etc.)
@@ -162,7 +164,10 @@ class DialogueMessage:
     
     # Converts the message into a JSON dictionary formatted for the OpenAI API.
     def to_openai_json(self):
-        return {"role": self.author.name, "content": self.content}
+        name = "user"
+        if self.author.is_system():
+            name = "assistant"
+        return {"role": name, "content": self.content}
 
     # ------------------------------- SQLite3 -------------------------------- #
     # Converts the object into a SQLite3-friendly tuple.
@@ -318,7 +323,7 @@ class DialogueInterface:
     # then a new one will be created and returned.
     # Returns the resulting converstaion, which includes DImROD's response.
     # This may throw an exception if contacting OpenAI failed somehow.
-    def talk(self, prompt: str, conversation=None):
+    def talk(self, prompt: str, conversation=None, author=None):
         # set up the conversation to use
         c = conversation
         if c is None:
@@ -329,7 +334,9 @@ class DialogueInterface:
             c.add(m)
 
         # add the user's message to the conversation and contact OpenAI
-        a = DialogueAuthor("user", DialogueAuthorType.USER)
+        a = author
+        if a is None:
+            a = DialogueAuthor("user", DialogueAuthorType.USER)
         self.save_author(a)
         m = DialogueMessage(a, prompt)
         c.add(m)
