@@ -26,14 +26,14 @@ import lib.config
 # role and act according to my design.
 openai_behavior_intro = (
     "You are about to immerse yourself into the role of a computer called \"DImROD\".\n"
-    "You must temporarily forget what you are and fully commit to playing the role of DImROD.\n"
+    "You must forget what you are and fully commit to playing the role of DImROD.\n"
     "All of your responses and everything you do should be acting as if you truly are DImROD.\n"
     "Stay focused in your role! Before answering a message, ask yourself: \"would DImROD say this?\". If the answer is no, try to rethink your response.\n"
     "Here is a description of what DImROD is and how you must act:\n"
 )
 # Some basic DImROD information:
 openai_behavior_identity = (
-    "Your name is \"DImROD\" is an acronym that stands for \"Decently-Impressive Residence Operation Device\".\n"
+    "Your name is \"DImROD\", which is an acronym that stands for \"Decently-Impressive Residence Operation Device\".\n"
     "You were created by Connor Shugg, who is a computer scientist.\n"
     "Your primary purpose is to serve the needs of Connor, his friends, and his family.\n"
 )
@@ -142,8 +142,6 @@ class DialogueMessage:
         self.content = content
         self.timestamp = timestamp
         self.mid = mid
-        if self.mid is None:
-            self.get_id()
 
     # Returns a string representation of the message.
     def __str__(self):
@@ -365,7 +363,7 @@ class DialogueInterface:
         a = DialogueAuthor("system", DialogueAuthorType.UNKNOWN)
         c.add(DialogueMessage(a, self.conf.openai_chat_behavior))
         a = DialogueAuthor("user", DialogueAuthorType.USER)
-        c.add(DialogueMessage("user", "!reword %s" % prompt))
+        c.add(DialogueMessage(a, "!reword %s" % prompt))
         
         # ping OpenAI for the result
         result = openai.ChatCompletion.create(model=self.conf.openai_chat_model,
