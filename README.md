@@ -40,6 +40,17 @@ These services are implemented in Python and will process authenticated requests
 across my home network. Depending on the task, they might even talk with other
 services via the HTTP APIs.
 
+Currently, the services I've created are:
+
+* **Lumen** - used to toggle various WiFi-connected lights and plugs around the house.
+* **Warden** - scans the network to identify connected devices.
+* **Gatekeeper** - the only service allowed access to incoming traffic outside the home network. Receives requests from my remote devices to dispatch jobs at home.
+* **Telegram** - implements a Telegram chat bot, so I can chat with DImROD, set reminders, turn on/off lights, and interact with other parts of DImROD.
+* **Notif** - implements a reminder system that, paired with the Telegram bot, allows for recurring or one-off reminders to be delivered to my phone.
+* **Speaker** - uses my internal dialogue library to expose an interface for other services to "chat" with DImROD. Eventually, it'll be responsible not only for chatting, but parsing user dialogue and firing off jobs at home.
+* **Nimbus** - uses public weather APIs to expose an interface for retrieving weather information for multiple locations.
+* **Scribble** - somewhat underdeveloped, this service is used to interact with an API for interacting with my ToDO lists. Currently I'm using the TickTick mobile app.
+
 ## Future Plans
 
 * Implement a conversation service used to:

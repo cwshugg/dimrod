@@ -18,7 +18,7 @@ const services = [
                 new URL(hostname, "2301", "/admin/index.php"),
                 "fa fa-network-wired", "mdl-color-text--red-400"),
     new Service("jellyfin", "Jellyfin",
-                new URL(hostname, "2302", "/NEED_TO_ACTUALLY_MAKE_THIS"),
+                new URL(hostname, "2302", "/web/index.html"),
                 "fa fa-tv", "mdl-color-text--purple-400"),
 ];
 const services_me = [
@@ -42,7 +42,10 @@ const services_me = [
                 "fas fa-paper-plane", "mdl-color-text--light-blue-400"),
     new Service("notif", "Notif",
                 new URL(hostname, "2356", "/"),
-                "fas fa-bell", "mdl-color-text--green-400")
+                "fas fa-bell", "mdl-color-text--green-400"),
+    new Service("speaker", "Speaker",
+                new URL(hostname, "2357", "/"),
+                "fas fa-microphone", "mdl-color-text--pink-400")
 ];
 
 // Service-specific globals
