@@ -1,4 +1,5 @@
-15 12 * * * /home/provolone/chs/cron/status-email.sh
-30 21 * * * /home/provolone/chs/cron/weather.py
-30 16 * * * /home/provolone/chs/cron/weather.py
+15  12  *   *   * /home/provolone/chs/cron/status-email.sh
+30  21  *   *   * /home/provolone/chs/cron/weather.py
+30  16  *   *   * /home/provolone/chs/cron/weather.py
+*/3 *   *   *   * /home/provolone/chs/cron/nudges.py
 
