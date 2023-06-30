@@ -6,6 +6,7 @@
 # Imports
 import os
 import sys
+from datetime import datetime
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -42,7 +43,8 @@ class Log:
     def write(self, msg, begin="", end="\n"):
         # rent a file descriptor, write the object, then return it
         stream = self.rent_fd()
-        stream.write("%s[%s] %s%s" % (begin, self.name, msg, end))
+        dtstr = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+        stream.write("%s[%s - %s] %s%s" % (begin, dtstr, self.name, msg, end))
         self.return_fd(stream)
     
     # Retrieves a file descriptor that's "rented" by the caller for a brief
