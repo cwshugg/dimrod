@@ -41,7 +41,7 @@ def get_session(conf: dict):
 def randbool(chance: float):
     # compute a low and high value to use for random range generation, so we can
     # generate a number and test it for the given percent chance
-    maxval = 1000
+    maxval = 100000
     low = 0
     high = int(maxval * chance)
     return random.randrange(maxval) in range(low, high)
@@ -53,13 +53,16 @@ def is_weekday(dt):
     return dt.weekday() not in [5, 6]
 
 def is_morning(dt):
-    return dt.hour < 12
+    return dt.hour >= 6 and dt.hour < 12
 
 def is_afternoon(dt):
     return dt.hour >= 12 and dt.hour < 17
 
 def is_evening(dt):
-    return dt.hour >= 17
+    return dt.hour >= 17 and dt.hour < 21
+
+def is_night(dt):
+    return dt.hour >= 21 or dt.hour < 6
 
 def is_workhours(dt):
     return dt.hour >= 9 and dt.hour < 17
@@ -98,7 +101,7 @@ def nudge_weekend_day(dt):
         return None
     
     # do a quick random-chance calculation, and only proceed if it succeeds
-    if not randbool(0.025):
+    if not randbool(0.005):
         return None
 
     # otherwise, choose a random message and return it
@@ -122,7 +125,7 @@ def nudge_weekday_day(dt):
         return None
 
     # do a quick random-chance calculation, and only proceed if it succeeds
-    if not randbool(0.025):
+    if not randbool(0.005):
         return None
 
     ideas = [
@@ -157,7 +160,7 @@ def nudge_weekday_night(dt):
         return None
 
     # do a quick random-chance calculation, and only proceed if it succeeds
-    if not randbool(0.025):
+    if not randbool(0.005):
         return None
 
     ideas = [
@@ -168,7 +171,7 @@ def nudge_weekday_night(dt):
 
 # Date idea nudges.
 def nudge_dates(dt):
-    if not randbool(0.01):
+    if not randbool(0.0025):
         return None
     
     ideas = []
