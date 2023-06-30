@@ -101,7 +101,7 @@ def nudge_weekend_day(dt):
         return None
     
     # do a quick random-chance calculation, and only proceed if it succeeds
-    if not randbool(0.005):
+    if not randbool(0.001):
         return None
 
     # otherwise, choose a random message and return it
@@ -125,7 +125,7 @@ def nudge_weekday_day(dt):
         return None
 
     # do a quick random-chance calculation, and only proceed if it succeeds
-    if not randbool(0.005):
+    if not randbool(0.001):
         return None
 
     ideas = [
@@ -160,7 +160,7 @@ def nudge_weekday_night(dt):
         return None
 
     # do a quick random-chance calculation, and only proceed if it succeeds
-    if not randbool(0.005):
+    if not randbool(0.001):
         return None
 
     ideas = [
@@ -171,7 +171,7 @@ def nudge_weekday_night(dt):
 
 # Date idea nudges.
 def nudge_dates(dt):
-    if not randbool(0.0025):
+    if not randbool(0.0005):
         return None
     
     ideas = []
