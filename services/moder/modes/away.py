@@ -201,10 +201,15 @@ class Mode_Away(Mode):
             return False
 
     def step(self):
-        groups = self.light_groups()
-        group = random.choice(groups)
-        self.light_toggle(group)
+        now = datetime.now()
+
+        # if the current time of day is in the evening or early morning, we'll
+        # play with the lights
+        if now.hour in range(17, 24) or now.hour in range(0, 9):
+            groups = self.light_groups()
+            group = random.choice(groups)
+            self.light_toggle(group)
 
     def cleanup(self):
-        self.light_cleanup()
+            self.light_cleanup()
 
