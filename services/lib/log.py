@@ -40,11 +40,23 @@ class Log:
                     fp.close()
 
     # Writes a new line to the log with the given message.
-    def write(self, msg, begin="", end="\n"):
-        # rent a file descriptor, write the object, then return it
+    # If 'show_prefix' is set to False, the prefix will not be printed.
+    def write(self, msg, begin="", end="\n", show_prefix=True):
+        # rent a file descriptor
         stream = self.rent_fd()
-        dtstr = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
-        stream.write("%s[%s - %s] %s%s" % (begin, dtstr, self.name, msg, end))
+        
+        # write the message
+        stream.write(begin)
+        if show_prefix:
+            dtstr = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+            stream.write("[%s - %s] " % (dtstr, self.name))
+        stream.write("%s%s" % (msg, end))
+
+        # if this is stdout or stderr, flush it
+        if stream == sys.stdout or stream == sys.stderr:
+            stream.flush()
+        
+        # return the file descriptor
         self.return_fd(stream)
     
     # Retrieves a file descriptor that's "rented" by the caller for a brief
