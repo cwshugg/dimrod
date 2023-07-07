@@ -45,7 +45,10 @@ const services_me = [
                 "fas fa-bell", "mdl-color-text--green-400"),
     new Service("speaker", "Speaker",
                 new URL(hostname, "2357", "/"),
-                "fas fa-microphone", "mdl-color-text--pink-400")
+                "fas fa-microphone", "mdl-color-text--pink-400"),
+    new Service("moder", "Moder",
+                new URL(hostname, "2358", "/"),
+                "fas fa-cogs", "mdl-color-text--brown-400")
 ];
 
 // Service-specific globals
