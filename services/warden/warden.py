@@ -36,10 +36,10 @@ class WardenConfig(ServiceConfig):
         # create lumen-specific fields to append to the existing service fields
         fields = [
             ConfigField("devices",          [list],     required=True),
-            ConfigField("refresh_rate",     [int],      required=False,     default=60),
-            ConfigField("ping_timeout",     [float],    required=False,     default=0.35),
-            ConfigField("ping_tries",       [int],      required=False,     default=2),
-            ConfigField("sweep_threshold",  [int],      required=False,     default=600),
+            ConfigField("refresh_rate",     [int],      required=False,     default=120),
+            ConfigField("ping_timeout",     [float],    required=False,     default=0.25),
+            ConfigField("ping_tries",       [int],      required=False,     default=1),
+            ConfigField("sweep_threshold",  [int],      required=False,     default=3600),
             ConfigField("initial_sweeps",   [int],      required=False,     default=1)
         ]
         self.fields += fields
@@ -215,6 +215,7 @@ class WardenService(Service):
             # ping and save the address if the ping succeeded
             if self.ping(addr):
                 entry["ipaddr"] = addr
+                self.log.write(" - UP", show_prefix=False)
             else:
                 continue
 
@@ -269,7 +270,7 @@ class WardenService(Service):
                 "-sn",          # disable port discovery - ping scan only
                 ptarg,          # selected ping type
                 address,
-                "--host-timeout", str(timeout),
+                "--max-rtt-timeout", str(timeout),
                 "-oG", tmpfile  # write greppable output to file
             ]
             result = subprocess.run(args,
@@ -340,7 +341,6 @@ class WardenService(Service):
         
         # ATTEMPT 1: Classic 'ping' utility
         if self.ping_classic(address, timeout=timeout, tries=tries):
-            print("\033[32mHost %s is UP via CLASSIC ping.\033[0m" % address)
             return True
         # ATTEMPT 2: nmap default echo request (basically the same as 'ping')
         elif self.ping_nmap(address, timeout, tries):
