@@ -52,5 +52,10 @@
     "notif_address": "0.0.0.0",
     "notif_port": 2356,
     "notif_auth_username": "ABC",
-    "notif_auth_password": "XYZ"
+    "notif_auth_password": "XYZ",
+
+    "moder_address": "0.0.0.0",
+    "moder_port": 2358,
+    "moder_auth_username": "ABC",
+    "moder_auth_password": "XYZ"
 }

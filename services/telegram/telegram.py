@@ -36,6 +36,7 @@ from commands.weather import command_weather
 from commands.event import command_event
 from commands.list import command_list
 from commands.remind import command_remind
+from commands.mode import command_mode
 
 
 # =============================== Config Class =============================== #
@@ -100,7 +101,10 @@ class TelegramService(Service):
                             command_list),
             TelegramCommand(["remind", "reminder", "rem"],
                             "Sets reminders.",
-                            command_remind)
+                            command_remind),
+            TelegramCommand(["mode", "modes", "moder"],
+                            "Retrieves and sets the current house mode.",
+                            command_mode)
         ]
 
         # parse each chat as a TelegramChat object
