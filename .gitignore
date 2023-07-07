@@ -18,3 +18,6 @@ dimrod*.service
 # databases
 *.db
 
+# output files
+*.out
+

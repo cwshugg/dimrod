@@ -35,12 +35,12 @@ class WardenConfig(ServiceConfig):
         super().__init__()
         # create lumen-specific fields to append to the existing service fields
         fields = [
-            ConfigField("devices",          [list], required=True),
-            ConfigField("refresh_rate",     [int],  required=False,     default=60),
-            ConfigField("ping_timeout",     [int],  required=False,     default=0.1),
-            ConfigField("ping_tries",       [int],  required=False,     default=2),
-            ConfigField("sweep_threshold",  [int],  required=False,     default=600),
-            ConfigField("initial_sweeps",   [int],  required=False,     default=4)
+            ConfigField("devices",          [list],     required=True),
+            ConfigField("refresh_rate",     [int],      required=False,     default=60),
+            ConfigField("ping_timeout",     [float],    required=False,     default=0.35),
+            ConfigField("ping_tries",       [int],      required=False,     default=2),
+            ConfigField("sweep_threshold",  [int],      required=False,     default=600),
+            ConfigField("initial_sweeps",   [int],      required=False,     default=1)
         ]
         self.fields += fields
 
@@ -55,7 +55,7 @@ class WardenService(Service):
         
         # make a few config assertions
         assert self.config.refresh_rate > 0, "the refresh rate must be greater than 0"
-        assert self.config.ping_timeout > 0, "the ping timeout must be greater than 0"
+        assert self.config.ping_timeout > 0.0, "the ping timeout must be greater than 0"
         assert self.config.ping_tries > 0, "the ping try count must be greater than 0"
 
         # parse out the individual devices from the "devices" field
@@ -115,7 +115,7 @@ class WardenService(Service):
                 
                 # ping the client and update if it responds
                 ping_tries = self.config.ping_tries * 2
-                if self.ping(client.ipaddr, tries=ping_tries) == 0:
+                if self.ping(client.ipaddr, tries=ping_tries):
                     self.log.write("%s Client \"%s\" is responding." %
                                    (pfx, client))
                     client.update()
@@ -213,8 +213,7 @@ class WardenService(Service):
             entry = {"ipaddr": None, "macaddr": None}
 
             # ping and save the address if the ping succeeded
-            result = self.ping(addr)
-            if result == 0:
+            if self.ping(addr):
                 entry["ipaddr"] = addr
             else:
                 continue
@@ -231,14 +230,84 @@ class WardenService(Service):
                 client.update(ipaddr=addr)
         return up_addrs
 
-    # Pings a given IP address and returns the result. 0 is equal to success and
-    # a non-zero value is equivalent to the 'ping' utility's error return value.
+    # Attempts to do various nmap ping strategies to identify if a host is up or
+    # not. Used by `self.ping()`. Returns True if the host is up, False
+    # otherwise.
+    # https://nmap.org/book/host-discovery-techniques.html
+    def ping_nmap(self, address: str, timeout: float, tries: int, pingtype=None):
+        tmpfile = ".warden.nmap.out"
+
+        # select a ping type to attempt
+        pingtype = "pe" if pingtype is None else pingtype.strip().lower()
+        ptarg = "-PE" # default is an ICMP echo request (i.e. the 'ping' tool)
+        types = {
+            "pe": "-PE",    # ICMP echo request (default)
+            "pp": "-PP",    # ICMP timestamp query packet
+            "pm": "-PM",    # ICMP address mask query
+            "ps": "-PS",    # TCP SYN ping
+            "pa": "-PA",    # TCP ACK ping
+            "pu": "-PU"     # UDP ping
+        }
+        for t in types:
+            if pingtype == t:
+                ptarg = types[t]
+                break
+
+        # try a number of times to ping the host
+        for i in range(tries):
+            # increase timeout for each trial
+            timeout = timeout + (i * timeout)
+
+            # delete the temporary file, if it exists from a previous run
+            # that was interrupted or prevented from deleting it
+            if os.path.isfile(tmpfile):
+                os.remove(tmpfile)
+
+            # create program arguments and launch a subprocess
+            args = [
+                "nmap",
+                "-sn",          # disable port discovery - ping scan only
+                ptarg,          # selected ping type
+                address,
+                "--host-timeout", str(timeout),
+                "-oG", tmpfile  # write greppable output to file
+            ]
+            result = subprocess.run(args,
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
+
+            # if the file wasn't created, something went wrong
+            if not os.path.isfile(tmpfile):
+                return False
+
+            # read the file's contents line by line
+            host_is_up = False
+            with open(tmpfile, "r") as fp:
+                for line in fp:
+                    line = line.strip().replace("\n", "")
+                    # skip any lines that are comments
+                    if line.startswith("#"):
+                        continue
+
+                    # otherwise, look for the IP address and the 'Up' keyword
+                    if address in line and "up" in line.lower():
+                        host_is_up = True
+                        break
+
+            # delete the temporary file
+            if os.path.isfile(tmpfile):
+                os.remove(tmpfile)
+
+            # return according to what we found in the output
+            return host_is_up
+   
+    # Pings a given IP address and returns True if the host is up.
     # This may attempt multiple pings to reduce inaccuracy or unreturned pings
     # due to network latency.
-    def ping(self, address: str, timeout=None, tries=None):
+    def ping_classic(self, address: str, timeout=None, tries=None):
         # establish defaults if none were given
-        timeout = self.config.ping_timeout if timeout == None else timeout
-        tries = self.config.ping_tries if tries == None else tries
+        timeout = self.config.ping_timeout if timeout is None else timeout
+        tries = self.config.ping_tries if tries is None else tries
 
         # try a number of times to ping the ip address
         for i in range(tries):
@@ -259,16 +328,40 @@ class WardenService(Service):
             # if we didn't get a zero return value, we'll try again
             if result.returncode != 0:
                 continue
-            return 0
-        return -1
+            return True
+        return False
     
+    # Attempts a variety of different pinging techniques to determine if a host
+    # is up and responding.
+    def ping(self, address: str, timeout=None, tries=None):
+        # establish limits and run the nmap helper
+        timeout = self.config.ping_timeout if timeout is None else timeout
+        tries = self.config.ping_tries if tries is None else tries
+        
+        # ATTEMPT 1: Classic 'ping' utility
+        if self.ping_classic(address, timeout=timeout, tries=tries):
+            print("\033[32mHost %s is UP via CLASSIC ping.\033[0m" % address)
+            return True
+        # ATTEMPT 2: nmap default echo request (basically the same as 'ping')
+        elif self.ping_nmap(address, timeout, tries):
+            return True
+        # ATTEMPT 3-N: various nmap ping styles
+        else:
+            for pt in ["pp", "pm", "ps", "pa", "pu"]:
+                if self.ping_nmap(address, timeout, tries, pingtype=pt):
+                    return True
+        
+        # if we reach here without returning true, we'll assume the host is
+        # offline
+        return False
+
     # Look up the MAC address of the given IP address. If 'do_ping' is True, the
     # address will be pinged beforehand (to fill up the ARP cache).
     # The MAC address is returned as a string.
     def arp(self, address: str, do_ping=True):
         # if specified, ping the address
         if do_ping:
-            assert self.ping(address) == 0, "the address did not respond to a ping"
+            assert self.ping(address), "the address did not respond to a ping"
 
         # invoke the 'arp' system command
         args = ["arp", "-n", address]

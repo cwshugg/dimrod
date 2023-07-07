@@ -48,5 +48,10 @@ echo -e "${C_ACC1}Installing openai...${C_NONE}"
 python3 -m pip install openai
 echo ""
 
+# nmap
+echo -e "${C_ACC1}Installing nmap...${C_NONE}"
+sudo apt install nmap
+echo ""
+
 echo -e "${C_GOOD}Finished.${C_NONE}"
 
