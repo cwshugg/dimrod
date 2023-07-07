@@ -286,6 +286,18 @@ class ModerOracle(Oracle):
             pyld = {"mode": self.service.thread.mode.name}
             return self.make_response(success=True, payload=pyld)
 
+        @self.server.route("/mode/get_all", methods=["GET"])
+        def endpoint_mode_get_all():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            
+            # respond with all mode names
+            pyld = {"modes": []}
+            for mclass in self.service.get_modes():
+                pyld["modes"].append(mclass(self.service).name)
+            return self.make_response(success=True, payload=pyld)
+
+
         
 # =============================== Runner Code ================================ #
 cli = ServiceCLI(config=ModerConfig, service=ModerService, oracle=ModerOracle)
