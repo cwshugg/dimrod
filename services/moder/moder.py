@@ -292,9 +292,9 @@ class ModerOracle(Oracle):
                 return self.make_response(rstatus=404)
             
             # respond with all mode names
-            pyld = {"modes": []}
+            pyld = []
             for mclass in self.service.get_modes():
-                pyld["modes"].append(mclass(self.service).name)
+                pyld.append(mclass(self.service).name)
             return self.make_response(success=True, payload=pyld)
 
 
