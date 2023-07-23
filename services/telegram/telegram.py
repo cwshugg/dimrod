@@ -23,7 +23,6 @@ from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle, OracleSession
 from lib.cli import ServiceCLI
-from lib.dialogue import DialogueInterface, DialogueConfig
 
 # Service imports
 from telegram_objects import TelegramChat, TelegramUser
@@ -48,6 +47,7 @@ class TelegramConfig(ServiceConfig):
             ConfigField("bot_api_key",              [str],      required=True),
             ConfigField("bot_chats",                [list],     required=True),
             ConfigField("bot_users",                [list],     required=True),
+            ConfigField("bot_conversation_timeout", [int],      required=False, default=1800),
             ConfigField("lumen_address",            [str],      required=True),
             ConfigField("lumen_port",               [int],      required=True),
             ConfigField("lumen_auth_username",      [str],      required=True),
@@ -63,7 +63,15 @@ class TelegramConfig(ServiceConfig):
             ConfigField("notif_address",            [str],      required=True),
             ConfigField("notif_port",               [int],      required=True),
             ConfigField("notif_auth_username",      [str],      required=True),
-            ConfigField("notif_auth_password",      [str],      required=True)
+            ConfigField("notif_auth_password",      [str],      required=True),
+            ConfigField("moder_address",            [str],      required=True),
+            ConfigField("moder_port",               [int],      required=True),
+            ConfigField("moder_auth_username",      [str],      required=True),
+            ConfigField("moder_auth_password",      [str],      required=True),
+            ConfigField("speaker_address",          [str],      required=True),
+            ConfigField("speaker_port",             [int],      required=True),
+            ConfigField("speaker_auth_username",    [str],      required=True),
+            ConfigField("speaker_auth_password",    [str],      required=True)
         ]
 
 
@@ -120,12 +128,10 @@ class TelegramService(Service):
             tu = TelegramUser()
             tu.parse_json(udata)
             self.users.append(tu)
-
-        # set up the dialogue interface
-        dialogue_conf = DialogueConfig()
-        dialogue_conf.parse_file(config_path)
-        self.dialogue = DialogueInterface(dialogue_conf)
-        self.conversations = {}
+        
+        # store converstaion IDs and timestamps in a dictionary, indexed by
+        # telegram chat ID
+        self.chat_conversations = {}
     
     # ------------------------------- Helpers -------------------------------- #
     # Sets up a new TeleBot instance.
@@ -159,17 +165,65 @@ class TelegramService(Service):
             self.log.write("Message from unrecognized user: %s" % user_id)
         return user_is_valid
     
-    # Takes in a string message and attempts to reword it. On failure it will
+    # Creates and returns a new OracleSession with the speaker.
+    # If authentication fails, None is returned.
+    def get_speaker_session(self):
+        s = OracleSession(self.config.speaker_address, self.config.speaker_port)
+        r = s.login(self.config.speaker_auth_username, self.config.speaker_auth_password)
+        if not OracleSession.get_response_success(r):
+            self.log.write("Failed to authenticate with speaker: %s" %
+                           OracleSession.get_response_message(r))
+            return None
+        return s
+    
+    # Takes in a string message and attempts to reword it. On failure, it will
     # return the original string.
-    def reword_message(self, message: str):
-        # attempt to use a dialogue interface
-        try:
-            return self.dialogue.reword(message)
-        except Exception as e:
-            raise e # FIXME REMOVE
-            self.log.write("Failed to generate rewording for message: %s" % e)
+    def dialogue_reword(self, message: str):
+        # attempt to connect to the speaker
+        speaker = self.get_speaker_session()
+        if speaker is None:
+            self.log.write("Failed to connect to the speaker.")
             return message
 
+        # ping the /reword endpoint
+        pyld = {"message": message}
+        r = speaker.post("/reword", payload=pyld)
+        if OracleSession.get_response_success(r):
+            # extract the response and return the reworded message
+            rdata = OracleSession.get_response_json(r)
+            return str(rdata["message"])
+        
+        # if the above didn't work, just return the original message
+        self.log.write("Failed to get a reword from speaker: %s" %
+                       OracleSession.get_response_message(r))
+        return message
+    
+    # Takes in a message and communicates with DImROD's dialogue system to
+    # converse with the telegram user.
+    def dialogue_talk(self, message: str, conversation_id=None):
+        # attempt to connect to the speaker
+        speaker = self.get_speaker_session()
+        if speaker is None:
+            self.log.write("Failed to connect to the speaker.")
+            return (None, None)
+
+        # build a payload to pass to the speaker
+        pyld = {"message": message}
+        if conversation_id is not None:
+            pyld["conversation_id"] = conversation_id
+        
+        # ping the /talk endpoint
+        r = speaker.post("/talk", payload=pyld)
+        if OracleSession.get_response_success(r):
+            # extract the response and return response message
+            rdata = OracleSession.get_response_json(r)
+            return (str(rdata["conversation_id"]), str(rdata["response"]))
+        
+        # if the above didn't work, just return the original message
+        self.log.write("Failed to get conversation from speaker: %s" %
+                       OracleSession.get_response_message(r))
+        return (None, None)
+    
     # ------------------------------ Messaging ------------------------------- #
     # Wrapper for sending a message.
     def send_message(self, chat_id, message, parse_mode=None):
@@ -225,29 +279,39 @@ class TelegramService(Service):
                         return
                 # if we didn't find a matching command, tell the user
                 self.send_message(message.chat.id,
-                                      "Sorry, that's not a valid command.\n"
-                                      "Try /help.")
+                                  "Sorry, that's not a valid command.\n"
+                                  "Try /help.")
                 return
 
             # if a matching command wasn't found, we'll interpret it as a chat
             # message to dimrod. First, look for an existing conversation object
             # for this specific chat. If one exists, AND it hasn't been too long
             # since it was last touched, we'll use it
-            convo_id = str(message.chat.id)
-            convo = None
-            if convo_id in self.conversations:
-                timediff = now.timestamp() - self.conversations[convo_id].time_latest.timestamp()
-                if timediff < 300:
-                    convo = self.conversations[convo_id]
+            chat_id = str(message.chat.id)
+            convo_id = None
+            if chat_id in self.chat_conversations:
+                timediff = now.timestamp() - self.chat_conversations[chat_id]["timestamp"].timestamp()
+                if timediff < self.config.bot_conversation_timeout:
+                    convo_id = self.chat_conversations[chat_id]["conversation_id"]
                 else:
-                    self.log.write("Conversation for chat \"%s\" has expired." % message.chat.id)
+                    self.log.write("Conversation for chat \"%s\" has expired." % chat_id)
 
-            # next, pass the message (and conversation, if we found one) to the
-            # dialogue interface
+            # next, pass the message (and conversation ID, if we found one) to
+            # the dialogue interface
             try:
-                convo = self.dialogue.talk(message.text, conversation=convo)
-                self.send_message(message.chat.id, convo.latest_response().content)
-                self.conversations[convo_id] = convo
+                (convo_id, response) = self.dialogue_talk(message.text, conversation_id=convo_id)
+                # check for failure-to-converse and update the chat dictionary,
+                # if able
+                if response is None:
+                    response = "Sorry, I couldn't generate a response."
+                if convo_id is not None:
+                    self.chat_conversations[chat_id] = {
+                        "conversation_id": convo_id,
+                        "timestamp": datetime.now()
+                    }
+                
+                # send the message
+                self.send_message(message.chat.id, response)
             except Exception as e:
                 self.send_message(message.chat.id,
                                   "I'm not sure what you mean. Try /help.")

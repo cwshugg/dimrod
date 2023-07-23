@@ -57,5 +57,10 @@
     "moder_address": "0.0.0.0",
     "moder_port": 2358,
     "moder_auth_username": "ABC",
-    "moder_auth_password": "XYZ"
+    "moder_auth_password": "XYZ",
+
+    "speaker_address": "0.0.0.0",
+    "speaker_port": 2357,
+    "speaker_auth_username": "ABC",
+    "speaker_auth_password": "XYZ"
 }
