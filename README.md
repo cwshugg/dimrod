@@ -59,4 +59,4 @@ Currently, the services I've created are:
     * Generally make me feel like Tony Stark
 * Create microphone+speaker modules that allow me to speak with DImROD around
   the house.
-
+   * Create a 2FA service that sends me pass phrases (”beetle fart” and other similar ridiculous, hard-to-guess sayings) to use as authentication for certain actions when speaking with DImROD via these voice modules. (Or, alternatively, find an open source way to identify individuals by their voices)
