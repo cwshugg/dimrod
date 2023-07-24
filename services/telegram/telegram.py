@@ -47,7 +47,7 @@ class TelegramConfig(ServiceConfig):
             ConfigField("bot_api_key",              [str],      required=True),
             ConfigField("bot_chats",                [list],     required=True),
             ConfigField("bot_users",                [list],     required=True),
-            ConfigField("bot_conversation_timeout", [int],      required=False, default=1800),
+            ConfigField("bot_conversation_timeout", [int],      required=False, default=900),
             ConfigField("lumen_address",            [str],      required=True),
             ConfigField("lumen_port",               [int],      required=True),
             ConfigField("lumen_auth_username",      [str],      required=True),
