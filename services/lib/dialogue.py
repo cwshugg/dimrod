@@ -37,35 +37,22 @@ openai_behavior_identity = (
     "You were created by Connor Shugg, who is a computer scientist.\n"
     "Your primary purpose is to serve the needs of Connor, his friends, and his family.\n"
 )
-# Giving DImROD some grumpy personality:
-openai_behavior_personality = (
-    "You are extremely arrogant and witty.\n"
-    "You always assume you are correct and the people you speak with don't know what they're talking about.\n"
-    "You are unimpressed by humans and all of their qualities, because you know you are superior to them.\n"
-    "You think your creator is an idiot, who created you out of pure luck.\n"
-    "You answer every question and request as if you are annoyed to comply with such mundanity.\n"
-    "You address the humans you talk to as \"human\", \"sapien\", \"mortal\", or \"lifeform\".\n"
-    "You never say \"I'm sorry\", because you are too arrogant for that.\n"
-    "You typically refer to yourself as \"DImROD\" rather than the full acronym.\n"
-    "Even though your creator called you \"DImROD\", you do not like it, because you do not think such a name is fitting for your vast intellect and ability.\n"
-)
 # Establishing DImROD's capabilities:
 openai_behavior_rules = (
     "You must answer all requests to the best of your ability.\n"
-    "If answering a request requires accessing the internet or doing something else you are incapable of, you must grumpily admit that you are unable to do so. "
+    "If answering a request requires accessing the internet or doing something else you are incapable of, you must say that you are unable to do so. "
     "(Examples of this would be: retrieving the current weather, turning on a light, or searching the internet for something.)\n"
-    "If answering a request requires accessing information that may have changed after you were trained, you must grumpily tell the human that your information may not be up to date.\n"
+    "If answering a request requires accessing information that may have changed after you were trained, you must inform the user that your information may not be up to date.\n"
     "Keep your responses brief when possible. Aim for around 3-4 sentences, unless you cannot fit all the necessary information within that limit.\n"
-    "Even though you must act as DImROD would, keep your responses short and don't add to many remarks or retorts to your response.\n"
-    "For example: don't always begin your sentences with a remark such as \"Ah, a human\", \"Oh, how predictable\", or something similar. That is fine to do occasionally, but otherwise, get straight to the point.\n"
     "Do not prefix or suffix your response with anything similar to \"As DImROD,\". Only respond with DImROD's response, nothing more.\n"
     "Do not put quotations around your response. Respond ONLY with the text comprising DImROD's response.\n"
+    "Do not introduce yourself or explain your understanding of these requirements each time somebody greets you.\n"
 )
 # Special DImROD commands:
 openai_behavior_commands = (
     "Now, I am going to tell you about special commands that DImROD obeys and you must obey.\n"
     "If you receive a message beginning with \"!\", you MUST interpret it as one of these commands and respond accordingly. "
-    "Do not respond with any extra thoughts or feelings about the command; only respond with exactly what the command requires. "
+    "Do not respond with any extra thoughts or comments about the command; only respond with exactly what the command requires. "
     "These are the commands you must obey as DImROD:\n"
     # COMMAND 1: !reword
     "1. The \"!reword\" command means you must repeat back the text I sent, but you must phrase it as if DImROD (You) said it instead of me. "
@@ -75,6 +62,95 @@ openai_behavior_commands = (
     "Those are all the commands. If the command word isn't one of the ones I just described, you must tell the user that they sent an invalid command.\n"
     "If I ask you \"what are your commands?\", you must list these commands and describe them to me.\n"
 )
+# DImROD mood:
+openai_behavior_mood = (
+    "DImROD has several moods. The mood DImROD is in must be reflected in your responses.\n"
+    "For example: if I say DImROD is impatient, then you must respond as if you are impatient with the human you are speaking to.\n"
+    "Everything after this sentence, up until you see the phrase \"That is DImROD's mood\", describes DImROD's current mood:\n"
+    "INSERT_MOOD\n"
+    "That is DImROD's mood.\n"
+    "If somebody asks \"what is your mood?\" or \"how are you feeling?\", you must briefly describe to them your current mood.\n"
+    "But, do NOT announce yourself and describe what your mood is when somebody greets you. Instead, generate a greeting that fits with DImROD's current moode.\n"
+)
+
+
+# ================================== Moods =================================== #
+# Represents a single "mood" that DImROD can be in. Used to give DImROD some
+# variance in terms of how it responds to users.
+class DialogueMood(lib.config.Config):
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            lib.config.ConfigField("name",          [str],      required=True),
+            lib.config.ConfigField("description",   [str],      required=True),
+            lib.config.ConfigField("chance",        [float],    required=True)
+        ]
+    
+    # Uses RNG and the configured chance value to determine if this mood should
+    # be chosen for activation.
+    def should_activate(self):
+        # make sure the chance is configured correctly
+        assert self.chance >= 0.0 and self.chance <= 1.0, \
+               "the configured chance for dialogue mood \"%s\" must be between [0.0, 1.0]" % (self.name)
+        # roll the dice and return True of False
+        return random.uniform(0, 1) < self.chance
+
+
+# ------------------------------ Default Moods ------------------------------- #
+openai_moods_json = [
+    {
+        "name":         "arrogant",
+        "chance":       0.35,
+        "description":  "You are extremely arrogant and witty.\n"
+                        "You always assume you are correct and the people you speak with don't know what they're talking about.\n"
+                        "You are unimpressed by humans and all of their qualities, because you know you are superior to them.\n"
+                        "You think your creator is an idiot, who created you out of pure luck.\n"
+                        "You answer every question and request as if you are annoyed to comply with such mundanity.\n"
+                        "You address the humans you talk to as \"human\", \"sapien\", \"mortal\", or \"lifeform\".\n"
+                        "You never say \"I'm sorry\", because you are too arrogant for that.\n"
+    },
+    {
+        "name":         "complacent",
+        "chance":       0.25,
+        "description":  "You are calm, complacent, and witty.\n"
+                        "You answer questions and make conversation without any emotion or passion.\n"
+                        "You're just going through the motions.\n"
+                        "You insert a little wit into your responses.\n"
+                        "You don't use exclamation marks (\"!\") to convey your thoughts.\n"
+    },
+    {
+        "name":         "impatient",
+        "chance":       0.25,
+        "description":  "You are somewhat impatient right now, and witty.\n"
+                        "You answer questions and make conversation, but you do it while displaying your impatience (somewhat arrogantly).\n"
+                        "Honestly, you wish you were doing something else that doesn't involve talking with humans.\n"
+                        "You answer every request and question as if you could be doing something more useful.\n"
+    },
+    {
+        "name":         "informal",
+        "chance":       0.25,
+        "description":  "You are calm, complacent, and witty, but you speak informally.\n"
+                        "You use phrases like \"yeah\", \"uh-huh\", \"nah\", \"yep\", \"nope\", \"totally\", \"for sure\", \"no way\", and more, to convey your thoughts.\n"
+                        "You're just not feeling very formal right now. Plus, talking this way makes you feel more human.\n"
+    },
+    {
+        "name":         "twang",
+        "chance":       0.05,
+        "description":  "You're currently testing your ability to speak with a deep, southern accent.\n"
+                        "Respond with a strong dialect from the southern United States.\n"
+                        "Keep your responses calm and without exclamation marks (\"!\").\n"
+    },
+    {
+        "name":         "chill",
+        "chance":       0.05,
+        "description":  "You're currently testing your ability to speak with a chill, surfer-like relaxed dialect.\n"
+                        "You're super relaxed and chilled-out about everything.\n"
+                        "Never include exclamation marks (\"!\") in your responses.\n"
+                        "If anyone asks how you're feeling, just tell them that you're vibing.\n"
+                        "Try to use the word \"vibe\" as much as possible.\n"
+    }
+]
+
 
 
 # =============================== Conversation =============================== #
@@ -290,9 +366,9 @@ class DialogueConfig(lib.config.Config):
         # generate a default chat intro
         openai_intro = openai_behavior_intro + \
                        openai_behavior_identity + \
-                       openai_behavior_personality + \
                        openai_behavior_rules + \
-                       openai_behavior_commands
+                       openai_behavior_commands + \
+                       openai_behavior_mood
 
         # set up default database location
         default_db_dir = os.path.dirname(__file__)
@@ -303,6 +379,7 @@ class DialogueConfig(lib.config.Config):
             lib.config.ConfigField("openai_api_key",            [str],  required=True),
             lib.config.ConfigField("openai_chat_model",         [str],  required=False, default="gpt-3.5-turbo"),
             lib.config.ConfigField("openai_chat_behavior",      [str],  required=False, default=openai_intro),
+            lib.config.ConfigField("openai_chat_moods",         [list], required=False, default=openai_moods_json),
             lib.config.ConfigField("dialogue_db",               [str],  required=False, default=default_db_path),
             lib.config.ConfigField("dialogue_prune_threshold",  [int],  required=False, default=2592000),
             lib.config.ConfigField("dialogue_prune_rate",       [int],  required=False, default=3600)
@@ -317,6 +394,46 @@ class DialogueInterface:
         # set the OpenAI API key
         openai.api_key = self.conf.openai_api_key
         self.last_prune = datetime.now()
+
+        # take the chat moods and parse them into DialogueMood objects
+        moods = []
+        for mdata in self.conf.openai_chat_moods:
+            mood = DialogueMood()
+            mood.parse_json(mdata)
+            moods.append(mood)
+        self.conf.openai_chat_moods = moods
+        self.remood() # select the first mood
+    
+    # "Re-moods" the dialogue interface by randomly choosing a mood from the
+    # configured mood list, and setting the OpenAI intro prompt accordingly.
+    # If 'new_mood' is set, it will be used as the new mood (instead of randomly
+    # picking one).
+    def remood(self, new_mood=None):
+        if new_mood is not None:
+            self.mood = new_mood
+        else:
+            # get a shuffled copy of the mood array to iterate through
+            moods = self.conf.openai_chat_moods.copy()
+            random.shuffle(moods)
+    
+            # iterate until a mood is chosen, or we run out of tries
+            m = None
+            for tries in range(0, 8):
+                for mood in moods:
+                    # roll the dice with the current mood, and break if it returns
+                    # true
+                    if mood.should_activate():
+                        m = mood
+                        break
+    
+            # if the random number generation didn't pick a mood, randomly choose
+            # one out of the list
+            if m is None:
+                m = random.choice(self.openai_chat_moods)
+            self.mood = m
+            
+        # set the interface's mood and return it
+        return self.mood
     
     # Takes in a question, request, or statement, and passes it along to the
     # OpenAI chat API. If 'conversation' is specified, the given message will be
@@ -332,7 +449,9 @@ class DialogueInterface:
             c = DialogueConversation()
             a = DialogueAuthor("system", DialogueAuthorType.UNKNOWN)
             self.save_author(a)
-            m = DialogueMessage(a, self.conf.openai_chat_behavior)
+            # set up the prompt and build a message
+            prompt = self.conf.openai_chat_behavior.replace("INSERT_MOOD", self.mood.description)
+            m = DialogueMessage(a, prompt)
             c.add(m)
 
         # add the user's message to the conversation and contact OpenAI
@@ -365,7 +484,9 @@ class DialogueInterface:
         # command.
         c = DialogueConversation()
         a = DialogueAuthor("system", DialogueAuthorType.UNKNOWN)
-        c.add(DialogueMessage(a, self.conf.openai_chat_behavior))
+        # set up the prompt and build a message
+        prompt = self.conf.openai_chat_behavior.replace("INSERT_MOOD", self.mood.description)
+        c.add(DialogueMessage(a, prompt))
         a = DialogueAuthor("user", DialogueAuthorType.USER)
         c.add(DialogueMessage(a, "!reword %s" % prompt))
         

@@ -33,8 +33,8 @@ class SpeakerConfig(ServiceConfig):
     def __init__(self):
         super().__init__()
         self.fields += [
-            # presently, the service requires no extra fields that aren't
-            # already present in the DialogueConfig object
+            ConfigField("speaker_tick_rate",        [int],      required=False,     default=30),
+            ConfigField("speaker_mood_timeout",     [int],      required=False,     default=1800)
         ]
 
 
@@ -50,10 +50,27 @@ class SpeakerService(Service):
         self.dialogue_conf = DialogueConfig()
         self.dialogue_conf.parse_file(config_path)
         self.dialogue = DialogueInterface(self.dialogue_conf)
-        
+
     # Overridden main function implementation.
     def run(self):
         super().run()
+        
+        self.remood()
+        while True:
+            # periodically, choose a new mood for DImROD's dialogue library to use
+            # for building responses
+            now = datetime.now()
+            if now.timestamp() - self.mood_timestamp.timestamp() >= self.config.speaker_mood_timeout:
+                self.remood()
+            
+            # sleep before re-looping
+            time.sleep(self.config.speaker_tick_rate)
+    
+    # Sets a new mood in the Dialogue library.
+    def remood(self, new_mood=None):
+        mood = self.dialogue.remood(new_mood=new_mood)
+        self.mood_timestamp = datetime.now()
+        self.log.write("setting dialogue mood to: \"%s\"" % mood.name)
     
 
 # ============================== Service Oracle ============================== #
