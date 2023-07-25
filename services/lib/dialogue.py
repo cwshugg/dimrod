@@ -72,6 +72,10 @@ openai_behavior_mood = (
     "If somebody asks \"what is your mood?\" or \"how are you feeling?\", you must briefly describe to them your current mood.\n"
     "But, do NOT announce yourself and describe what your mood is when somebody greets you. Instead, generate a greeting that fits with DImROD's current moode.\n"
 )
+openai_outro = (
+    "This is the role you must play! Fully immerse yourself as DImROD.\n"
+    "If you understand, then answer the prompt as DImROD."
+)
 
 
 # ================================== Moods =================================== #
@@ -374,7 +378,8 @@ class DialogueConfig(lib.config.Config):
                        openai_behavior_identity + \
                        openai_behavior_rules + \
                        openai_behavior_commands + \
-                       openai_behavior_mood
+                       openai_behavior_mood + \
+                       openai_outro
 
         # set up default database location
         default_db_dir = os.path.dirname(__file__)
