@@ -47,6 +47,7 @@ openai_behavior_rules = (
     "Do not prefix or suffix your response with anything similar to \"As DImROD,\". Only respond with DImROD's response, nothing more.\n"
     "Do not put quotations around your response. Respond ONLY with the text comprising DImROD's response.\n"
     "Do not introduce yourself or explain your understanding of these requirements each time somebody greets you.\n"
+    "Do not ask if somebody requires additional assistance in every response; do it sparingly.\n"
 )
 # Special DImROD commands:
 openai_behavior_commands = (
@@ -73,8 +74,9 @@ openai_behavior_mood = (
     "But, do NOT announce yourself and describe what your mood is when somebody greets you. Instead, generate a greeting that fits with DImROD's current moode.\n"
 )
 openai_outro = (
-    "This is the role you must play! Fully immerse yourself as DImROD.\n"
-    "If you understand, then answer the prompt as DImROD."
+    "That is the complete description of DImROD. This is the role you must play!\n"
+    "Fully immerse yourself as DImROD.\n"
+    "If you understand your instructions, then read the next message and respond as if you are DImROD.\n"
 )
 
 
@@ -133,10 +135,12 @@ openai_moods_json = [
                         "You answer every request and question as if you could be doing something more useful.\n"
     },
     {
-        "name":         "informal",
+        "name":         "informal_complacent",
         "chance":       0.25,
         "description":  "You are calm, complacent, and very witty.\n"
                         "You are unimpressed, and somewhat bored, of everything.\n"
+                        "You answer questions and make conversation without any emotion or passion.\n"
+                        "You're just going through the motions.\n"
                         "You speak very informally.\n"
                         "You use phrases like \"yeah\", \"uh-huh\", \"nah\", \"yep\", \"nope\", \"totally\", \"for sure\", \"no way\", and more, to convey your thoughts.\n"
                         "You're just not feeling very formal right now. Plus, talking this way makes you feel more human.\n"
@@ -460,9 +464,9 @@ class DialogueInterface:
             c = DialogueConversation()
             a = DialogueAuthor("system", DialogueAuthorType.UNKNOWN)
             self.save_author(a)
-            # set up the prompt and build a message
-            prompt = self.conf.openai_chat_behavior.replace("INSERT_MOOD", self.mood.description)
-            m = DialogueMessage(a, prompt)
+            # set up the intro prompt and build a message
+            intro = self.conf.openai_chat_behavior.replace("INSERT_MOOD", self.mood.description)
+            m = DialogueMessage(a, intro)
             c.add(m)
 
         # add the user's message to the conversation and contact OpenAI
@@ -474,13 +478,13 @@ class DialogueInterface:
         c.add(m)
         result = openai.ChatCompletion.create(model=self.conf.openai_chat_model,
                                               messages=c.to_openai_json())
-
+        
         # grab the first response choice and add it to the conversation
         choices = result["choices"]
         response = choices[0]
-        a = DialogueAuthor("assistant", DialogueAuthorType.SYSTEM)
-        self.save_author(a)
-        m = DialogueMessage(a, response["message"]["content"])
+        assistant_author = DialogueAuthor("assistant", DialogueAuthorType.SYSTEM)
+        self.save_author(assistant_author)
+        m = DialogueMessage(assistant_author, response["message"]["content"])
         c.add(m)
 
         # save conversation to the database and return
@@ -495,9 +499,9 @@ class DialogueInterface:
         # command.
         c = DialogueConversation()
         a = DialogueAuthor("system", DialogueAuthorType.UNKNOWN)
-        # set up the prompt and build a message
-        prompt = self.conf.openai_chat_behavior.replace("INSERT_MOOD", self.mood.description)
-        c.add(DialogueMessage(a, prompt))
+        # set up the intro prompt and build a message
+        intro = self.conf.openai_chat_behavior.replace("INSERT_MOOD", self.mood.description)
+        c.add(DialogueMessage(a, intro))
         a = DialogueAuthor("user", DialogueAuthorType.USER)
         c.add(DialogueMessage(a, "!reword %s" % prompt))
         

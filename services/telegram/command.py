@@ -7,10 +7,11 @@ class TelegramCommand:
     prefix = "/"
 
     # Constructor. Takes in all necessary fields to define a command.
-    def __init__(self, keywords: list, description: str, handler):
+    def __init__(self, keywords: list, description: str, handler, secret=False):
         self.keywords = keywords
         self.description = description
         self.handler = handler
+        self.secret = secret
     
     # Takes in the first argument of a telegram message and determines if it
     # matches the command's keywords.

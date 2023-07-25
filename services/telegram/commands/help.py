@@ -18,7 +18,8 @@ def command_help(service, message, args: list):
     # https://core.telegram.org/bots/api#markdownv2-style
     msg = "<b>All possible commands</b>\n\n"
     for command in service.commands:
-        msg += "/%s - %s\n" % \
-                (command.keywords[0], command.description)
+        # skip secret commands
+        if not command.secret:
+            msg += "/%s - %s\n" % (command.keywords[0], command.description)
     service.send_message(message.chat.id, msg, parse_mode="HTML")
 

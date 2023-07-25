@@ -36,6 +36,7 @@ from commands.event import command_event
 from commands.list import command_list
 from commands.remind import command_remind
 from commands.mode import command_mode
+from commands.s_reset import command_s_reset
 
 
 # =============================== Config Class =============================== #
@@ -112,7 +113,11 @@ class TelegramService(Service):
                             command_remind),
             TelegramCommand(["mode", "modes", "moder"],
                             "Retrieves and sets the current house mode.",
-                            command_mode)
+                            command_mode),
+            TelegramCommand(["_reset"],
+                            "Resets the current chat conversation.",
+                            command_s_reset,
+                            secret=True)
         ]
 
         # parse each chat as a TelegramChat object
@@ -282,12 +287,21 @@ class TelegramService(Service):
                                   "Sorry, that's not a valid command.\n"
                                   "Try /help.")
                 return
+            
+            # SECRET COMMAND: this can be used to reset a conversation
+            # (i.e. force the bot to begin a new conversation rather than
+            # use the existing one)
+            chat_id = str(message.chat.id)
+            if message.text.lower().startswith("/_reset"):
+                if chat_id in self.chat_conversations:
+                    self.chat_conversations.pop(chat_id)
+                self.send_message(message.chat.id, "Conversation reset.\n")
+                return
 
             # if a matching command wasn't found, we'll interpret it as a chat
             # message to dimrod. First, look for an existing conversation object
             # for this specific chat. If one exists, AND it hasn't been too long
             # since it was last touched, we'll use it
-            chat_id = str(message.chat.id)
             convo_id = None
             if chat_id in self.chat_conversations:
                 timediff = now.timestamp() - self.chat_conversations[chat_id]["timestamp"].timestamp()
