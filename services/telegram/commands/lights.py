@@ -37,7 +37,7 @@ def lights_on(service, message, args: list, session, lights: list):
         successes = 0
 
         # send a message to tell the user to hang on (try generating one first)
-        msg = service.reword_message("Hang tight. I'm turning on all the lights.")
+        msg = service.dialogue_reword("Hang tight. I'm turning on all the lights.")
         service.send_message(message.chat.id, msg)
         for light in lights:
             jdata = {"id": light.lid, "action": "on"}
@@ -58,7 +58,7 @@ def lights_on(service, message, args: list, session, lights: list):
     # match the lights to the given arguments
     matches = match_lights(args[2:], lights)
     if len(matches) == 0:
-        msg = service.reword_message("I couldn't find any matching lights.")
+        msg = service.dialogue_reword("I couldn't find any matching lights.")
         service.send_message(message.chat.id, msg)
         return
 
@@ -69,10 +69,10 @@ def lights_on(service, message, args: list, session, lights: list):
 
         # check the response for success
         if r.status_code == 200 and session.get_response_success(r):
-            msg = service.reword_message("I turned on <code>%s</code>." % light.lid)
+            msg = service.dialogue_reword("I turned on <code>%s</code>." % light.lid)
             service.send_message(message.chat.id, msg, parse_mode="HTML")
         else:
-            msg = service.reword_message("I couldn't turn on <code>%s</code>." % light.lid)
+            msg = service.dialogue_reword("I couldn't turn on <code>%s</code>." % light.lid)
             service.send_message(message.chat.id, msg, parse_mode="HTML")
 
 # Turns the lights off.
@@ -80,7 +80,7 @@ def lights_off(service, message, args: list, session, lights: list):
     # if no third argument was given, we'll turn ALL lights off
     if len(args) < 3:
         successes = 0
-        msg = service.reword_message("Hang tight. I'm turning off all the lights.")
+        msg = service.dialogue_reword("Hang tight. I'm turning off all the lights.")
         service.send_message(message.chat.id, msg)
         for light in lights:
             jdata = {"id": light.lid, "action": "off"}
@@ -101,7 +101,7 @@ def lights_off(service, message, args: list, session, lights: list):
     # match the lights to the given arguments, then turn them each on
     matches = match_lights(args[2:], lights)
     if len(matches) == 0:
-        msg = service.reword_message("Sorry, I couldn't find any matching lights.")
+        msg = service.dialogue_reword("Sorry, I couldn't find any matching lights.")
         service.send_message(message.chat.id, msg)
         return
 
@@ -111,10 +111,10 @@ def lights_off(service, message, args: list, session, lights: list):
 
         # check the response for success
         if r.status_code == 200 and session.get_response_success(r):
-            msg = service.reword_message("I turned off <code>%s</code>." % light.lid)
+            msg = service.dialogue_reword("I turned off <code>%s</code>." % light.lid)
             service.send_message(message.chat.id, msg, parse_mode="HTML")
         else:
-            msg = service.reword_message("I couldn't turn off <code>%s</code>." % light.lid)
+            msg = service.dialogue_reword("I couldn't turn off <code>%s</code>." % light.lid)
             service.send_message(message.chat.id, msg, parse_mode="HTML")
 
 

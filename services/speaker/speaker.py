@@ -34,7 +34,7 @@ class SpeakerConfig(ServiceConfig):
         super().__init__()
         self.fields += [
             ConfigField("speaker_tick_rate",        [int],      required=False,     default=30),
-            ConfigField("speaker_mood_timeout",     [int],      required=False,     default=1800)
+            ConfigField("speaker_mood_timeout",     [int],      required=False,     default=1200)
         ]
 
 
