@@ -21,14 +21,25 @@ def network_list_times(service, message, args, clients):
 
     # sort the clients into buckets based on last-seen time
     buckets = [
-        {"name": "Currently online",            "time": 120,    "list": []},
-        {"name": "Last seen 5 minutes ago",     "time": 300,    "list": []},
-        {"name": "Last seen 30 minutes ago",    "time": 1800,   "list": []},
-        {"name": "Last seen 1 hour ago",        "time": 3600,   "list": []},
-        {"name": "Last seen 4 hours ago",       "time": 14400,  "list": []},
-        {"name": "Last seen 8 hours ago",       "time": 28800,  "list": []},
-        {"name": "Last seen 1 day ago",         "time": 86400,  "list": []},
-        {"name": "Last seen 1 week ago",        "time": 604800, "list": []}
+        {"name": "Currently online",                        "time": 120,    "list": []},
+        {"name": "Last seen 5 minutes ago",                 "time": 300,    "list": []},
+        {"name": "Last seen 5-15 minutes ago",              "time": 900,    "list": []},
+        {"name": "Last seen 15-30 minutes ago",             "time": 1800,   "list": []},
+        {"name": "Last seen within the last hour",          "time": 3600,   "list": []},
+        {"name": "Last seen within the last four hours",    "time": 14400,  "list": []},
+        {"name": "Last seen within the last eight hours",   "time": 28800,  "list": []},
+        {"name": "Last seen within the last day",           "time": 86400,  "list": []},
+        {"name": "Last seen within the last two days",      "time": 172800,  "list": []},
+        {"name": "Last seen within the last three days",    "time": 259200,  "list": []},
+        {"name": "Last seen within the last four days",     "time": 345600,  "list": []},
+        {"name": "Last seen within the last five days",     "time": 432000,  "list": []},
+        {"name": "Last seen within the last six days",      "time": 518400,  "list": []},
+        {"name": "Last seen within the last week",          "time": 604800, "list": []},
+        {"name": "Last seen within the last two weeks",     "time": 1209600, "list": []},
+        {"name": "Last seen within the last month",         "time": 2419200, "list": []},
+        {"name": "Last seen within the last two months",    "time": 4838400, "list": []},
+        {"name": "Last seen within the last four months",   "time": 9676800, "list": []},
+        {"name": "Last seen within the last year",          "time": 29030400, "list": []}
     ]
     now = datetime.now()
     for client in clients:
