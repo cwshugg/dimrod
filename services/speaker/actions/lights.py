@@ -92,7 +92,7 @@ class DialogueAction_Lights(DialogueAction):
     
         # build a list of action keywords for turning lights off
         light_on_keywords = [
-            "off", "disable", "kill"
+            "off", "disable", "kill", "out"
         ]
         for word in light_on_keywords:
             self.engine.register_entity(word, "light_action_off")
@@ -148,7 +148,7 @@ class DialogueAction_Lights(DialogueAction):
 
         # craft and return a response message
         if len(matches) > 0:
-            return "I turned %s %d devices." % (action, len(matches))
+            return "I turned %s %d device%s." % \
+                   (action, len(matches), "s" if len(matches) > 0 else "")
         return "I couldn't find any matching devices to turn %s." % action
-
 
