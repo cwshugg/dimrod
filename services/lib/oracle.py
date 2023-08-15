@@ -391,7 +391,7 @@ class OracleSession:
     @staticmethod
     def get_response_json(response):
         jdata = response.json()
-        return jdata["payload"]
+        return jdata["payload"] if "payload" in jdata else jdata
     
     # Retrieves the 'success' field from the response's JSON data and returns
     # its value.
@@ -407,10 +407,3 @@ class OracleSession:
         jdata = response.json()
         return jdata["message"]
     
-    # Retrieves the 'payload' JSON data from within the response's JSON data and
-    # returns its value.
-    @staticmethod
-    def get_response_payload(response):
-        jdata = OracleSession.get_response_json(response)
-        return jdata["payload"]
-

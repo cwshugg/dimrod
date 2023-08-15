@@ -222,7 +222,8 @@ class TelegramService(Service):
         if OracleSession.get_response_success(r):
             # extract the response and return response message
             rdata = OracleSession.get_response_json(r)
-            return (str(rdata["conversation_id"]), str(rdata["response"]))
+            convo_id = None if "conversation_id" not in rdata else str(rdata["conversation_id"])
+            return (convo_id, str(rdata["response"]))
         
         # if the above didn't work, just return the original message
         self.log.write("Failed to get conversation from speaker: %s" %

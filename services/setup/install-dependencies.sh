@@ -48,6 +48,10 @@ echo -e "${C_ACC1}Installing openai...${C_NONE}"
 python3 -m pip install openai
 echo ""
 
+echo -e "${C_ACC1}Installing MycroftAI Adapt intent parser...${C_NONE}"
+python3 -m pip install -e git+https://github.com/mycroftai/adapt#egg=adapt-parser
+echo ""
+
 # nmap
 echo -e "${C_ACC1}Installing nmap...${C_NONE}"
 sudo apt install nmap

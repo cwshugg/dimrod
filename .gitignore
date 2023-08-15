@@ -21,3 +21,6 @@ dimrod*.service
 # output files
 *.out
 
+# mycroft adapt source code
+services/src
+
