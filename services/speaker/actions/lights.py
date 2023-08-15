@@ -85,16 +85,16 @@ class DialogueAction_Lights(DialogueAction):
 
         # build a list of action keywords for turning lights on
         light_on_keywords = [
-            "on", "enable"
+            "on", "enable", "up"
         ]
         for word in light_on_keywords:
             self.engine.register_entity(word, "light_action_on")
     
         # build a list of action keywords for turning lights off
-        light_on_keywords = [
-            "off", "disable", "kill", "out"
+        light_off_keywords = [
+            "off", "disable", "kill", "out", "down"
         ]
-        for word in light_on_keywords:
+        for word in light_off_keywords:
             self.engine.register_entity(word, "light_action_off")
 
         # finally, create an intent builder and register it to the engine
