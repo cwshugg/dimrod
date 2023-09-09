@@ -16,6 +16,21 @@ from lib.oracle import OracleSession
 
 
 # ================================= Helpers ================================== #
+# Parses a YYYY-MM-DD string and returns the year, month, and day, in an array
+# of three integers [year, month, day]. Returns None if parsing failed.
+def parse_yyyymmdd(text: str):
+    result = None
+    
+    # attempt parsing with multiple delimeters
+    delimeters = ["-", "/", "."]
+    for delim in delimeters:
+        try:
+            d = datetime.strptime(text, "%Y" + delim + "%m" + delim + "%d")
+            result = [d.year, d.month, d.day]
+        except:
+            pass
+    return result
+
 # Returns a weekday number based on the given text. Returns None if the string
 # isn't recognized.
 def parse_weekday(text: str):
@@ -100,6 +115,14 @@ def parse_datetime(args: list):
         same_day = now.year == dt.year and \
                    now.month == dt.month and \
                    now.day == dt.day
+
+        # look for a YYYY-MM-DD date stamp
+        datestamp = parse_yyyymmdd(arg)
+        if datestamp is not None:
+            # if one was found, reset the datetime to be midnight on the
+            # specified day
+            dt = datetime(datestamp[0], datestamp[1], datestamp[2],
+                          hour=0, minute=0, second=0, microsecond=0)
 
         # look for mention of a weekday
         wd = parse_weekday(arg)
