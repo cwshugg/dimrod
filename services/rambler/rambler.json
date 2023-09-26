@@ -1,0 +1,37 @@
+{
+    "service_name": "rambler",
+    "service_log": "stdout",
+
+    "oracle_addr": "0.0.0.0",
+    "oracle_port": 2359,
+    "oracle_log": "stdout",
+    "oracle_auth_cookie": "rambler_auth",
+    "oracle_auth_secret": "YOUR_JWT_SECRET_HERE",
+    "oracle_auth_users":
+    [
+        {
+            "username": "frodo",
+            "password": "baggins",
+            "privilege": 0
+        },
+        {
+            "username": "samwise",
+            "password": "gamgee",
+            "privilege": 1
+        }
+    ],
+
+    "trips":
+    [
+        {
+            "name": "Seattle Trip",
+            "description": "Taking a trip out to Seattle, and potentially Vancouver.",
+            "timing":
+            {
+                "number_of_nights": [3, 4],
+                "departure_weekdays": ["wedneday", "thursday", "friday"],
+                "departure_months": [9, 10, 11]
+            }
+        }
+    ]
+}
