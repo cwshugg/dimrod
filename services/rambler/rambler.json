@@ -30,7 +30,16 @@
             {
                 "number_of_nights": [3, 4],
                 "departure_weekdays": ["wedneday", "thursday", "friday"],
-                "departure_months": [9, 10, 11]
+                "departure_months": ["sep", "oct", "nov"]
+            },
+            "flight":
+            {
+                "airport_embark_depart": "DEN",
+                "airport_embark_arrive": "SEA",
+                "airport_return_depart": "SEA",
+                "airport_return_arrive": "DEN",
+                "passengers_adult": 2,
+                "passengers_child": 0
             }
         }
     ]

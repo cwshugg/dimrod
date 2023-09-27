@@ -23,7 +23,52 @@ from lib.cli import ServiceCLI
 
 # Globals
 default_trip_year_advance = 4
-weekday_strings = ["su", "mo", "tu", "we", "th", "fr", "sa"]
+weekday_strings = [
+    "su",
+    "mo",
+    "tu",
+    "we",
+    "th",
+    "fr",
+    "sa"
+]
+weekday_strings_full = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday"
+]
+month_strings = [
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "may",
+    "jun",
+    "jul",
+    "aug",
+    "sep",
+    "oct",
+    "nov",
+    "dec"
+]
+month_strings_full = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
+]
 
 # =============================== Config Class =============================== #
 # A sub-config class used to store date/time info for a trip.
@@ -57,12 +102,34 @@ class TripTimeConfig(Config):
                 d = wd.strip().lower()
                 self.check(len(d) >= 2, "Weekday string must be longer than 1 character: \"%s\"." % wd)
                 d = d[0:2]
-                self.check(d in weekday_strings, "Unknown weekday strings: \"%s\"." % wd)
+                self.check(d in weekday_strings, "Unknown weekday string: \"%s\"." % wd)
                 # append if not already present
                 val = weekday_strings.index(d)
                 if val not in wds:
                     wds.append(val)
-        self.departure_weekdays = wds
+        self.departure_weekdays = sorted(wds)
+
+        # convert month strings to numbers, if applicable
+        ms = []
+        for m in self.departure_months:
+            # process integers
+            if type(m) == int:
+                self.check(m in range(1, 13), "Month integer out of range: %d." % m)
+                # append if not already present
+                if m not in ms:
+                    ms.append(m)
+            # process month strings
+            elif type(m) == str:
+                # strip/lowercase/reduce and check
+                mstr = m.strip().lower()
+                self.check(len(mstr) >= 3, "Month string must be longer than 2 characters: \"%s\"." % m)
+                mstr = mstr[0:3]
+                self.check(mstr in month_strings, "Unknown month string: \"%s\"." % m)
+                # append if not already present
+                val = month_strings.index(mstr)
+                if val not in ms:
+                    ms.append(val)
+        self.departure_months = sorted(ms)
         
     # Examines the time config's weekdays/months/years/etc. and determines
     # dates that match. A list of datetime.datetime objects are returned in a
@@ -104,7 +171,6 @@ class TripTimeConfig(Config):
         result = []
         cd = dt_add(after, 86400)
         while len(result) < count and cd.year in departure_years:
-            print("CD: %s" % cd.strftime("%Y-%m-%d"))
             # if the year doesn't match, advance to the first day of the next
             # year and continue
             if cd.year not in departure_years:
@@ -144,8 +210,12 @@ class TripFlightConfig(Config):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("airport_to_depart",        [str],      required=True),
-            ConfigField("airport_to_arrive",        [str],      required=True),
+            ConfigField("airport_embark_depart",    [str],      required=True),
+            ConfigField("airport_embark_arrive",    [str],      required=True),
+            ConfigField("airport_return_depart",    [str],      required=True),
+            ConfigField("airport_return_arrive",    [str],      required=True),
+            ConfigField("passengers_adult",         [int],      required=True),
+            ConfigField("passengers_child",         [int],      required=False, default=0),
         ]
 
 # A sub-config class used to store all desired configurations to travelling.
@@ -165,7 +235,7 @@ class RamblerConfig(ServiceConfig):
         super().__init__()
         self.fields += [
             ConfigField("trips",                    [list],     required=True),
-            ConfigField("refresh_rate",             [int],      required=False, default=300)
+            ConfigField("refresh_rate",             [int],      required=False, default=1800)
         ]
 
     # Overridden version of parse_json() that utilizes the TripConfig object.
@@ -191,8 +261,46 @@ class RamblerService(Service):
     # Overridden main function implementation.
     def run(self):
         super().run()
-
+        
+        # print a summary of all configured trips
         self.log.write("Initialized with %d trip(s)." % len(self.config.trips))
+        for (i, trip) in enumerate(self.config.trips):
+            self.log.write(" %2d. \"%s\" - %s" % (i + 1, trip.name, trip.description))
+            # build and print a string to show the possible number of days for
+            # the trip
+            length_str = ""
+            number_of_nights_len = len(trip.timing.number_of_nights)
+            for (i, val) in enumerate(trip.timing.number_of_nights):
+                length_str += "%d" % val
+                if i < number_of_nights_len - 2:
+                    length_str += ", "
+                elif i < number_of_nights_len - 1:
+                    length_str += ", or "
+            self.log.write("    - Possible lengths: %s nights." % length_str)
+
+            # build and print a string to show the possible weekdays
+            weekday_str = ""
+            weekdays_len = len(trip.timing.departure_weekdays)
+            for (i, wd) in enumerate(trip.timing.departure_weekdays):
+                weekday_str += weekday_strings_full[wd]
+                if i < weekdays_len - 2:
+                    weekday_str += ", "
+                elif i < weekdays_len - 1:
+                    weekday_str += ", or "
+            self.log.write("    - Departure weekdays: %s." % weekday_str)
+
+            # build and print a string to show the possible months
+            # TODO
+
+            # log flight information, if given
+            if trip.flight is not None:
+                self.log.write("    - Embarking: flying from %s, landing in %s." %
+                               (trip.flight.airport_embark_depart,
+                                trip.flight.airport_embark_arrive))
+                self.log.write("    - Returning: flying from %s, landing in %s." %
+                               (trip.flight.airport_return_depart,
+                                trip.flight.airport_return_arrive))
+                                                                                    
         
         # run forever
         while True:
@@ -206,10 +314,16 @@ class RamblerService(Service):
                 # get a listing of all possible dates that match the trip's
                 # configuration and iterate through them
                 dates = trip.timing.get_dates(after=lookahead)
-                for (dt_embark, dt_return) in dates:
-                    self.log.write("Trip Date: %s --> %s" %
-                                   (dt_embark.strftime("%Y-%m-%d %H:%M:%S %p"),
-                                    dt_return.strftime("%Y-%m-%d %H:%M:%S %p")))
+                #for (dt_embark, dt_return) in dates:
+                #    self.log.write("Trip Date: %s --> %s" %
+                #                   (dt_embark.strftime("%Y-%m-%d %H:%M:%S %p"),
+                #                    dt_return.strftime("%Y-%m-%d %H:%M:%S %p")))
+
+                # if the trip has flight info configured, we'll look for available
+                # flights
+                if trip.flight is not None:
+                    # TODO
+                    pass
 
 
             # sleep for the configured time
