@@ -68,11 +68,35 @@ class Config:
 
             # if it exists, check the type
             if key in jdata:
-                # ensure the value is of the correct type
-                val = jdata[key]
-                msg = "%s entry \"%s\" must be of type: %s" % \
-                      (self.fpath if self.fpath else "json", key, types)
-                self.check(f.type_match(val), msg)
+                # if the expected type is actually a sub-class of this Config
+                # class, then we have a nested config object
+                val = None
+                if issubclass(types[0], Config):
+                    cls = types[0]
+                    # if the actual value is a dictionary, parse it as the
+                    # sub-config class
+                    if type(jdata[key]) == dict:
+                        c = cls()
+                        c.parse_json(jdata[key])
+                        val = c
+                    # otherwise, if it's a list of objects, parse each one as an
+                    # instance of the sub-config class
+                    elif type(jdata[key]) == list:
+                        items = []
+                        for entry in jdata[key]:
+                            c = cls()
+                            c.parse_json(entry)
+                            items.append(c)
+                        val = items
+                
+                # if the above didn't work, assume we're dealing with a simple
+                # type of object
+                if val is None:
+                    # ensure the value is of the correct type
+                    val = jdata[key]
+                    msg = "%s entry \"%s\" must be of type: %s" % \
+                        (self.fpath if self.fpath else "json", key, types)
+                    self.check(f.type_match(val), msg)
                 
                 # set the class's attribute and move onto the next field
                 setattr(self, key, val)
@@ -106,12 +130,29 @@ class Config:
 
     # Converts the config into a JSON dictionary and returns it.
     def to_json(self):
+        # Converts a given object to a JSON-friendly format
+        def obj_to_json(obj):
+            if issubclass(obj.__class__, Config):
+                return obj.to_json()
+            return obj
+
+        # Helper function for converting config objects back to JSON.
+        def to_json_helper(obj):
+            # if the object is a list, convert each entry individually
+            if type(obj) == list:
+                result = []
+                for entry in obj:
+                    result.append(obj_to_json(entry))
+                return result
+            # otherwise, just convert the object itself
+            return obj_to_json(obj)
+
         result = {}
         # convert all expected fields to JSON
         for f in self.fields:
-            result[f.name] = getattr(self, f.name)
+            result[f.name] = to_json_helper(getattr(self, f.name))
         # convert all extra fields to JSON
         for e in self.extra_fields:
-            result[e] = getattr(self, e)
+            result[e] = to_json_helper(getattr(self, e))
         return result
 
