@@ -20,7 +20,8 @@
             "privilege": 1
         }
     ],
-
+    
+    "flight_scraper": "kayak",
     "trips":
     [
         {
