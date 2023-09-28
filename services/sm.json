@@ -40,6 +40,11 @@
             "executable":       "/path/to/dimrod/services/speaker/speaker.py",
             "config":           "/path/to/dimrod/services/speaker/speaker.json",
             "use_oracle":       true
+        },
+        {
+            "executable":       "/path/to/dimrod/services/moder/moder.py",
+            "config":           "/path/to/dimrod/services/moder/moder.json",
+            "use_oracle":       true
         }
     ]
 }
