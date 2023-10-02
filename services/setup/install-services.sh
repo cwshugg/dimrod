@@ -49,8 +49,12 @@ for service in "$@"; do
     sudo systemctl enable "${systemd_fname}"
     echo " - Enabled ${systemd_fname}."
 
+    # start the service
+    sudo systemctl start "${systemd_fname}"
+    echo " - Started ${systemd_fname}."
+
     # show the status
-    sudo systemctl status "${systemd_fname}"
+    sudo systemctl status "${systemd_fname}" | head -n 8
     echo ""
 done
 
