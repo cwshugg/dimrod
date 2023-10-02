@@ -1,11 +1,11 @@
 [Unit]
-Description=DImROD Service Master
+Description=DImROD Service - Rambler
 Documentation=https://github.com/cwshugg/dimrod
 After=syslog.target network.target
 
 [Service]
 Type=simple
-ExecStart=/path/to/sm.py --config /path/to/config.json --oracle
+ExecStart=/path/to/rambler.py --config /path/to/config.json --oracle
 
 [Install]
 WantedBy=multi-user.target
