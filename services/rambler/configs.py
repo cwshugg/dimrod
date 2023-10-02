@@ -14,7 +14,7 @@ if pdir not in sys.path:
 from lib.config import Config, ConfigField
 
 # Globals
-default_trip_year_advance = 4
+default_trip_year_advance = 2
 weekday_strings = [
     "su",
     "mo",

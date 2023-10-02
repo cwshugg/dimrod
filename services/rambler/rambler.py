@@ -8,6 +8,7 @@ import sys
 import json
 import flask
 import time
+import random
 from datetime import datetime
 
 # Enable import from the parent directory
@@ -37,9 +38,12 @@ class RamblerConfig(ServiceConfig):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("trips",                    [list],     required=True),
-            ConfigField("flight_scraper",           [str],      required=False, default="kayak"),
-            ConfigField("refresh_rate",             [int],      required=False, default=1800)
+            ConfigField("trips",                        [list],     required=True),
+            ConfigField("flight_scraper",               [str],      required=False, default="kayak"),
+            ConfigField("flight_scraper_result_max",    [str],      required=False, default=50),
+            ConfigField("flight_scraper_delay_min",     [int],      required=False, default=5),
+            ConfigField("flight_scraper_delay_max",     [int],      required=False, default=60),
+            ConfigField("refresh_rate",                 [int],      required=False, default=1800)
         ]
 
     # Overridden version of parse_json() that utilizes the TripConfig object.
@@ -145,32 +149,39 @@ class RamblerService(Service):
                 self.log.write("    - Need airline tickets for: %s." % people_str)
         
         # initialize a flight scraper
-        fscraper = flight_scrapers[self.config.flight_scraper]()
+        fscraper = flight_scrapers[self.config.flight_scraper](self.config)
 
         # run forever
         while True:
             # iterate through each trip
             for trip in self.config.trips:
-                # compute the number of days ahead of *now* to start looking for
-                # trip dates
-                lookahead = datetime.fromtimestamp(datetime.now().timestamp() +
-                                                   (86400 * (trip.timing.lookahead_days - 1)))
+                # retrieve a number of dates to examine, after the current date plus the
+                # specified lookahead value
+                dt_now = datetime.now()
+                dt_start = datetime.fromtimestamp(dt_now.timestamp() +
+                                                  (86400 * (trip.timing.lookahead_days - 1)))
+                dates = trip.timing.get_dates(after=dt_start)
                 
-                # get a listing of all possible dates that match the trip's
-                # configuration and iterate through them
-                dates = trip.timing.get_dates(after=lookahead)
-                #for (dt_embark, dt_return) in dates:
-                #    self.log.write("Trip Date: %s --> %s" %
-                #                   (dt_embark.strftime("%Y-%m-%d %H:%M:%S %p"),
-                #                    dt_return.strftime("%Y-%m-%d %H:%M:%S %p")))
-
                 # if the trip has flight info configured, we'll look for available
                 # flights
                 if trip.flight is not None:
-                    result = fscraper.scrape(trip.flight, trip.timing)
-                    # TODO
-                    pass
-
+                    for (dt_embark, dt_return) in dates:
+                        self.log.write("Scraping dates: %s --> %s" % (dt_embark, dt_return))
+                        try:
+                            # instruct the scraper to search for flights for this
+                            # specific date combination
+                            fscraper.browser_open()
+                            result = fscraper.scrape(trip.flight, dt_embark, dt_return,
+                                                     count=self.config.flight_scraper_result_max)
+                            fscraper.browser_exit()
+                            
+                            # sleep for a random time between scrapes
+                            sleep_time = random.randrange(self.config.flight_scraper_delay_min,
+                                                          self.config.flight_scraper_delay_max)
+                            time.sleep(sleep_time)
+                        except Exception as e:
+                            raise e # DEBUGGING TODO
+                            self.log.write("Failed to scrape: %s" % e)
 
             # sleep for the configured time
             time.sleep(self.config.refresh_rate)

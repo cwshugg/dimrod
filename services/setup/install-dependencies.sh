@@ -52,6 +52,14 @@ echo -e "${C_ACC1}Installing MycroftAI Adapt intent parser...${C_NONE}"
 python3 -m pip install -e git+https://github.com/mycroftai/adapt#egg=adapt-parser
 echo ""
 
+echo -e "${C_ACC1}Installing selenium...${C_NONE}"
+python3 -m pip install selenium
+echo ""
+
+echo -e "${C_ACC1}Installing firefox...${C_NONE}"
+sudo apt-get install firefox
+echo ""
+
 # nmap
 echo -e "${C_ACC1}Installing nmap...${C_NONE}"
 sudo apt install nmap
