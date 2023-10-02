@@ -1,11 +1,11 @@
 [Unit]
-Description=DImROD Service Master
+Description=DImROD Service - Gatekeeper
 Documentation=https://github.com/cwshugg/dimrod
 After=syslog.target network.target
 
 [Service]
 Type=simple
-ExecStart=/path/to/sm.py
+ExecStart=/path/to/gatekeeper.py --config /path/to/config.json --oracle
 
 [Install]
 WantedBy=multi-user.target

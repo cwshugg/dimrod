@@ -1,0 +1,12 @@
+[Unit]
+Description=DImROD Service - Warden
+Documentation=https://github.com/cwshugg/dimrod
+After=syslog.target network.target
+
+[Service]
+Type=simple
+ExecStart=/path/to/warden.py --config /path/to/config.json --oracle
+
+[Install]
+WantedBy=multi-user.target
+

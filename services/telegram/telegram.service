@@ -1,0 +1,12 @@
+[Unit]
+Description=DImROD Service - Telegram
+Documentation=https://github.com/cwshugg/dimrod
+After=syslog.target network.target
+
+[Service]
+Type=simple
+ExecStart=/path/to/telegram.py --config /path/to/config.json --oracle
+
+[Install]
+WantedBy=multi-user.target
+
