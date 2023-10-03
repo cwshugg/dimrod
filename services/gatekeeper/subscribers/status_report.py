@@ -65,14 +65,39 @@ def get_machine_status():
 
 # Returns a string containing dimrod service status information.
 def get_service_status():
-    msg = "<p>"
-    status = run_command(["systemctl", "status", "dimrod_sm.service"]).split("\n")
-    for line in status:
-        # stop once we reach the first empty line
-        if len(line.strip()) == 0:
-            break
-        msg += "%s<br>" % line
-    msg += "</p>"
+    # get a listing of all dimrod-prefixed systemd services
+    lines = run_command(["systemctl", "list-units", "--type=service"]).split("\n")
+    names = []
+    for sdata in lines:
+        pieces = sdata.split()
+        # skip any malformed lines
+        if len(pieces) < 3:
+            continue
+        # skip any services that don't include "dimrod" in the name
+        name = pieces[0].strip().lower()
+        if "dimrod" not in name:
+            continue
+        names.append(name)
+    
+    # show the names of active services
+    msg = "<p>%d service(s) are running.</p>" % len(names)
+    if len(names) > 0:
+        msg += "<ul>"
+        for name in names:
+            msg += "<li>%s</li>" % name
+        msg += "</ul>"
+    
+    # show the status for all services
+    for name in names:
+        msg += "<h3>%s</h3><p>" % name
+        status = run_command(["systemctl", "status", name]).split("\n")
+        for line in status:
+            # stop once we reach the first empty line
+            if len(line.strip()) == 0:
+                break
+            msg += "%s<br>" % line
+        msg += "</p>"
+
     return msg
 
 # Main function.
