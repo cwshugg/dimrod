@@ -9,6 +9,7 @@ import time
 import requests
 import flask
 from datetime import datetime
+import threading
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -37,11 +38,87 @@ class LumenConfig(ServiceConfig):
             ConfigField("webhook_event",        [str],      required=True),
             ConfigField("webhook_key",          [str],      required=True),
             ConfigField("refresh_rate",         [int],      required=False,     default=60),
+            ConfigField("action_threads",       [int],      required=False,     default=4),
         ]
         self.fields += fields
 
 
-# ============================== Service Class =============================== #
+# ================================ Threading ================================= #
+# A simple class used to represent a single action to be carried out by Lumen
+# threads.
+class LumenThreadQueueAction:
+    # Constructor.
+    def __init__(self, action: str, lid: str, color=None, brightness=None):
+        self.action = action.strip().lower()
+        self.lid = lid
+        self.color = color
+        self.brightness = brightness
+    
+# Represents a queue used to submit actions to lumen threads.
+class LumenThreadQueue:
+    # Constructor.
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.cond = threading.Condition(lock=self.lock)
+        self.queue = []
+
+    # Pushes to the queue and alerts a waiting thread.
+    def push(self, action: LumenThreadQueueAction):
+        self.lock.acquire()
+        self.queue.append(action)
+        self.cond.notify()
+        self.lock.release()
+    
+    # Pops from the queue, blocking if the queue is empty.
+    def pop(self):
+        self.lock.acquire()
+        while len(self.queue) == 0:
+            self.cond.wait()
+        action = self.queue.pop(0)
+        self.lock.release()
+        return action
+
+# Represents an individual thread used to handle lumen requests. Because the
+# activation of lights/devices may have some noticeable latency, these threads
+# provide a way to parallelize things.
+class LumenThread(threading.Thread):
+    # Constructor
+    def __init__(self, service, queue: LumenThreadQueue):
+        super().__init__(target=self.run)
+        self.service = service
+        self.queue = queue
+    
+    # Writes a log message using the lumen service's log object.
+    def log(self, msg: str):
+        ct = threading.current_thread()
+        self.service.log.write("[Action Thread %d] %s" % (ct.native_id, msg))
+    
+    # The thread's main function.
+    def run(self):
+        self.log("Spawned.")
+
+        # loop forever
+        while True:
+            # pop from the queue (this will block if the queue is empty)
+            action = self.queue.pop()
+
+            # process the action
+            if action.action == "on":
+                self.log("Found queued ON action for ID \"%s\"." % action.lid)
+                # run the service' power_on function with the action's params
+                self.service.power_on(action.lid,
+                                      color=action.color,
+                                      brightness=action.brightness)
+            elif action.action == "off":
+                self.log("Found queued OFF action for ID \"%s\"." % action.lid)
+                # run the service' power_off function with the action's params
+                self.service.power_off(action.lid)
+            else:
+                self.log("Found unknown action: \"%s\"." % action.action)
+
+
+# ================================= Service ================================== #
+# The main Lumen service class.
 class LumenService(Service):
     # Constructor.
     def __init__(self, config_path):
@@ -70,6 +147,18 @@ class LumenService(Service):
             light = Light(lconfig)
             self.lights.append(light)
             self.log.write("loaded light: %s" % light)
+
+        # set up a queue and threads for asynchronous lumen processing (make
+        # sure at least one processing thread is specified)
+        self.check(self.config.action_threads > 0,
+                   "at least one action thread (action_threads) must be specified.")
+        self.queue = LumenThreadQueue()
+        self.threads = []
+        # create and spawn the specified number of threads
+        for i in range(self.config.action_threads):
+            t = LumenThread(self, self.queue)
+            t.start()
+            self.threads.append(t)
 
     # Overridden main function implementation.
     def run(self):
@@ -108,6 +197,12 @@ class LumenService(Service):
         r = self.webhooker.send(self.config.webhook_event, jdata)
         return r
     
+    # Adds a power_on action to the thread queue for asynchronous processing.
+    def queue_power_on(self, lid, color=None, brightness=None):
+        a = LumenThreadQueueAction("on", lid, color=color, brightness=brightness)
+        self.log.write("Queueing ON action for %s." % lid)
+        self.queue.push(a)
+    
     # Takes in a light ID and turns off the corresponding light.
     def power_off(self, lid):
         light = self.search(lid)
@@ -118,6 +213,12 @@ class LumenService(Service):
         light.set_power(False)
         r = self.webhooker.send(self.config.webhook_event, jdata)
         return r
+    
+    # Adds a power_off action to the thread queue for asynchronous processing.
+    def queue_power_off(self, lid):
+        a = LumenThreadQueueAction("off", lid)
+        self.log.write("Queueing OFF action for %s." % lid)
+        self.queue.push(a)
 
     # ------------------------------- Helpers -------------------------------- #
     # Searches lumen's light array and returns a Light object if one with a
@@ -206,26 +307,18 @@ class LumenOracle(Oracle):
 
             # invoke the service's API according to the given action
             try:
-                r = None
                 if action == "on":
-                    r = self.service.power_on(lid, color=color, brightness=brightness)
+                    self.service.queue_power_on(lid, color=color, brightness=brightness)
                 elif action == "off":
-                    r = self.service.power_off(lid)
+                    self.service.queue_power_off(lid)
                 else:
                     return self.make_response(msg="Invalid action.",
                                               success=False, rstatus=400)
-
-                # based on the response from IFTTT, construct an appropriate
-                # response message
-                status_code = self.service.webhooker.get_status_code(r)
-                success = status_code == 200
-                message = None
-                if not success:
-                    message = "IFTTT returned %d." % status_code
-                    errors = self.service.webhooker.get_errors(r)
-                    for e in errors:
-                        message += "\n%s" % e
-                return self.make_response(success=success, msg=message)
+                
+                # because we asynchronously queued the action, we can't wait for
+                # it to finish and retrieve the response (otherwise that would
+                # defeat the purpose). So, simply return a success message
+                return self.make_response(success=True, msg="Action queued successfully.")
             except Exception as e:
                 return self.make_response(msg=str(e), success=False)
 
