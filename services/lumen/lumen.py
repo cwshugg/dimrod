@@ -172,6 +172,10 @@ class LumenService(Service):
     def power_on(self, lid, color=None, brightness=None):
         light = self.search(lid)
         self.check(light, "unknown light specified: \"%s\"" % lid)
+        
+        # acquire the light's lock, in case another thread is trying to access
+        # the same light
+        light.lock()
 
         # build JSON data to send to the remote API
         jdata = {"id": light.lid, "action": "on"}
@@ -195,6 +199,7 @@ class LumenService(Service):
         # initialize an IFTTT webhook pinger and send the request
         light.set_power(True)
         r = self.webhooker.send(self.config.webhook_event, jdata)
+        light.unlock() # release the light's lock
         return r
     
     # Adds a power_on action to the thread queue for asynchronous processing.
@@ -208,10 +213,15 @@ class LumenService(Service):
         light = self.search(lid)
         self.check(light, "unknown light specified: \"%s\"" % lid)
 
+        # acquire the light's lock, in case another thread is trying to access
+        # the same light
+        light.lock()
+
         # build a JSON object and send the request
         jdata = {"id": light.lid, "action": "off"}
         light.set_power(False)
         r = self.webhooker.send(self.config.webhook_event, jdata)
+        light.unlock() # release the light's lock
         return r
     
     # Adds a power_off action to the thread queue for asynchronous processing.

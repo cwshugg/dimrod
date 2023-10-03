@@ -5,6 +5,7 @@
 import os
 import sys
 import json
+import threading
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -43,6 +44,10 @@ class Light:
         self.has_brightness = config.has_brightness
         self.tags = config.tags
 
+        # each light has a lock to prevent two lumen action threads from
+        # modifying the same light simultaneously
+        self.thread_lock = threading.Lock()
+
         # internal light status trackers
         self.status = {"power": False, "color": "255,255,255", "brightness": 1.0}
     
@@ -75,6 +80,15 @@ class Light:
             if tl in tag.lower():
                 return True
         return False
+
+    # ------------------------ Thread Synchronization ------------------------ #
+    # Acquire's the light's internal lock (blocking if necessary).
+    def lock(self):
+        self.thread_lock.acquire()
+    
+    # Releases the light's internal lock.
+    def unlock(self):
+        self.thread_lock.release()
 
     # -------------------------- Status Operations --------------------------- #
     # Retrieves the last-known status of the light's power.
