@@ -56,7 +56,7 @@ def get_process_count():
 # ================================ Messaging ================================= #
 # Sends a summary of the system.
 def summarize(service, message, args):
-    msg = "<b>System Summary</b>\n\n"
+    msg = "<b>Machine Status</b>\n\n"
 
     # system uptime
     ut = get_uptime()
@@ -86,11 +86,64 @@ def summarize(service, message, args):
 
 
 # ================================= Services ================================= #
+# Gets and returns the names of currently-active DImROD services.
+def get_services():
+    lines = run_command(["systemctl", "list-units", "--type=service", "--all"]).split("\n")
+    names = []
+    for sdata in lines:
+        pieces = sdata.split()
+        # skip any malformed lines
+        if len(pieces) < 3:
+            continue
+       
+        # if the first piece contains some sort of character to indicate the
+        # service has failed or isn't active, remove it
+        if len(re.findall("[a-zA-Z]+", pieces[0])) == 0:
+            pieces.pop(0)
+
+        # skip any services that don't include "dimrod" in the name
+        name = pieces[0].strip().lower()
+        if "dimrod" not in name:
+            continue
+        names.append(name)
+    return names
+
+# Attempts to find an active DImROD service with the given name.
+def find_service(name: str):
+    n = name.strip().lower()
+    # search for any service name that contains the given name
+    for s in get_services():
+        if n in s:
+            return s
+    return None
+
 # Sends a report of DImROD's Python services.
 def report_services(service, message, args):
     msg = "<b>DImROD Service Status</b>\n\n"
-    status = run_command(["systemctl", "status", "dimrod_sm.service"]).split("\n")
+    
+    # get a list of all active services
+    names = get_services()
+    names_len = len(names)
+        
+    # report the number of discovered services and list them
+    msg += "There are %d service%s running.\n" % \
+           (names_len, "" if names_len == 1 else "s")
+    for name in names:
+        n = name.replace("dimrod_", "").replace(".service", "")
+        msg += "• %s\n" % n
+
+    # send the message
+    service.send_message(message.chat.id, msg, parse_mode="HTML")
+
+# Reports information on a specific DImROD service.
+def report_service(service, message, args, name):
+    name_short = name.replace("dimrod_", "").replace(".service", "")
+    msg = "<b>%s Status</b>\n\n" % name_short.title()
+    
+    # get the service's status
+    status = run_command(["systemctl", "status", name]).split("\n")
     i = 0
+    st = ""
     for i in range(len(status)):
         line = status[i].strip()
         pieces = line.split(":")
@@ -101,6 +154,7 @@ def report_services(service, message, args):
         # get current status
         if metric == "Active":
             msg += "• <b>Status:</b> %s\n" % value
+            st = value.split()[0].strip().lower()
 
         # get tasks
         if metric == "Tasks":
@@ -110,37 +164,55 @@ def report_services(service, message, args):
         if metric == "Memory":
             msg += "• <b>Memory Usage</b>: %s\n" % value
 
-        # break when we reach 'CGroup'
-        if metric == "CGroup":
+        # break when we reach 'CGroup' or an empty line
+        if metric == "CGroup" or len(line) == 0:
             break
 
-    # now, read through the active processes
-    msg += "\n<b>Active Processes</b>\n"
-    i += 1
-    for i in range(i, len(status)):
-        line = status[i].strip()
-        pieces = line.split(" ")
+    # now, read through the active processes, if the process is alive
+    if st == "active":
+        i += 1
+        procs = ""
+        for i in range(i, len(status)):
+            line = status[i].strip()
+            pieces = line.split(" ")
+            
+            # break when we see an empty line
+            if len(line) == 0:
+                break
         
-        # break when we see an empty line
-        if len(line) == 0:
-            break
-    
-        # find a few key pieces and add them to the messsage
-        prog = os.path.basename(pieces[1]).lower()
-        file = os.path.basename(pieces[2]).lower()
-        name = file.split(".")[0]
-        if prog == "python3":
-            msg += "• <code>%s</code> is running\n" % name
+            # find a few key pieces and add them to the messsage
+            prog = os.path.basename(pieces[1]).lower()
+            file = os.path.basename(pieces[2]).lower()
+            procs += "• <code>%s %s</code>\n" % (prog, file)
+        if len(procs) > 0:
+            msg += "\n<b>Active Processes</b>\n"
+            msg += procs
+
+
+    # at this point we've reached the lines containing the latest log output
+    # from the service. Print each one to give insight into any potential
+    # failures
+    i += 1
+    output = ""
+    for i in range(i, len(status)):
+        # replace any < or > characters with other brackets so we don't
+        # confuse telegram's HTML parser
+        line = status[i].strip().replace("<", "[").replace(">", "]")
+        output += "%s\n" % line
+    if len(output) > 0:
+        msg += "\n<b>Latest Output</b>\n"
+        msg += "<code>%s</code>" % output
 
     # send the message
     service.send_message(message.chat.id, msg, parse_mode="HTML")
 
 # Restarts the dimrod service daemon.
-def restart_services(service, message, args):
+def restart_service(service, message, args, name):
+    name_short = name.replace("dimrod_", "").replace(".service", "")
     service.send_message(message.chat.id,
-                         "I'll try to restart DImROD service daemon. "
-                         "Try to message me in a minute.")
-    run_command(["systemctl", "restart", "dimrod_sm.service"])
+                         "I'll try to restart %s. "
+                         "Try checking the status in a minute." % name_short)
+    run_command(["systemctl", "restart", name])
 
 # Main handler for the 'services' sub-command.
 def subcmd_services(service, message, args):
@@ -148,10 +220,25 @@ def subcmd_services(service, message, args):
     if len(args) == 2:
         return report_services(service, message, args)
 
-    # otherwise, look for subcommands
-    subcmd = args[2].strip().lower()
+    # look for a service name and attempt to report on it if a third
+    # argument is given
+    if len(args) >= 3:
+        s = find_service(args[2])
+        if s is None:
+            service.send_message(message.chat.id,
+                                 "I couldn't find a service named \"%s\" as a service name. "
+                                 "Perhaps it was never installed, or you entered the wrong name." %
+                                 args[2])
+            return
+
+    # if no other arguments are given, show the service's status
+    if len(args) == 3:
+        return report_service(service, message, args, s)
+
+    # otherwise, look for subcommands for the service
+    subcmd = args[3].strip().lower()
     if subcmd in ["restart", "reboot"]:
-        return restart_services(service, message, args)
+        return restart_service(service, message, args, s)
 
 
 # =================================== Main =================================== #
@@ -163,7 +250,7 @@ def command_system(service, message, args: list):
 
     # look for the sub-command
     subcmd = args[1].strip().lower()
-    if subcmd in ["services", "service", "python"]:
+    if subcmd in ["services", "service", "serv", "srv", "svc", "python"]:
         return subcmd_services(service, message, args)
 
     # otherwise, complain and return

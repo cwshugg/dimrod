@@ -90,7 +90,7 @@ class TelegramService(Service):
             TelegramCommand(["help", "commands", "what"],
                             "Presents this help menu.",
                             command_help),
-            TelegramCommand(["system", "status", "vitals"],
+            TelegramCommand(["system", "sys", "status", "vitals"],
                             "Reports system information.",
                             command_system),
             TelegramCommand(["lights", "light", "lumen"],
