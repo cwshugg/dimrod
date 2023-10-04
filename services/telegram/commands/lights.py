@@ -63,17 +63,25 @@ def lights_on(service, message, args: list, session, lights: list):
         return
 
     # turn each light on
+    successes = []
     for light in matches:
         jdata = {"id": light.lid, "action": "on"}
         r = session.post("/toggle", payload=jdata)
 
         # check the response for success
         if r.status_code == 200 and session.get_response_success(r):
-            msg = service.dialogue_reword("I turned on <code>%s</code>." % light.lid)
-            service.send_message(message.chat.id, msg, parse_mode="HTML")
-        else:
-            msg = service.dialogue_reword("I couldn't turn on <code>%s</code>." % light.lid)
-            service.send_message(message.chat.id, msg, parse_mode="HTML")
+            successes.append(light.lid)
+    
+    # send a message with the result
+    if len(successes) == 0:
+        msg = service.dialogue_reword("I couldn't turn on any lights.")
+        service.send_message(message.chat.id, msg, parse_mode="HTML")
+    else:
+        msg = service.dialogue_reword("I turned on %d lights." % len(successes))
+        msg += "\n\n"
+        for lid in successes:
+            msg += "• <code>%s</code>\n" % lid
+        service.send_message(message.chat.id, msg, parse_mode="HTML")
 
 # Turns the lights off.
 def lights_off(service, message, args: list, session, lights: list):
@@ -105,17 +113,26 @@ def lights_off(service, message, args: list, session, lights: list):
         service.send_message(message.chat.id, msg)
         return
 
+    # turn each light off
+    successes = []
     for light in matches:
         jdata = {"id": light.lid, "action": "off"}
         r = session.post("/toggle", payload=jdata)
 
         # check the response for success
         if r.status_code == 200 and session.get_response_success(r):
-            msg = service.dialogue_reword("I turned off <code>%s</code>." % light.lid)
-            service.send_message(message.chat.id, msg, parse_mode="HTML")
-        else:
-            msg = service.dialogue_reword("I couldn't turn off <code>%s</code>." % light.lid)
-            service.send_message(message.chat.id, msg, parse_mode="HTML")
+            successes.append(light.lid)
+    
+    # send a message with the result
+    if len(successes) == 0:
+        msg = service.dialogue_reword("I couldn't turn off any lights.")
+        service.send_message(message.chat.id, msg, parse_mode="HTML")
+    else:
+        msg = service.dialogue_reword("I turned off %d lights." % len(successes))
+        msg += "\n\n"
+        for lid in successes:
+            msg += "• <code>%s</code>\n" % lid
+        service.send_message(message.chat.id, msg, parse_mode="HTML")
 
 
 # =================================== Main =================================== #
