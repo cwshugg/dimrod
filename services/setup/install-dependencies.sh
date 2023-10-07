@@ -36,6 +36,10 @@ echo -e "${C_ACC1}Installing geopy...${C_NONE}"
 python3 -m pip install geopy
 echo ""
 
+echo -e "${C_ACC1}Installing timezonefinder...${C_NONE}"
+python3 -m pip install timezonefinder
+echo ""
+
 echo -e "${C_ACC1}Installing dateutil...${C_NONE}"
 python3 -m pip install python-dateutil
 echo ""

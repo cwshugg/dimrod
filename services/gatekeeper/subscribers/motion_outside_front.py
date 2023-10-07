@@ -89,6 +89,40 @@ def lumen_send(lid: str, action: str, color=None, brightness=None):
     print("Lumen response: %d (%s)" % (r.status_code, json.dumps(r.json(), indent=4)))
     return r
 
+# Takes in the current datetime and returns a color to use for the front light.
+def get_color(now: datetime):
+    # halloween colors
+    if now.month == 10:
+        # at night: spooky purple
+        if now.hour in range(0, 5) or now.hour in range(21, 24):
+            return [92, 88, 164]
+        # morning/evening: orange
+        elif now.hour in range(5, 10) or now.hour in range(19, 21):
+            return [248, 115, 30]
+        # early/late afternoon: yellow
+        elif now.hour in range(10, 1) or now.hour in range(16, 19):
+            return [255, 212, 1]
+        # mid afternoon: green
+        else:
+            return [181, 200, 2]
+    # christmas colors
+    elif now.month == 12 and now.day <= 25:
+        # at night: candle-ish
+        if now.hour in range(0, 5) or now.hour in range(21, 24):
+            return [205, 147, 109]
+        # morning/evening: red
+        elif now.hour in range(5, 10) or now.hour in range(19, 21):
+            return [219, 112, 118]
+        # early/late afternoon: green
+        elif now.hour in range(10, 1) or now.hour in range(16, 19):
+            return [122, 155, 100]
+        # mid afternoon: snow
+        else:
+            return [216, 230, 243]
+
+    # default: warm white
+    return [255, 228, 218]
+
 # Main function.
 def main():
     # check command-line arguments and attempt to parse as JSON
@@ -98,7 +132,7 @@ def main():
 
     # ---------------------- Color/Brightness Decision ----------------------- #
     now = datetime.now()
-    color = light_colors[now.hour]
+    color = get_color(now)
     brightness = 1.0
 
     # ------------------------------ Lights On ------------------------------- #
