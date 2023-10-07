@@ -16,7 +16,7 @@ if pdir not in sys.path:
 from lib.config import Config, ConfigField
 
 # Globals
-event_tag_delimeter = "|"
+event_tag_delimeter = "/"
 event_tag_delimeter_sub = "EVENT_TAG_DELIMETER_SUB"
 
 class HistorianEvent(Config):
@@ -46,35 +46,47 @@ class HistorianEvent(Config):
     # --------------------------- JSON Conversion ---------------------------- #
     # Overridden JSON parsing function.
     def parse_json(self, jdata: dict):
-        super().parse_json()
+        super().parse_json(jdata)
 
         # convert the timestamp from an integer to a datetime object
         self.timestamp = datetime.fromtimestamp(self.timestamp)
     
     # Overridden JSON conversion function.
-    def to_json(self):
+    def to_json(self, include_id=False):
         # convert the timestamp back into an integer
         self.timestamp = int(self.timestamp.timestamp())
 
         # call parent conversion function
-        return super().to_json()
+        result = super().to_json()
+
+        # if asked to include the event's ID, add it to the dictionary
+        if include_id:
+            result["event_id"] = self.get_id()
+        return result
 
     # -------------------------- SQLite3 Conversion -------------------------- #
+    # Helper function to convert a list of string tags into a SQLite3-friendly
+    # string.
+    @staticmethod
+    def tags_to_sqlite3(tags: list):
+        tagstr = ""
+        for (i, tag) in enumerate(tags):
+            t = tag.replace(event_tag_delimeter, event_tag_delimeter_sub)
+            tagstr += "%s%s" % (t, event_tag_delimeter if i < len(tags) - 1 else "")
+        return tagstr
+    
     # Converts the object to a tuple, useable by SQLite3 for inserting into a
     # database.
     def to_sqlite3(self):
         # there isn't a clean way to store a list of strings (the event's tags)
         # into the database, so we'll convert it to a concatenated string
-        tagstr = ""
-        for (i, tag) in enumerate(self.tags):
-            t = t.replace(event_tag_delimeter, event_tag_delimeter_sub)
-            tagstr += "%s%s" % (t, event_tag_delimeter if i < len(self.tags) - 1 else "")
-
-        return (self.get_id(), self.author, self.title, self.description, self.timestamp, tagstr)
+        tagstr = self.tags_to_sqlite3(self.tags)
+        return (self.get_id(), self.author, self.title, self.description,
+                int(self.timestamp.timestamp()), tagstr)
     
     # Takes in a tuple and attempts to convert it to an event object.
     @staticmethod
-    def from_sqlite3(self, tdata: tuple):
+    def from_sqlite3(tdata: tuple):
         assert len(tdata) >= 6, "Tuple does not contain enough fields."
         eid = str(tdata[0])
 

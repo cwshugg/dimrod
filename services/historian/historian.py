@@ -26,7 +26,8 @@ from lib.oracle import Oracle
 from lib.cli import ServiceCLI
 
 # Service imports
-# TODO
+from event import HistorianEvent
+from db import HistorianDatabase
 
 
 # =============================== Config Class =============================== #
@@ -47,6 +48,9 @@ class HistorianService(Service):
         super().__init__(config_path)
         self.config = HistorianConfig()
         self.config.parse_file(config_path)
+
+        # create a database object
+        self.db = HistorianDatabase(self.config.db_path)
         
     # Overridden main function implementation.
     def run(self):
@@ -68,13 +72,43 @@ class HistorianOracle(Oracle):
                 return self.make_response(msg="Missing JSON data.",
                                           success=False, rstatus=400)
             
-            # TODO - get fields from JSON data and return data
-            #   - number_to_retrieve
-            #   - submitter_name
-            #   - category name
-            #   - etc.
-            return self.make_response(success=False, msg="NOT YET IMPLEMENTED")
+            # look for JSON specifying the number of entries to return
+            if "count" not in flask.g.jdata or type(flask.g.jdata["count"]) != int:
+                return self.make_response(msg="Must specify 'count' integer.",
+                                          success=False, rstatus=400)
+            count = flask.g.jdata["count"]
+
+            # search the database
+            results = self.service.db.search(count=count)
+            payload = []
+            for e in results:
+                payload.append(e.to_json(include_id=True))
+            return self.make_response(success=True, payload=payload)
         
+        # Endpoint that retrieves and returns an event with the given ID.
+        @self.server.route("/retrieve/by_id", methods=["POST"])
+        def endpoint_retrieve_by_id():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            # look for the ID string in the json data
+            if "event_id" not in flask.g.jdata:
+                return self.make_response(msg="Must specify 'event_id' string.",
+                                          success=False, rstatus=400)
+            eid = str(flask.g.jdata["event_id"])
+
+            # search the database
+            result = self.service.db.search_by_id(eid)
+            if result is None:
+                return self.make_response(msg="Couldn't find a matching event.",
+                                          success=False)
+            else:
+                pyld = result.to_json(include_id=True)
+                return self.make_response(success=True, payload=pyld)
+            
         # Endpoint used to submit a single event to the historian.
         @self.server.route("/submit", methods=["POST"])
         def endpoint_submit():
@@ -83,9 +117,19 @@ class HistorianOracle(Oracle):
             if not flask.g.jdata:
                 return self.make_response(msg="Missing JSON data.",
                                           success=False, rstatus=400)
-            
-            # TODO - get data, convert to event object, and add to DB
-            return self.make_response(success=False, msg="NOT YET IMPLEMENTED")
+
+            # attempt to convert the JSON to an event object and add it to the
+            # database
+            try:
+                e = HistorianEvent()
+                e.parse_json(flask.g.jdata)
+                self.service.db.add(e)
+                return self.make_response(msg="Added successfully.",
+                                          success=True)
+            except Exception as e:
+                raise e # DEBUGGING
+                return self.make_response(msg="Invalid event data: %s" % e,
+                                          success=False, rstatus=400)
 
 
 # =============================== Runner Code ================================ #
