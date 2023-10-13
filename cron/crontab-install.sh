@@ -6,5 +6,5 @@ dir="$(dirname $(realpath $0))"
 file="${dir}/crontab"
 
 # install the crontab file
-cat ${file} | ${exe}
+sudo cat ${file} | ${exe}
 
