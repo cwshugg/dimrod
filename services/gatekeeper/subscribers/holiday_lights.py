@@ -115,12 +115,17 @@ def main():
     
     # ------------------------------- Holidays ------------------------------- #
     if now.month in [10, 12]:
-        # if we're within 30 minute of sunset, turn on the lights
-        if abs(now.timestamp() - sunset.timestamp()) < sunset_window:
+        sunset_diff = abs(now.timestamp() - sunset.timestamp())
+        sunrise_diff = abs(now.timestamp() - sunrise.timestamp())
+        print("Seconds away from sunrise: %d (window is %d)" % (sunrise_diff, sunrise_window))
+        print("Seconds away from sunset:  %d (window is %d)" % (sunset_diff, sunset_window))
+
+        # if we're within the threshold, turn the lights on or off
+        if sunset_diff < sunset_window:
             print("Turning the lights on.")
             lumen_send("plug_front_porch1", "on")
             lumen_send("plug_front_porch2", "on")
-        elif abs(now.timestamp() - sunrise.timestamp()) < sunrise_window:
+        elif sunrise_diff < sunrise_window:
             print("Turning the lights off.")
             lumen_send("plug_front_porch1", "off")
             lumen_send("plug_front_porch2", "off")
