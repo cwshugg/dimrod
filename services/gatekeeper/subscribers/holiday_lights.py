@@ -30,8 +30,7 @@ lumen_session = None
 sunrise_window = 1800
 sunset_window = 1800
 
-# Helper function for talking with Lumen.
-def lumen_send(lid: str, action: str, color=None, brightness=None):
+def lumen_init():
     # open and read the config file, if necessary
     global lumen_config_data
     if lumen_config_data is None:
@@ -50,6 +49,11 @@ def lumen_send(lid: str, action: str, color=None, brightness=None):
         user = users[0]
         lumen_session.login(user["username"], user["password"])
     
+
+# Helper function for talking with Lumen.
+def lumen_send(lid: str, action: str, color=None, brightness=None):
+    lumen_init()
+
     # now, take the parameters and build a request payload
     toggle_data = {
         "id": lid,
@@ -125,12 +129,33 @@ def main():
             print("Turning the lights on.")
             lumen_send("plug_front_porch1", "on")
             lumen_send("plug_front_porch2", "on")
+            
+            # send a message
+            lumen_init()
+            msgdata = {
+                "message": "It's sunset. I'm turning on the holiday lights.",
+                "title": "DImROD - Holiday Lights - ON",
+                "tags": ["holiday"],
+            }
+            r = lumen_session.post("/msghub/post", payload=msgdata)
+            print("Message send response: %s" % r)
         elif sunrise_diff < sunrise_window:
             print("Turning the lights off.")
             lumen_send("plug_front_porch1", "off")
             lumen_send("plug_front_porch2", "off")
+            
+            # send a message
+            lumen_init()
+            msgdata = {
+                "message": "It's sunrise. I'm turning off the holiday lights.",
+                "title": "DImROD - Holiday Lights - OFF",
+                "tags": ["holiday"],
+            }
+            r = lumen_session.post("/msghub/post", payload=msgdata)
+            print("Message send response: %s" % r)
         return
 
+    
 # Runner code
 if __name__ == "__main__":
     sys.exit(main())

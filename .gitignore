@@ -24,3 +24,6 @@ dimrod*.service
 # mycroft adapt source code
 services/src
 
+# pickle files
+*.pkl
+

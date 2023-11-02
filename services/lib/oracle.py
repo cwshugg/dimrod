@@ -175,6 +175,38 @@ class Oracle(threading.Thread):
             if flask.g.user:
                 return self.make_response(msg="You are authenticated as %s." % flask.g.user.config.username)
             return self.make_response(msg="You are not authenticated.", success=False)
+        
+        # Takes in message parameters and posts a message to the service's
+        # message hub.
+        @self.server.route("/msghub/post", methods=["POST"])
+        def endpoint_msghub_post():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing/invalid message information.",
+                                          success=False, rstatus=400)
+
+            # otherwise, parse the data to understand the request
+            jdata = flask.g.jdata
+            if "message" not in jdata:
+                return self.make_response(msg="Request must contain a \"message\".",
+                                          success=False, rstatus=400)
+            msg = str(jdata["message"])
+
+            # check for optional fields
+            title = None
+            if "title" in jdata:
+                title = str(jdata["title"])
+            tags = []
+            if "tags" in jdata and type(jdata["tags"]) == list:
+                tags = [str(t) for t in tags]
+            priority = 3
+            if "priority" in jdata and type(jdata["priority"]) in [int, float]:
+                priority = int(jdata["priority"])
+            
+            # send the message
+            self.service.msghub.post(msg, title=title, tags=tags, priority=priority)
+            return self.make_response(msg="Messaged posted successfully.")
 
     # Invoked directly before a request's main handler is invoked.
     def pre_process(self):

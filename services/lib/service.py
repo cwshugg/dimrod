@@ -17,6 +17,7 @@ if pdir not in sys.path:
 # Local imports
 import lib.config
 import lib.log
+import lib.ntfy
 
 
 # ============================== Service Config ============================== #
@@ -26,7 +27,8 @@ class ServiceConfig(lib.config.Config):
         super().__init__()
         self.fields = [
             lib.config.ConfigField("service_name",  [str],      required=True),
-            lib.config.ConfigField("service_log",   [str],      required=False)
+            lib.config.ConfigField("service_log",   [str],      required=False),
+            lib.config.ConfigField("msghub_name",   [str],      required=True)
         ]
 
 
@@ -46,9 +48,12 @@ class Service(threading.Thread):
         if self.config.service_log:
             log_file = self.config.service_log
         self.log = lib.log.Log(self.config.service_name, stream=log_file)
+
+        # initialize the ntfy.sh topic class
+        self.msghub = lib.ntfy.NtfyChannel(self.config.msghub_name)
     
     # The service's main thread. This function must is where all the service's
     # actual work will occur, and thus must be extended by subclasses.
     def run(self):
         self.log.write("running main thread.")
-
+    
