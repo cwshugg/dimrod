@@ -27,6 +27,7 @@ class Reminder(Config):
             ConfigField("title",            [str],      required=False,     default="Reminder"),
             ConfigField("send_telegrams",   [list],     required=False,     default=[]),
             ConfigField("send_emails",      [list],     required=False,     default=[]),
+            ConfigField("send_ntfys",       [list],     required=False,     default=[]),
             ConfigField("trigger_years",    [list],     required=False,     default=[]),
             ConfigField("trigger_months",   [list],     required=False,     default=[]),
             ConfigField("trigger_days",     [list],     required=False,     default=[]),
@@ -48,6 +49,7 @@ class Reminder(Config):
             text = self.message + \
                    str(self.send_telegrams) + \
                    str(self.send_emails) + \
+                   str(self.send_ntfys) + \
                    str(self.trigger_years) + \
                    str(self.trigger_months) + \
                    str(self.trigger_days) + \
