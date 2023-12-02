@@ -10,13 +10,15 @@ import requests
 import time
 from datetime import datetime, timezone
 from dateutil import parser
+import pickle
 
 import geopy.geocoders
 import timezonefinder
 import pytz
 
 # Enable import from the main directory
-pdir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+fdir = os.path.dirname(__file__)
+pdir = os.path.dirname(os.path.dirname(fdir))
 if pdir not in sys.path:
     sys.path.append(pdir)
 
@@ -29,6 +31,28 @@ lumen_config_data = None
 lumen_session = None
 sunrise_window = 1800
 sunset_window = 1800
+sunrise_msghub_file = os.path.realpath(os.path.join(fdir, ".holiday_lights_sunrise_last_msg_get.pkl"))
+sunset_msghub_file = os.path.realpath(os.path.join(fdir, ".holiday_lights_sunset_last_msg_get.pkl"))
+
+def sunrise_last_msg_get():
+    if not os.path.isfile(sunrise_msghub_file):
+        return None
+    with open(sunrise_msghub_file, "rb") as fp:
+        return pickle.load(fp)
+
+def sunset_last_msg_get():
+    if not os.path.isfile(sunset_msghub_file):
+        return None
+    with open(sunset_msghub_file, "rb") as fp:
+        return pickle.load(fp)
+
+def sunrise_last_msg_set(dt: datetime):
+    with open(sunrise_msghub_file, "wb") as fp:
+        pickle.dump(dt, fp)
+
+def sunset_last_msg_set(dt: datetime):
+    with open(sunset_msghub_file, "wb") as fp:
+        pickle.dump(dt, fp)
 
 def lumen_init():
     # open and read the config file, if necessary
@@ -124,35 +148,56 @@ def main():
         print("Seconds away from sunrise: %d (window is %d)" % (sunrise_diff, sunrise_window))
         print("Seconds away from sunset:  %d (window is %d)" % (sunset_diff, sunset_window))
 
+        # decide on the holiday name to use for any notifications sent
+        holiday = "holiday"
+        if now.month == 10:
+            holiday = "Halloween"
+        elif now.month == 12:
+            holiday = "Christmas"
+
         # if we're within the threshold, turn the lights on or off
         if sunset_diff < sunset_window:
             print("Turning the lights on.")
             lumen_send("plug_front_porch1", "on")
             lumen_send("plug_front_porch2", "on")
             
-            # send a message
-            lumen_init()
-            msgdata = {
-                "message": "It's sunset. I'm turning on the holiday lights.",
-                "title": "DImROD - Holiday Lights - ON",
-                "tags": ["holiday"],
-            }
-            r = lumen_session.post("/msghub/post", payload=msgdata)
-            print("Message send response: %s" % r)
+            # send a message via lumen's message hub, as long as it wasn't sent
+            # recently
+            last_msg = sunset_last_msg_get()
+            if last_msg is None or now.timestamp() - last_msg.timestamp() > sunset_window:
+                lumen_init()
+                msgdata = {
+                    "message": "It's sunset. I'm turning on the %s lights." % holiday,
+                    "title": "DImROD - Holiday Lights - ON",
+                    "tags": ["holiday"],
+                }
+                r = lumen_session.post("/msghub/post", payload=msgdata)
+                print("Message send response: %s" % r)
+                sunset_last_msg_set(now)
+            else:
+                print("Message was last sent at %s. Skipping message send." %
+                      last_msg.strftime("%Y-%m-%d %H:%M:%S %p"))
         elif sunrise_diff < sunrise_window:
             print("Turning the lights off.")
             lumen_send("plug_front_porch1", "off")
             lumen_send("plug_front_porch2", "off")
             
-            # send a message
-            lumen_init()
-            msgdata = {
-                "message": "It's sunrise. I'm turning off the holiday lights.",
-                "title": "DImROD - Holiday Lights - OFF",
-                "tags": ["holiday"],
-            }
-            r = lumen_session.post("/msghub/post", payload=msgdata)
-            print("Message send response: %s" % r)
+            # send a message via lumen's message hub, as long as it wasn't sent
+            # recently
+            last_msg = sunrise_last_msg_get()
+            if last_msg is None or now.timestamp() - last_msg.timestamp() > sunrise_window:
+                lumen_init()
+                msgdata = {
+                    "message": "It's sunrise. I'm turning off the %s lights." % holiday,
+                    "title": "DImROD - Holiday Lights - OFF",
+                    "tags": ["holiday"],
+                }
+                r = lumen_session.post("/msghub/post", payload=msgdata)
+                print("Message send response: %s" % r)
+                sunrise_last_msg_set(now)
+            else:
+                print("Message was last sent at %s. Skipping message send." %
+                      last_msg.strftime("%Y-%m-%d %H:%M:%S %p"))
         return
 
     
