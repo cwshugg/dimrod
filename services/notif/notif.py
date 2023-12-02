@@ -20,6 +20,7 @@ from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle, OracleSession
 from lib.cli import ServiceCLI
 from lib.mail import MessengerConfig, Messenger
+from lib.ntfy import ntfy_send
 
 # Service imports
 from reminder import Reminder
@@ -204,6 +205,23 @@ class NotifService(Service):
             if "message" in jdata and len(jdata["message"]) > 0:
                 log_msg += " \"%s\"" % jdata["message"]
             self.log.write(log_msg)
+
+        # send to all specified ntfy channels
+        for channel in rem.send_ntfys:
+            # depending on the content of the title, choose an appropriate
+            # title string
+            title_is_empty = rem.title is None or len(rem.title) == 0
+            title_has_letters = re.search("[a-zA-Z]", rem.title) is not None
+            title_str = str(rem.title)
+            if title_is_empty:
+                title_str = "DImROD Notification"
+            elif not title_has_letters and len(title_str) < 10:
+                title_str = "DImROD Notification - %s" % title_str
+            
+            # send the ntfy HTTP request to post to the channel
+            self.log.write(" - Posting a ntfy message to channel \"%s\"" % str(channel))
+            r = ntfy_send(str(channel), rem.message, title=title_str)
+            self.log.write("    - Ntfy responded with code %d." % r.status_code)
 
     # Creates and returns an authenticated OracleSession with the telegram bot.
     def get_telegram_session(self):
