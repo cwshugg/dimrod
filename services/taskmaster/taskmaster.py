@@ -81,11 +81,19 @@ class TaskmasterService(Service):
 
         # retrieve a Todoist API instance
         todoist = Todoist(self.config.taskmaster_todoist_api_key)
-        
+       
+        taskjobs_len = 0
         while True:
-            # import all task job subclasses
+            # import all task job subclasses and log a message when the number
+            # of loaded job classes has changed
             taskjobs = self.get_jobs()
-            self.log.write("Loaded %d taskjobs." % len(taskjobs))
+            taskjobs_len_new = len(taskjobs)
+            if taskjobs_len_new != taskjobs_len:
+                self.log.write("Loaded %d taskjobs (%s from %d)." %
+                               (taskjobs_len_new,
+                                "up" if taskjobs_len_new > taskjobs_len else "down",
+                                taskjobs_len))
+                taskjobs_len = taskjobs_len_new
 
             # for each task job, initialize a class object and call it's update
             # function

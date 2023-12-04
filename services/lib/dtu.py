@@ -2,6 +2,21 @@
 
 # Imports
 from datetime import datetime, timedelta
+from enum import Enum
+
+# Simple enum to put names to numbers for datetime weekdays.
+class Weekday(Enum):
+    SUNDAY = 0
+    MONDAY = 1
+    TUESDAY = 2
+    WEDNESDAY = 3
+    THURSDAY = 4
+    FRIDAY = 5
+    SATURDAY = 6
+
+def get_weekday(dt):
+    value = int((dt.weekday() + 1) % 7)
+    return Weekday(value)
 
 # Returns True if the given day is a Saturday or Sunday.
 def is_weekend(dt):
@@ -103,4 +118,27 @@ def diff_in_days(dt1, dt2):
 # Returns the difference between the two datetimes in weeks.
 def diff_in_weeks(dt1, dt2):
     return (dt1.timestamp() - dt2.timestamp()) / 604800
+
+# Returns True if the two datetimes share the same year.
+def has_same_year(dt1, dt2):
+    return dt1.year == dt2.year
+
+# Returns True if the two datetimes share the same month.
+def has_same_month(dt1, dt2):
+    return dt1.month == dt2.month
+
+# Returns True if the two datetimes share the same day.
+def has_same_day(dt1, dt2):
+    return dt1.day == dt2.day
+
+# Returns True if the two datetimes share the same year AND month.
+def has_same_year_month(dt1, dt2):
+    return dt1.year == dt2.year and \
+           dt1.month == dt2.month
+
+# Returns True if the two datetimes share the same year, month, AND day.
+def has_same_year_month_day(dt1, dt2):
+    return dt1.year == dt2.year and \
+           dt1.month == dt2.month and \
+           dt1.day == dt2.day
 

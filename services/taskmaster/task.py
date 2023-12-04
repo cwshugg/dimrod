@@ -76,7 +76,7 @@ class TaskJob:
     
     # Returns the name of the task job.
     def get_name(self):
-        return self.__class__.__name__.replace("taskjob_", "").lower()
+        return self.__class__.__name__.lower().replace("taskjob_", "")
     
     # Creates and returns the project with the given name.
     def get_project_by_name(self, todoist, name: str,

@@ -14,35 +14,33 @@ from task import TaskConfig
 from tasks.base import *
 import lib.dtu as dtu
 
-class TaskJob_Medical_Flu_Shot(TaskJob_Medical):
+class TaskJob_Finance_Budget(TaskJob_Finance):
     def update(self, todoist):
         proj = self.get_project(todoist)
-        sect = self.get_section_by_name(todoist, proj.id, "General")
+        sect = self.get_section_by_name(todoist, proj.id, "Budgeting")
 
         # set up a TaskConfig object for the task
         content_fname = __file__.replace(".py", ".md")
         t = TaskConfig()
         t.parse_json({
-            "title": "Get a flu shot",
+            "title": "End-of-Month Budgeting and Savings",
             "content": os.path.join(fdir, content_fname)
         })
         
-        # don't proceed this the task was updated too recently
+        # only allow one update per month
         last_success = self.get_last_success_datetime()
         now = datetime.now()
-        if last_success is not None and dtu.diff_in_weeks(now, last_success) <= 6:
+        if last_success is not None and dtu.has_same_year_month(last_success, now):
             return False
     
-        # only update on certain days
-        if now.day not in range(18, 23):
-            return False
-        # update roughly once a year
-        if now.month not in [10, 11]:
+        # add the task towards the end of each month, due by the end of the
+        # month
+        if now.day not in range(25, 31):
             return False
         
         # retrieve the task (if it exists) and select an appropriate due date
         task = todoist.get_task_by_title(t.title, project_id=proj.id, section_id=sect.id)
-        due = dtu.set_time_end_of_day(dtu.add_weeks(now, 6))
+        due = dtu.set_time_end_of_day(dtu.get_last_day_of_month(now))
 
         # if the task doesn't exist, create it
         if task is None:
@@ -54,5 +52,6 @@ class TaskJob_Medical_Flu_Shot(TaskJob_Medical):
         # otherwise, update the task's due date and refresh the content
         todoist.update_task(task.id, body=t.get_content(), due_datetime=due)
         return True
+
 
 

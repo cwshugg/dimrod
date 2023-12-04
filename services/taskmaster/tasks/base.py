@@ -15,25 +15,51 @@ if pdir not in sys.path:
 from task import TaskJob, TaskConfig
 import lib.dtu as dtu
 
-# Base class for automotive-based chores.
+# Base class for automotive-based tasks.
 class TaskJob_Automotive(TaskJob):
     def update(self, todoist):
         super().update(todoist)
         return False
 
     def get_project(self, todoist):
-        return self.get_project_by_name("Automotive", color="charcoal")
+        return self.get_project_by_name(todoist, "Automotive", color="red")
 
-# Base class for medical-based chores.
+# Base class for medical-based tasks.
 class TaskJob_Medical(TaskJob):
     def update(self, todoist):
         super().update(todoist)
         return False
 
     def get_project(self, todoist):
-        proj = todoist.get_project_by_name("Chores")
+        proj = todoist.get_project_by_name("Medical")
         if proj is None:
             proj = todoist.add_project("Medical", color="blue")
+        self.project = proj
+        return proj
+
+# Base class for finance-based tasks.
+class TaskJob_Finance(TaskJob):
+    def update(self, todoist):
+        super().update(todoist)
+        return False
+
+    def get_project(self, todoist):
+        proj = todoist.get_project_by_name("Finances")
+        if proj is None:
+            proj = todoist.add_project("Finances", color="olive_green")
+        self.project = proj
+        return proj
+
+# Base class for house chores and maintenance.
+class TaskJob_Household(TaskJob):
+    def update(self, todoist):
+        super().update(todoist)
+        return False
+
+    def get_project(self, todoist):
+        proj = todoist.get_project_by_name("Household")
+        if proj is None:
+            proj = todoist.add_project("Household", color="yellow")
         self.project = proj
         return proj
 

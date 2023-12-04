@@ -14,35 +14,33 @@ from task import TaskConfig
 from tasks.base import *
 import lib.dtu as dtu
 
-class TaskJob_Medical_Flu_Shot(TaskJob_Medical):
+class TaskJob_Household_Clean_Kitchen(TaskJob_Household):
     def update(self, todoist):
         proj = self.get_project(todoist)
-        sect = self.get_section_by_name(todoist, proj.id, "General")
+        sect = self.get_section_by_name(todoist, proj.id, "Cleaning")
 
         # set up a TaskConfig object for the task
         content_fname = __file__.replace(".py", ".md")
         t = TaskConfig()
         t.parse_json({
-            "title": "Get a flu shot",
+            "title": "Clean the Kitchen",
             "content": os.path.join(fdir, content_fname)
         })
         
-        # don't proceed this the task was updated too recently
+        # prevent premature updates (update the task roughly every 1.5 months)
         last_success = self.get_last_success_datetime()
         now = datetime.now()
-        if last_success is not None and dtu.diff_in_weeks(now, last_success) <= 6:
-            return False
-    
-        # only update on certain days
-        if now.day not in range(18, 23):
-            return False
-        # update roughly once a year
-        if now.month not in [10, 11]:
+        if last_success is None:
+            # if this is the first time, only start the task on even months
+            if now.month not in [2, 4, 6, 8, 10, 12] or \
+               now.day not in range(13, 18):
+                return False
+        elif dtu.diff_in_days(last_success, now) < 45:
             return False
         
         # retrieve the task (if it exists) and select an appropriate due date
         task = todoist.get_task_by_title(t.title, project_id=proj.id, section_id=sect.id)
-        due = dtu.set_time_end_of_day(dtu.add_weeks(now, 6))
+        due = dtu.set_time_end_of_day(dtu.add_days(now, 14))
 
         # if the task doesn't exist, create it
         if task is None:
