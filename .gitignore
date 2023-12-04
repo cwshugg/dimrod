@@ -22,8 +22,14 @@ dimrod*.service
 *.out
 
 # mycroft adapt source code
-services/src
+adapt-parser
 
 # pickle files
 *.pkl
+
+# various cron job and script secret files
+.whos_online*
+
+# taskmaster markdown documents
+services/taskmaster/tasks/*.md
 

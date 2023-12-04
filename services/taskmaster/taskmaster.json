@@ -1,0 +1,22 @@
+{
+    "service_name": "taskmaster",
+    "service_log": "stdout",
+
+    "oracle_addr": "0.0.0.0",
+    "oracle_port": 2361,
+    "oracle_log": "stdout",
+    "oracle_auth_cookie": "taskmaster_auth",
+    "oracle_auth_secret": "YOUR_JWT_SECRET_HERE",
+    "oracle_auth_users":
+    [
+        {
+            "username": "luke",
+            "password": "skywalker",
+            "privilege": 0
+        }
+    ],
+
+    "msghub_name": "YOUR_MSGHUB_NAME",
+
+    "taskmaster_todoist_api_key": "YOUR_TODOIST_API_KEY"
+}

@@ -56,6 +56,10 @@ echo -e "${C_ACC1}Installing MycroftAI Adapt intent parser...${C_NONE}"
 python3 -m pip install -e git+https://github.com/mycroftai/adapt#egg=adapt-parser
 echo ""
 
+echo -e "${C_ACC1}Installing Todoist Python SDK...${C_NONE}"
+python3 -m pip install todoist-api-python
+echo ""
+
 echo -e "${C_ACC1}Installing selenium...${C_NONE}"
 python3 -m pip install selenium
 echo ""
