@@ -15,8 +15,17 @@ if pdir not in sys.path:
 from task import TaskJob, TaskConfig
 import lib.dtu as dtu
 
-# Base class for chores.
-class TaskJob_Chores(TaskJob):
+# Base class for automotive-based chores.
+class TaskJob_Automotive(TaskJob):
+    def update(self, todoist):
+        super().update(todoist)
+        return False
+
+    def get_project(self, todoist):
+        return self.get_project_by_name("Automotive", color="charcoal")
+
+# Base class for medical-based chores.
+class TaskJob_Medical(TaskJob):
     def update(self, todoist):
         super().update(todoist)
         return False
@@ -24,17 +33,7 @@ class TaskJob_Chores(TaskJob):
     def get_project(self, todoist):
         proj = todoist.get_project_by_name("Chores")
         if proj is None:
-            proj = todoist.add_project("Chores", color="green")
+            proj = todoist.add_project("Medical", color="blue")
         self.project = proj
         return proj
-
-# Base class for automotive-based chores.
-class TaskJob_Chores_Automotive(TaskJob_Chores):
-    def get_section(self, todoist):
-        proj = self.get_project(todoist)
-        sect = todoist.get_section_by_name("Automotive")
-        if sect is None:
-            sect = todoist.add_section("Automotive", proj.id)
-        self.section = sect
-        return sect
 

@@ -11,39 +11,40 @@ if pdir not in sys.path:
 
 # Service imports
 from task import TaskConfig
-from tasks.chores import *
+from tasks.base import *
 import lib.dtu as dtu
 
-class TaskJob_Chores_Automotive_Tire_Pressure(TaskJob_Chores_Automotive):
+class TaskJob_Automotive_Oil(TaskJob_Automotive):
     def update(self, todoist):
         proj = self.get_project(todoist)
-        sect = self.get_section(todoist)
+        sect = self.get_section_by_name(todoist, proj.id, "Upkeep")
 
         # set up a TaskConfig object for the task
         content_fname = __file__.replace(".py", ".md")
         t = TaskConfig()
         t.parse_json({
-            "title": "Check the car tire pressure",
+            "title": "Change the car's oil",
             "content": os.path.join(fdir, content_fname)
         })
 
-        # if this task succeeded recently (within the past month), don't
+        # if this task succeeded recently (within the past few months), don't
         # proceed any further
         last_success = self.get_last_success_datetime()
         now = datetime.now()
-        if last_success is not None and dtu.diff_in_days(now, last_success) <= 30:
+        if last_success is not None and dtu.diff_in_days(now, last_success) <= 100:
             return False
     
         # only update on certain days
-        if now.day not in range(20, 25):
+        if now.day not in range(17, 22):
             return False
-        # add the task on the even months
-        if now.month not in [2, 4, 6, 8, 10, 12]:
+        # update every few months
+        if now.month not in [2, 5, 8, 11]:
             return False
         
         # retrieve the task (if it exists) and select an appropriate due date
         task = todoist.get_task_by_title(t.title, project_id=proj.id, section_id=sect.id)
-        due = dtu.set_time_end_of_day(dtu.get_last_day_of_month(now))
+        due = dtu.add_days(dtu.get_last_day_of_month(now), 15)
+        due = dtu.set_time_end_of_day(due)
 
         # if the task doesn't exist, create it
         if task is None:

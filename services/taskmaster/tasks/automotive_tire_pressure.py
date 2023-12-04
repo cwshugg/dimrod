@@ -11,19 +11,19 @@ if pdir not in sys.path:
 
 # Service imports
 from task import TaskConfig
-from tasks.chores import *
+from tasks.base import *
 import lib.dtu as dtu
 
-class TaskJob_Chores_Automotive_Carwash(TaskJob_Chores_Automotive):
+class TaskJob_Automotive_Tire_Pressure(TaskJob_Automotive):
     def update(self, todoist):
         proj = self.get_project(todoist)
-        sect = self.get_section(todoist)
+        sect = self.get_section_by_name(todoist, proj.id, "Upkeep")
 
         # set up a TaskConfig object for the task
         content_fname = __file__.replace(".py", ".md")
         t = TaskConfig()
         t.parse_json({
-            "title": "Wash the car",
+            "title": "Check the car tire pressure",
             "content": os.path.join(fdir, content_fname)
         })
 
@@ -35,10 +35,10 @@ class TaskJob_Chores_Automotive_Carwash(TaskJob_Chores_Automotive):
             return False
     
         # only update on certain days
-        if now.day not in range(10, 15):
+        if now.day not in range(20, 25):
             return False
-        # add the task on the odd months
-        if now.month not in [1, 3, 5, 7, 9, 11]:
+        # add the task on the even months
+        if now.month not in [2, 4, 6, 8, 10, 12]:
             return False
         
         # retrieve the task (if it exists) and select an appropriate due date

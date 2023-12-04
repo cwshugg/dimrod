@@ -11,34 +11,33 @@ if pdir not in sys.path:
 
 # Service imports
 from task import TaskConfig
-from tasks.chores import *
+from tasks.base import *
 import lib.dtu as dtu
 
-class TaskJob_Chores_Automotive_Insurance(TaskJob_Chores_Automotive):
+class TaskJob_Automotive_Inspection(TaskJob_Automotive):
     def update(self, todoist):
         proj = self.get_project(todoist)
-        sect = self.get_section(todoist)
+        sect = self.get_section_by_name(todoist, proj.id, "Upkeep")
 
         # set up a TaskConfig object for the task
         content_fname = __file__.replace(".py", ".md")
         t = TaskConfig()
         t.parse_json({
-            "title": "Review car insurance",
+            "title": "Schedule a state car inspection",
             "content": os.path.join(fdir, content_fname)
         })
 
-        # if this task succeeded recently (within the past month), don't
-        # proceed any further (the task must have already been added)
+        # if this task succeeded recently (within the past few months), don't
+        # proceed any further
         last_success = self.get_last_success_datetime()
         now = datetime.now()
-        if last_success is not None and dtu.diff_in_days(now, last_success) <= 30:
+        if last_success is not None and dtu.diff_in_days(now, last_success) <= 100:
             return False
     
         # only update on certain days
-        if now.day not in range(3, 8):
+        if now.day not in range(7, 12):
             return False
-        # update this every six months
-        if now.month not in [6, 12]:
+        if now.month not in [11, 12]:
             return False
         
         # retrieve the task (if it exists) and select an appropriate due date

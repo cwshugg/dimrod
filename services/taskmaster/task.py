@@ -77,4 +77,22 @@ class TaskJob:
     # Returns the name of the task job.
     def get_name(self):
         return self.__class__.__name__.replace("taskjob_", "").lower()
+    
+    # Creates and returns the project with the given name.
+    def get_project_by_name(self, todoist, name: str,
+                            color="grey", parent_id=None,
+                            is_favorite=False, view_style="list"):
+        proj = todoist.get_project_by_name(name)
+        if proj is None:
+            proj = todoist.add_project(name, color=color, parent_id=None)
+        return proj
+
+    # Creates and returns the section with the given name.
+    def get_section_by_name(self, todoist, project_id: str, name: str,
+                            order=None):
+        sect = todoist.get_section_by_name(name)
+        if sect is None:
+            sect = todoist.add_section(name, project_id, order=None)
+        return sect
+
 
