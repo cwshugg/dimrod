@@ -16,6 +16,7 @@ if pdir not in sys.path:
 
 # Local imports
 from services.lib.oracle import OracleSession
+import services.lib.dtu as dtu
 
 # Service configs
 telegram_config_path = os.path.join(pdir, "services/telegram/cwshugg_telegram.json")
@@ -46,50 +47,6 @@ def randbool(chance: float):
     high = int(maxval * chance)
     return random.randrange(maxval) in range(low, high)
 
-def is_weekend(dt):
-    return dt.weekday() in [5, 6]
-
-def is_weekday(dt):
-    return dt.weekday() not in [5, 6]
-
-def is_morning(dt):
-    return dt.hour >= 6 and dt.hour < 12
-
-def is_afternoon(dt):
-    return dt.hour >= 12 and dt.hour < 17
-
-def is_evening(dt):
-    return dt.hour >= 17 and dt.hour < 21
-
-def is_night(dt):
-    return dt.hour >= 21 or dt.hour < 6
-
-def is_workhours(dt):
-    return dt.hour >= 9 and dt.hour < 17
-
-def is_spring(dt):
-    spring_start = datetime(dt.year, 3, 20)
-    spring_end = datetime(dt.year, 6, 20)
-    return dt.timestamp() >= spring_start.timestamp() and \
-           dt.timestamp() < spring_end.timestamp()
-
-def is_summer(dt):
-    summer_start = datetime(dt.year, 6, 20)
-    summer_end = datetime(dt.year, 9, 20)
-    return dt.timestamp() >= summer_start.timestamp() and \
-           dt.timestamp() < summer_end.timestamp()
-
-def is_fall(dt):
-    fall_start = datetime(dt.year, 9, 20)
-    fall_end = datetime(dt.year, 12, 20)
-    return dt.timestamp() >= fall_start.timestamp() and \
-           dt.timestamp() < fall_end.timestamp()
-
-def is_winter(dt):
-    winter_start = datetime(dt.year, 12, 20) if dt.month > 3 else datetime(dt.year, 1, 1)
-    winter_end = datetime(dt.year, 12, 31) if dt.month > 3 else datetime(dt.year, 3, 20)
-    return dt.timestamp() >= winter_start.timestamp() and \
-           dt.timestamp() < winter_start.timestamp()
 
 # ================================== Nudges ================================== #
 # Each of these nudge functions should return a message or None, depending on
@@ -97,7 +54,7 @@ def is_winter(dt):
 
 # Weekend nudges.
 def nudge_weekend_day(dt):
-    if not is_weekend(dt):
+    if not dtu.is_weekend(dt):
         return None
     
     # do a quick random-chance calculation, and only proceed if it succeeds
@@ -113,7 +70,7 @@ def nudge_weekend_day(dt):
     ]
     
     # add some seasonal ideas
-    if not is_winter(dt):
+    if not dtu.is_winter(dt):
         ideas.append("If the weather is nice today, you should go for a bike ride.")
 
     # choose one at random and return it
@@ -121,7 +78,7 @@ def nudge_weekend_day(dt):
 
 # Weekday nudges.
 def nudge_weekday_day(dt):
-    if not is_weekday(dt) or is_evening(dt):
+    if not dtu.is_weekday(dt) or dtu.is_evening(dt):
         return None
 
     # do a quick random-chance calculation, and only proceed if it succeeds
@@ -134,11 +91,11 @@ def nudge_weekday_day(dt):
     ]
 
     # add some seasonal ideas
-    if is_summer(dt):
+    if dtu.is_summer(dt):
         ideas.append("If the weather is hot today, I suggest going for a swim in the pool.")
 
     # if it's during working hours, suggest some other ideas
-    if is_workhours(dt):
+    if dtu.is_workhours(dt):
         ideas = [
             "I suggest getting a hot cup of tea to refresh yourself.",
             "I suggest eating a light snack to give yourself a little energy.",
@@ -156,7 +113,7 @@ def nudge_weekday_day(dt):
 
 # Weekday evening nudges.
 def nudge_weekday_night(dt):
-    if not is_weekday(dt) or not is_evening(dt):
+    if not dtu.is_weekday(dt) or not dtu.is_evening(dt):
         return None
 
     # do a quick random-chance calculation, and only proceed if it succeeds
@@ -220,21 +177,21 @@ def nudge_dates(dt):
     ]
 
     # add some spring ideas
-    if is_spring(dt):
+    if dtu.is_spring(dt):
         ideas += [
             "Here's a fun spring date idea: go strawberry picking.",
             "Here's a fun spring date idea: go on a picnic.",
             "Here's a fun spring date idea: go to a baseball game."
         ]
 
-    if is_summer(dt):
+    if dtu.is_summer(dt):
         ideas += [
             "Here's a fun summer date idea: go to a drive-in movie.",
             "Here's a fun summer date idea: go to an outdoor movie.",
             "Here's a fun summer date idea: go to the beach for a day."
         ]
 
-    if is_fall(dt):
+    if dtu.is_fall(dt):
         ideas += [
             "Here's a fun fall date idea: go to a football game.",
             "Here's a fun fall date idea: go to a fall festival."
@@ -249,7 +206,7 @@ def nudge_dates(dt):
             ]
 
     # add some winter ideas
-    if is_winter(dt):
+    if dtu.is_winter(dt):
         ideas += [
             "Here's a fun winter date idea: go ice skating.",
         ]
