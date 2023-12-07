@@ -160,6 +160,8 @@ def main():
             print("Turning the lights on.")
             lumen_send("plug_front_porch1", "on")
             lumen_send("plug_front_porch2", "on")
+            lumen_send("plug_back_deck1", "on")
+            lumen_send("plug_back_deck2", "on")
             
             # send a message via lumen's message hub, as long as it wasn't sent
             # recently
@@ -181,6 +183,8 @@ def main():
             print("Turning the lights off.")
             lumen_send("plug_front_porch1", "off")
             lumen_send("plug_front_porch2", "off")
+            lumen_send("plug_back_deck1", "off")
+            lumen_send("plug_back_deck2", "off")
             
             # send a message via lumen's message hub, as long as it wasn't sent
             # recently
