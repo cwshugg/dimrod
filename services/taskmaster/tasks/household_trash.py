@@ -30,7 +30,7 @@ class TaskJob_Household_Trash(TaskJob_Household):
         # don't proceed if the last update was the same week
         last_success = self.get_last_success_datetime()
         now = datetime.now()
-        if last_success is not None and dtu.diff_in_days(last_success, now) < 7:
+        if last_success is not None and dtu.diff_in_days(now, last_success) < 3:
             return False
     
         # make this appear every week

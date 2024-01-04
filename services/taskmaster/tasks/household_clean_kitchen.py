@@ -35,7 +35,7 @@ class TaskJob_Household_Clean_Kitchen(TaskJob_Household):
             if now.month not in [2, 4, 6, 8, 10, 12] or \
                now.day not in range(13, 18):
                 return False
-        elif dtu.diff_in_days(last_success, now) < 45:
+        elif dtu.diff_in_days(now, last_success) < 45:
             return False
         
         # retrieve the task (if it exists) and select an appropriate due date
