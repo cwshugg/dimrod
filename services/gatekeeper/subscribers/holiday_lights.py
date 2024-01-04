@@ -203,7 +203,24 @@ def main():
                 print("Message was last sent at %s. Skipping message send." %
                       last_msg.strftime("%Y-%m-%d %H:%M:%S %p"))
         return
-
+    elif now.month in [1, 11] and now.day == 1:
+        # on the first day of the months following holidays, make sure all
+        # lights are turned off
+        print("Holiday time is over. Turning off the lights.")
+        lumen_send("plug_front_porch1", "off")
+        lumen_send("plug_front_porch2", "off")
+        lumen_send("plug_back_deck1", "off")
+        lumen_send("plug_back_deck2", "off")
+        
+        # send a message to the lumen msghub
+        msgdata = {
+            "message": "It's sunset. I'm turning on the %s lights." % holiday,
+            "title": "DImROD - Holiday Lights - ON",
+            "tags": ["holiday"],
+        }
+        r = lumen_session.post("/msghub/post", payload=msgdata)
+        print("Message send response: %s" % r)
+        return
     
 # Runner code
 if __name__ == "__main__":
