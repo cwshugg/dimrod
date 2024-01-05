@@ -18,6 +18,19 @@ def get_weekday(dt):
     value = int((dt.weekday() + 1) % 7)
     return Weekday(value)
 
+# Takes in a weekday and returns the number of days 'dt' is away from the
+# specified weekday.
+def get_days_until_weekday(dt, weekday):
+   wd1 = get_weekday(dt).value
+   wd2 = weekday.value
+
+   if wd1 > wd2:
+       return 7 + (wd2 - wd1)
+   elif wd1 < wd2:
+       return wd2 - wd1
+   else:
+       return 0
+
 # Returns True if the given day is a Saturday or Sunday.
 def is_weekend(dt):
     return dt.weekday() in [5, 6]
