@@ -19,7 +19,9 @@ def get_weekday(dt):
     return Weekday(value)
 
 # Takes in a weekday and returns the number of days 'dt' is away from the
-# specified weekday.
+# specified weekday. This looks FORWARDS for the next occurrence of the
+# weekday.
+# Returns 0 if the current weekday matches.
 def get_days_until_weekday(dt, weekday):
    wd1 = get_weekday(dt).value
    wd2 = weekday.value
@@ -30,6 +32,16 @@ def get_days_until_weekday(dt, weekday):
        return wd2 - wd1
    else:
        return 0
+
+# Takes in a weekday and returns the number of days 'dt' is away from the
+# weekday. This looks BACKWARDS for the most recent occurrence of the weekday.
+# Returns 0 if the current weekday matches.
+def get_days_since_weekday(dt, weekday):
+    wd1 = get_weekday(dt).value
+    wd2 = weekday.value
+    if wd1 == wd2:
+        return 0
+    return 7 - get_days_until_weekday(dt, weekday)
 
 # Returns True if the given day is a Saturday or Sunday.
 def is_weekend(dt):
