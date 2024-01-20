@@ -44,11 +44,6 @@
     "warden_auth_username": "ABC",
     "warden_auth_password": "XYZ",
 
-    "scribble_address": "0.0.0.0",
-    "scribble_port": 2354,
-    "scribble_auth_username": "ABC",
-    "scribble_auth_password": "XYZ",
-    
     "notif_address": "0.0.0.0",
     "notif_port": 2356,
     "notif_auth_username": "ABC",

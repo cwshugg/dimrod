@@ -49,7 +49,7 @@ Currently, the services I've created are:
 * **Notif** - implements a reminder system that, paired with the Telegram bot, allows for recurring or one-off reminders to be delivered to my phone.
 * **Speaker** - uses my internal dialogue library to expose an interface for other services to "chat" with DImROD. Eventually, it'll be responsible not only for chatting, but parsing user dialogue and firing off jobs at home.
 * **Nimbus** - uses public weather APIs to expose an interface for retrieving weather information for multiple locations.
-* **Scribble** - somewhat underdeveloped, this service is used to interact with an API for interacting with my ToDO lists. Currently I'm using the TickTick mobile app.
+* **Taskmaster** - dynamically imports "task" scripts I've written, each of which interacts with the Todoist API to help me with recurring tasks.
 
 ## Future Plans
 

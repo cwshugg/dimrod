@@ -34,9 +34,6 @@ const services_me = [
     new Service("gatekeeper", "Gatekeeper",
                 new URL("dimrod.shugg.dev", "23232", "/"),
                 "fas fa-fist-raised", "mdl-color-text--red-600"),
-    new Service("scribble", "Scribble",
-                new URL(hostname, "2354", "/"),
-                "fas fa-pencil", "mdl-color-text--yellow-400"),
     new Service("telegram", "Telegram",
                 new URL(hostname, "2355", "/"),
                 "fas fa-paper-plane", "mdl-color-text--light-blue-400"),
@@ -48,7 +45,10 @@ const services_me = [
                 "fas fa-microphone", "mdl-color-text--pink-400"),
     new Service("moder", "Moder",
                 new URL(hostname, "2358", "/"),
-                "fas fa-cogs", "mdl-color-text--brown-400")
+                "fas fa-cogs", "mdl-color-text--brown-400"),
+    new Service("taskmaster", "Taskmaster",
+                new URL(hostname, "2361", "/"),
+                "fas fa-pencil", "mdl-color-text--yellow-400")
 ];
 
 // Service-specific globals
