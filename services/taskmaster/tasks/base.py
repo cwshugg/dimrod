@@ -63,3 +63,16 @@ class TaskJob_Household(TaskJob):
         self.project = proj
         return proj
 
+# Base class for the grocery list.
+class TaskJob_Groceries(TaskJob):
+    def update(self, todoist):
+        super().update(todoist)
+        return False
+
+    def get_project(self, todoist):
+        proj = todoist.get_project_by_name("Groceries")
+        if proj is None:
+            proj = todoist.add_project("Groceries", color="green")
+        self.project = proj
+        return proj
+

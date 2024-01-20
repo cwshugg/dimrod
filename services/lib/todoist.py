@@ -151,7 +151,11 @@ class Todoist:
     # -------------------------------- Tasks --------------------------------- #
     # Returns a list of all active Todoist tasks. This works the same as
     # get_projects() in terms of caching and refreshing.
-    def get_tasks(self, refresh=False):
+    # If 'project_id' is specified, only tasks belonging to that particular
+    # project will be returned.
+    # If 'section_id' is specified, only tasks belonging to that particular
+    # section will be returned.
+    def get_tasks(self, refresh=False, project_id=None, section_id=None):
         # if the force flag is set, toggle 'refresh' and reset the flag
         if self.tasks_refresh_force:
             refresh = True
@@ -166,7 +170,18 @@ class Todoist:
             self.tasks = api.get_tasks()
             self.tasks_last_dt = now
 
-        return self.tasks
+        # iterate through the tasks and build up a list containing only the
+        # filtered tasks (if any filters were specified)
+        result = []
+        for task in self.tasks:
+            # if a project ID was specified and this one doesn't match, skip it
+            if project_id is not None and task.project_id != project_id:
+                continue
+            # if a section ID was specified and this one doesn't match, skip it
+            if section_id is not None and task.section_id != section_id:
+                continue
+            result.append(task)
+        return result
     
     # Searches for a task with the given ID, returning it if found.
     def get_task_by_id(self, task_id: str):
@@ -184,14 +199,8 @@ class Todoist:
     # section will be searched.
     # Returns None if a match wasn't found.
     def get_task_by_title(self, title: str, project_id=None, section_id=None):
-        tasks = self.get_tasks()
+        tasks = self.get_tasks(project_id=project_id, section_id=section_id)
         for task in tasks:
-            # if a project ID was specified and this one doesn't match, skip it
-            if project_id is not None and task.project_id != project_id:
-                continue
-            # if a section ID was specified and this one doesn't match, skip it
-            if section_id is not None and task.section_id != section_id:
-                continue
             # if the title matches, return it
             if task.content == title:
                 return task
@@ -219,6 +228,18 @@ class Todoist:
         self.tasks.append(task)
         return task
     
+    # Deletes the task specified by the task ID.
+    def delete_task(self, task_id: str):
+        api = self.api()
+        api.delete_task(task_id=task_id)
+        
+        # delete the local copy of this task
+        for (i, t) in enumerate(self.tasks):
+            if t.id == task_id:
+                self.tasks.pop(i)
+                break
+        return True
+    
     # Updates an existing task with any non-None fields. Returns None if a task
     # with the given ID is not found. Otherwise, the updated task is returned.
     def update_task(self, task_id: str, title=None, body=None, labels=None,
@@ -226,10 +247,16 @@ class Todoist:
         t = self.get_task_by_id(task_id)
         if t is None:
             return None
+        
+        # choose an appropriate due datetime
+        due_dt = None
+        if due_datetime is not None:
+            due_dt = due_datetime.isoformat()
+        elif t.due is not None:
+            due_dt = t.due.datetime
 
         # issue an API request to update the task
         api = self.api()
-        due_dt = t.due_datetime if due_datetime is None else due_datetime.isoformat()
         task = api.update_task(task_id=task_id,
                                content=t.content if title is None else title,
                                description=t.description if body is None else body,
@@ -243,4 +270,35 @@ class Todoist:
         # requires a refresh next time
         self.tasks_refresh_force = True
         return task
+    
+    # Deletes the given task and creates a copy in the new project and/or
+    # section. Does nothing if neither a project ID or section ID is specified.
+    # Returns the ID of the new task (or the ID of the old task if nothing was
+    # accomplished.)
+    # This delete+recreate process must be done, because Todoist unfortunately
+    # has no documented way to move a task in its API.
+    def move_task(self, task_id: str, project_id=None, section_id=None):
+        if project_id is None and section_id is None:
+            return task_id
+        
+        # retrieve the task and delete it
+        task = self.get_task_by_id(task_id)
+        self.delete_task(task.id)
+
+        # re-create the task with the same information as the original, with
+        # the new project/section IDs
+        api = self.api()
+        t = api.add_task(content=task.content,
+                         description=task.description,
+                         project_id=task.project_id if project_id is None else project_id,
+                         section_id=task.section_id if section_id is None else section_id,
+                         parent_id=task.parent_id,
+                         order=task.order,
+                         labels=task.labels,
+                         priority=task.priority,
+                         due_datetime=None if task.due is None else task.due.datetime,
+                         assignee_id=None if not hasattr(task, "assignee_id") else task.assignee_id,
+                         duration=None if not hasattr(task, "duration") else task.duration,
+                         duration_unit=None if not hasattr(task, "duration_unit") else task.duration_unit)
+        return t.id
     

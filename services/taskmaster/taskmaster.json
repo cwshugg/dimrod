@@ -18,5 +18,7 @@
 
     "msghub_name": "YOUR_MSGHUB_NAME",
 
-    "taskmaster_todoist_api_key": "YOUR_TODOIST_API_KEY"
+    "taskmaster_todoist_api_key": "YOUR_TODOIST_API_KEY",
+
+    "openai_api_key": "YOUR_OPENAI_API_KEY"
 }

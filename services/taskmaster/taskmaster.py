@@ -37,7 +37,8 @@ class TaskmasterConfig(ServiceConfig):
         super().__init__()
         self.fields += [
             ConfigField("taskmaster_todoist_api_key",   [str], required=True),
-            ConfigField("taskmaster_refresh_rate",      [int], required=False,  default=28800)
+            ConfigField("taskmaster_refresh_rate",      [int], required=False,  default=5400),
+            ConfigField("openai_api_key",               [str], required=True)
         ]
 
 

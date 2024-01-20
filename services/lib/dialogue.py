@@ -457,15 +457,19 @@ class DialogueInterface:
     # then a new one will be created and returned.
     # Returns the resulting converstaion, which includes DImROD's response.
     # This may throw an exception if contacting OpenAI failed somehow.
-    def talk(self, prompt: str, conversation=None, author=None):
+    # If 'intro' is specified, it is interpreted as a string and used as a
+    # drop-in replacement for the default "system" message used by OpenAI to
+    # set the initial conditions for the LLM.
+    def talk(self, prompt: str, conversation=None, author=None, intro=None):
         # set up the conversation to use
         c = conversation
         if c is None:
             c = DialogueConversation()
             a = DialogueAuthor("system", DialogueAuthorType.UNKNOWN)
             self.save_author(a)
-            # set up the intro prompt and build a message
-            intro = self.conf.openai_chat_behavior.replace("INSERT_MOOD", self.mood.description)
+            # set up the intro prompt and build a message (unless one is given)
+            if intro is None:
+                intro = self.conf.openai_chat_behavior.replace("INSERT_MOOD", self.mood.description)
             m = DialogueMessage(a, intro)
             c.add(m)
 
