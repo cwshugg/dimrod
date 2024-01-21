@@ -37,8 +37,8 @@ class TaskmasterConfig(ServiceConfig):
         super().__init__()
         self.fields += [
             ConfigField("taskmaster_todoist_api_key",   [str], required=True),
-            ConfigField("taskmaster_refresh_rate",      [int], required=False,  default=5400),
-            ConfigField("openai_api_key",               [str], required=True)
+            ConfigField("openai_api_key",               [str], required=True),
+            ConfigField("taskmaster_refresh_rate",      [int], required=False, default=300)
         ]
 
 
@@ -96,27 +96,57 @@ class TaskmasterService(Service):
                                 taskjobs_len))
                 taskjobs_len = taskjobs_len_new
 
-            # for each task job, initialize a class object and call it's update
-            # function
+            # for each task job, initialize a class object and determine if
+            # it's time to update
+            closest_update_time_seconds = None
             for name in taskjobs:
                 tj = taskjobs[name]
                 try:
                     j = tj(self)
-                    is_success = j.update(todoist)
 
-                    # if the task succeeded in updating Todoist, save a record of
-                    # the datetime for the task to reference later, if needed
-                    if is_success:
+                    # compute the amount of time, from now, that this taskjob
+                    # needs to update
+                    now = datetime.now()
+                    seconds_until_update = j.get_next_update_datetime_relative(now)
+
+                    # if the number of seconds until the update is zero or
+                    # less, call the update function
+                    if seconds_until_update < 1:
+                        is_success = j.update(todoist)
+                        j.set_last_update_datetime(now)
+
+                        # if the task succeeded in updating Todoist, save a record of
+                        # the datetime for the task to reference later, if needed
+                        if is_success:
+                            now = datetime.now()
+                            j.set_last_success_datetime(now)
+                            self.log.write("Task \"%s\" succeeded at %s." %
+                                           (j.get_name(), now.strftime("%Y-%m-%d %I:%M:%S %p")))
+
+                        # update 'now' and recalculate this taskjob's next time to update
                         now = datetime.now()
-                        j.set_last_success_datetime(now)
-                        self.log.write("Task \"%s\" succeeded at %s." %
-                                       (j.get_name(),
-                                        now.strftime("%Y-%m-%d %I:%M:%S %p")))
+                        seconds_until_update = j.get_next_update_datetime_relative(now)
+                    
+                    # next, determine if this amount of time is the "closest"
+                    # to now() so far. If it is, we'll use this later to have
+                    # this main thread sleep. (We want the taskmaster thread to
+                    # sleep until it's time to update another taskjob. So, we
+                    # choose the next-closest taskjob and use it's
+                    # next-update-time to determine how long to sleep)
+                    if closest_update_time_seconds is None or \
+                       seconds_until_update < closest_update_time_seconds:
+                        closest_update_time_seconds = seconds_until_update
+
                 except Exception as e:
+                    raise e
                     self.log.write("Task \"%s\" failed to execute: %s" %
                                    (j.get_name(), e))
-
-            time.sleep(self.config.taskmaster_refresh_rate)
+            
+            # find the minimum amount of time (if *no* taskjobs were updated
+            # above, default to some time)
+            if closest_update_time_seconds is None:
+                closest_update_time_seconds = self.config.taskmaster_refresh_rate
+            time.sleep(closest_update_time_seconds)
 
 # ============================== Service Oracle ============================== #
 class TaskmasterOracle(Oracle):

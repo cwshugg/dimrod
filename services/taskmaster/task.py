@@ -43,8 +43,18 @@ class TaskConfig(Config):
 class TaskJob:
     def __init__(self, service):
         self.service = service
+        self.refresh_rate = 43200
+        self.last_update_fpath = os.path.join(fdir, ".%s_last_update.pkl" %
+                                              self.__class__.__name__.lower())
         self.last_success_fpath = os.path.join(fdir, ".%s_last_success.pkl" %
                                                self.__class__.__name__.lower())
+        self.init()
+    
+    # Function that can be optionally overridden by subclasses to run
+    # initialization code before any calls to the taskjob's "update()" are
+    # made.
+    def init(self):
+        pass
 
     # Function that uses the todoist API to update any tasks.
     # Must be implemented by subclasses.
@@ -52,7 +62,7 @@ class TaskJob:
     # way. Otherwise, must return False.
     def update(self, todoist):
         return False
-    
+
     # Writes a log message specific to this TaskJob to the service' log.
     def log(self, msg: str):
         pfx = "[%s]" % self.__class__.__name__
@@ -73,6 +83,38 @@ class TaskJob:
             return None
         with open(self.last_success_fpath, "rb") as fp:
             return pickle.load(fp)
+    
+    # Saves a given timestamp to disk to reference as the last time the task
+    # job's update() function was executed (either failing or succeeding).
+    def set_last_update_datetime(self, dt: datetime):
+        with open(self.last_update_fpath, "wb") as fp:
+            pickle.dump(dt, fp)
+    
+    # Returns the last time the task job's update() function was executed
+    # (either failing or succeeding). The value is returned from disk. Returns
+    # None if no record has been saved yet.
+    def get_last_update_datetime(self):
+        if not os.path.isfile(self.last_update_fpath):
+            return None
+        with open(self.last_update_fpath, "rb") as fp:
+            return pickle.load(fp)
+    
+    # Uses the stored "last update datetime" to calculate the next time this
+    # taskjob should be updated. If there is no saved timestamp, then
+    # datetime.now() is returned.
+    def get_next_update_datetime(self):
+        lut = self.get_last_update_datetime()
+        if lut is None:
+            return datetime.now()
+        return datetime.fromtimestamp(lut.timestamp() + self.refresh_rate)
+    
+    # Performs the same function as "get_next_update_datetime()", but instead
+    # returns the number of seconds the next update time is from the given
+    # datetime (which, by default, is datetime.now())
+    def get_next_update_datetime_relative(self, dt=None):
+        if dt is None:
+            dt = datetime.now()
+        return self.get_next_update_datetime().timestamp() - dt.timestamp()
     
     # Returns the name of the task job.
     def get_name(self):
