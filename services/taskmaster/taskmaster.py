@@ -138,7 +138,6 @@ class TaskmasterService(Service):
                         closest_update_time_seconds = seconds_until_update
 
                 except Exception as e:
-                    raise e
                     self.log.write("Task \"%s\" failed to execute: %s" %
                                    (j.get_name(), e))
             
