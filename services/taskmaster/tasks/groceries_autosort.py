@@ -128,8 +128,9 @@ class TaskJob_Groceries_Autosort(TaskJob_Groceries):
             tname = self.get_task_dict_name(task)
             task_dict[tname] = task
 
-            # if the task is new, or it's section is different, add it to the
-            # list of dirty tasks
+            # if the task is new, or it's section is different, or it is
+            # currently not in any of the sections, add it to the list of dirty
+            # tasks
             old_sname = self.gsr.get(tname)
             new_sname = None
             if task.section_id in section_id_dict:
