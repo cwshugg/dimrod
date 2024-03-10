@@ -58,7 +58,7 @@ class GrocerySortRecord:
 # The main taskjob class.
 class TaskJob_Groceries_Autosort(TaskJob_Groceries):
     def init(self):
-        self.refresh_rate = 300
+        self.refresh_rate = 120
         self.gsr = GrocerySortRecord()
         self.gsr.load()
 
@@ -99,6 +99,7 @@ class TaskJob_Groceries_Autosort(TaskJob_Groceries):
         return section.strip().lower()
     
     def update(self, todoist):
+
         # this task doesn't add any new grocery tasks to the grocery project.
         # Instead, it examines the list and sorts them by category (where each
         # section is a grocery category)
@@ -137,6 +138,7 @@ class TaskJob_Groceries_Autosort(TaskJob_Groceries):
                 new_sname = self.get_section_dict_name(section_id_dict[task.section_id])
             if old_sname is None or new_sname != old_sname:
                 dirty_tasks.append(task)
+                self.log("Grocery item \"%s\" is dirty." % task.content)
 
         # iterate through the task list. Look for any tasks that no longer
         # exist but are still stored in the GSR. Remove them from the GSR and
