@@ -15,7 +15,7 @@ from tasks.base import *
 import lib.dtu as dtu
 
 class TaskJob_Finance_CC_Payment(TaskJob_Finance):
-    def update(self, todoist):
+    def update(self, todoist, gcal):
         proj = self.get_project(todoist)
         sect = self.get_section_by_name(todoist, proj.id, "Bills")
 

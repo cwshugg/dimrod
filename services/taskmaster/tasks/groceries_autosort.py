@@ -98,8 +98,7 @@ class TaskJob_Groceries_Autosort(TaskJob_Groceries):
             section = section.name
         return section.strip().lower()
     
-    def update(self, todoist):
-
+    def update(self, todoist, gcal):
         # this task doesn't add any new grocery tasks to the grocery project.
         # Instead, it examines the list and sorts them by category (where each
         # section is a grocery category)

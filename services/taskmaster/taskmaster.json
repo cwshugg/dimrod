@@ -20,5 +20,10 @@
 
     "taskmaster_todoist_api_key": "YOUR_TODOIST_API_KEY",
 
+    "google_calendar":
+    {
+        "service_account_credentials_path": "/path/to/google/cloud/service_account_creds.json",
+    },
+
     "openai_api_key": "YOUR_OPENAI_API_KEY"
 }

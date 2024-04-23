@@ -56,11 +56,11 @@ class TaskJob:
     def init(self):
         pass
 
-    # Function that uses the todoist API to update any tasks.
-    # Must be implemented by subclasses.
-    # Must return True if the update succeeded and Todoist was updated in some
-    # way. Otherwise, must return False.
-    def update(self, todoist):
+    # Function that uses the provided API objects to update any tasks, events,
+    # etc. This must be implemented by subclasses.
+    # Must return True if the update succeeded some sort of update was made.
+    # Otherwise, must return False.
+    def update(self, todoist, gcal):
         return False
 
     # Writes a log message specific to this TaskJob to the service' log.

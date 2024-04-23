@@ -17,7 +17,7 @@ import lib.dtu as dtu
 
 # Base class for automotive-based tasks.
 class TaskJob_Automotive(TaskJob):
-    def update(self, todoist):
+    def update(self, todoist, gcal):
         super().update(todoist)
         return False
 
@@ -26,7 +26,7 @@ class TaskJob_Automotive(TaskJob):
 
 # Base class for medical-based tasks.
 class TaskJob_Medical(TaskJob):
-    def update(self, todoist):
+    def update(self, todoist, gcal):
         super().update(todoist)
         return False
 
@@ -39,7 +39,7 @@ class TaskJob_Medical(TaskJob):
 
 # Base class for finance-based tasks.
 class TaskJob_Finance(TaskJob):
-    def update(self, todoist):
+    def update(self, todoist, gcal):
         super().update(todoist)
         return False
 
@@ -52,7 +52,7 @@ class TaskJob_Finance(TaskJob):
 
 # Base class for house chores and maintenance.
 class TaskJob_Household(TaskJob):
-    def update(self, todoist):
+    def update(self, todoist, gcal):
         super().update(todoist)
         return False
 
@@ -65,7 +65,7 @@ class TaskJob_Household(TaskJob):
 
 # Base class for the grocery list.
 class TaskJob_Groceries(TaskJob):
-    def update(self, todoist):
+    def update(self, todoist, gcal):
         super().update(todoist)
         return False
 

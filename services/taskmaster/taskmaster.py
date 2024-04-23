@@ -24,6 +24,7 @@ from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
 from lib.cli import ServiceCLI
 from lib.todoist import Todoist
+from google.google_calendar import GoogleCalendar, GoogleCalendarConfig
 
 # Service imports
 from task import TaskJob
@@ -38,6 +39,7 @@ class TaskmasterConfig(ServiceConfig):
         self.fields += [
             ConfigField("taskmaster_todoist_api_key",   [str], required=True),
             ConfigField("openai_api_key",               [str], required=True),
+            ConfigField("google_calendar",              [GoogleCalendarConfig], required=True),
             ConfigField("taskmaster_refresh_rate",      [int], required=False, default=300)
         ]
 
@@ -82,6 +84,9 @@ class TaskmasterService(Service):
 
         # retrieve a Todoist API instance
         todoist = Todoist(self.config.taskmaster_todoist_api_key)
+
+        # retireve a GoogleCalendar API instance
+        gcal = GoogleCalendar(self.config.google_calendar)
        
         taskjobs_len = 0
         while True:
@@ -112,7 +117,7 @@ class TaskmasterService(Service):
                     # if the number of seconds until the update is zero or
                     # less, call the update function
                     if seconds_until_update < 1:
-                        is_success = j.update(todoist)
+                        is_success = j.update(todoist, gcal)
                         j.set_last_update_datetime(now)
 
                         # if the task succeeded in updating Todoist, save a record of
