@@ -60,12 +60,10 @@ echo -e "${C_ACC1}Installing Todoist Python SDK...${C_NONE}"
 python3 -m pip install todoist-api-python
 echo ""
 
-echo -e "${C_ACC1}Installing selenium...${C_NONE}"
-python3 -m pip install selenium
-echo ""
-
-echo -e "${C_ACC1}Installing firefox...${C_NONE}"
-sudo apt-get install firefox
+echo -e "${C_ACC1}Installing Google API/Auth libraries...${C_NONE}"
+python3 -m pip install google-api-python-client
+python3 -m pip install google-auth-httplib2
+python3 -m pip install google-auth-oauthlib
 echo ""
 
 # nmap
