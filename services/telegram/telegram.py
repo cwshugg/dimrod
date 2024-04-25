@@ -35,6 +35,7 @@ from commands.weather import command_weather
 from commands.event import command_event
 from commands.remind import command_remind
 from commands.mode import command_mode
+from commands.calendar import command_calendar
 from commands.s_reset import command_s_reset
 
 
@@ -106,6 +107,9 @@ class TelegramService(Service):
             TelegramCommand(["mode", "modes", "moder"],
                             "Retrieves and sets the current house mode.",
                             command_mode),
+            TelegramCommand(["calendar", "cal"],
+                            "Interacts with Google Calendar.",
+                            command_calendar),
             TelegramCommand(["_reset"],
                             "Resets the current chat conversation.",
                             command_s_reset,
