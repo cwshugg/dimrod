@@ -8,7 +8,7 @@ import os
 import sys
 from datetime import datetime
 import pytz
-from google.google_auth import GoogleCredentials
+from lib.google.google_auth import GoogleCredentials
 from googleapiclient.discovery import build
 
 # Enable imports from the grandparent directory
@@ -24,8 +24,8 @@ class GoogleCalendarConfig(Config):
     def __init__(self):
         super().__init__()
         self.fields = [
-            lib.config.ConfigField("service_account_credentials_path",  [str],  required=True),
-            lib.config.ConfigField("service_account_scopes",            [list], required=False, default=["https://www.googleapis.com/auth/calendar"]),
+            ConfigField("service_account_credentials_path", [str],  required=True),
+            ConfigField("service_account_scopes",           [list], required=False, default=["https://www.googleapis.com/auth/calendar"]),
         ]
 
 # The main Google Calendar API object.

@@ -24,7 +24,7 @@ from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
 from lib.cli import ServiceCLI
 from lib.todoist import Todoist
-from google.google_calendar import GoogleCalendar, GoogleCalendarConfig
+from lib.google.google_calendar import GoogleCalendar, GoogleCalendarConfig
 
 # Service imports
 from task import TaskJob
