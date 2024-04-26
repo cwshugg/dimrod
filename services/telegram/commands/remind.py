@@ -86,10 +86,6 @@ def parse_datetime(args: list):
         dt = adjust_dt(dt, offset)
     return dt
 
-# Parses a reminder message from the user's arguments.
-def parse_message(args: list):
-    return " ".join(args)
-
 
 # =================================== Main =================================== #
 def command_remind(service, message, args: list):
@@ -107,13 +103,22 @@ def command_remind(service, message, args: list):
     if first_dot >= 0 and len(all_args) >= first_dot + 1:
         pieces = [all_args[:first_dot], all_args[first_dot + 1:]]
     dt_args = pieces[0].split()
-    msg_args = [] if len(pieces) < 2 else ". ".join(pieces[1:]).split()
+    
+    # depending on what we found above, set the args to empty, or extract the
+    # text appearing after the first "." in the *original* message (*not* the
+    # args). Why? So we can preserve newlines and other whitespace elements
+    # that were chopped up when the args were formed.
+    msg = None
+    if len(pieces) >= 2:
+        reminder_text_begin = message.text.index(".")
+        reminder_text = message.text[reminder_text_begin + 1:].strip()
+        msg = reminder_text
 
     # if the message is in reply to another, we'll use the original message's
     # text as this reminder's message
     is_reply = message.reply_to_message is not None
     if is_reply:
-        msg_args = [message.reply_to_message.text]
+        msg = message.reply_to_message.text
 
     # if we're missing either group of args, send back an error
     if len(dt_args) == 0:
@@ -121,7 +126,7 @@ def command_remind(service, message, args: list):
               "<i>before</i> the period in your message."
         service.send_message(message.chat.id, msg, parse_mode="HTML")
         return
-    if len(msg_args) == 0:
+    if msg is None:
         msg = "You need to specify a message <i>after</i> the period in " \
               "your message."
         service.send_message(message.chat.id, msg, parse_mode="HTML")
@@ -129,7 +134,6 @@ def command_remind(service, message, args: list):
 
     # parse the arguments as a reminder
     dt = parse_datetime(dt_args)
-    msg = parse_message(msg_args)
 
     # create a HTTP session with notif
     session = OracleSession(service.config.notif_address,
