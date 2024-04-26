@@ -1,6 +1,7 @@
 # This module implements a number of helpful datetime-related functions.
 
 # Imports
+import re
 from datetime import datetime, timedelta
 from enum import Enum
 

@@ -13,21 +13,21 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.oracle import OracleSession
-from lib.dtu import *
+import lib.dtu as dtu
 
 
 # ================================= Helpers ================================== #
 # Returns a weekday number based on the given text. Returns None if the string
 # isn't recognized.
-def parse_weekday(text: str):
+def p_weekday(text: str):
     result = dtu.parse_weekday(text)
     if result is None:
         return None
-    return result + 1
+    return result.value + 1
 
 # Converts Python's monday-first weekday encoding to my sunday-first encoding.
 def get_weekday(dt: datetime):
-    return dtu.get_weekday(dt) + 1
+    return dtu.get_weekday(dt).value + 1
 
 # Parses the datetime from the user's arguments.
 def parse_datetime(args: list):
@@ -55,7 +55,7 @@ def parse_datetime(args: list):
                           hour=0, minute=0, second=0, microsecond=0)
 
         # look for mention of a weekday
-        wd = parse_weekday(arg)
+        wd = p_weekday(arg)
         if wd is not None:
             # increase the current datetime until it lines up with the specified
             # weekday
