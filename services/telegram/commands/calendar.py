@@ -12,18 +12,12 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 # Local imports
+import lib.dtu as dtu
 from lib.oracle import OracleSession
-from lib.dtu import *
 from lib.google.google_calendar import GoogleCalendar, GoogleCalendarConfig
 
 
 # ================================= Helpers ================================== #
-# Parses the calendar event's starting & ending datetimes from the user's
-# arguments.
-def parse_datetimes(args: list):
-    # TODO
-    return None
-
 # Parses the calendar event's title from the user's arguments.
 def parse_title(args: list):
     # TODO
@@ -58,6 +52,44 @@ def command_calendar(service, message, args: list):
         subcommand_list_events(service, message, args, dt_start, dt_end)
         return
 
-    # TODO - look for syntax for a date and event title/description
-    subcommand_create_event(service, message, args)
+    # join all the arguments together, then split them by periods
+    all_args = " ".join(args[1:])
+    psplits = all_args.split(".")
+
+    # iterate the arguments and grab what information was provided
+    event_start = None
+    event_end = None
+    event_title = None
+    event_description = None
+    for arg in psplits:
+        arg = arg.strip()
+        
+        # attempt to parse datetimes
+        dt = dtu.parse_datetime(arg.split())
+        if dt is not None:
+            # set the event start and end depending on what already exists
+            if event_start is None:
+                event_start = dt
+            elif event_end is None:
+                event_end = dt
+            continue
+
+        # if parsing that fails, interpret the first string as the title
+        if event_title is None:
+            event_title = arg
+        elif event_description is None:
+            event_description = arg
+        continue
+    
+    # make sure at least a starting time was specified
+    # TODO
+
+    # create the event
+    # TODO
+
+    msg =  "Event Start: %s\n" % event_start
+    msg += "Event End:   %s\n" % event_end
+    msg += "Event Title: %s\n" % event_title
+    msg += "Event Desc:  %s\n" % event_description
+    service.send_message(message.chat.id, msg, parse_mode="HTML")
 

@@ -113,6 +113,10 @@ def get_last_day_of_month(dt):
 def set_time_end_of_day(dt):
     return dt.replace(hour=23, minute=59, second=59, microsecond=0)
 
+# Adds 'mult' number of seconds to the given datetime.
+def add_seconds(dt, mult=1):
+    return dt.fromtimestamp(dt.timestamp() + mult)
+
 # Adds 'mult' numbers of minutes to the given datetime.
 def add_minutes(dt, mult=1):
     return dt.fromtimestamp(dt.timestamp() + (mult * 60))
@@ -246,4 +250,74 @@ def parse_time_clock(text: str):
         return (hour, minute)
     except Exception as e:
         return None
+
+# Parses a single datetime from a variety of formats. Returns a datetime
+# object, or None, depending on what was found in the given string arguments.
+def parse_datetime(args: list):
+    # Returns a weekday number based on the given text. Returns None if the
+    # string isn't recognized.
+    def p_weekday(text: str):
+        result = parse_weekday(text)
+        return None if result is None else result.value + 1
+    
+    # Converts Python's monday-first weekday encoding to my sunday-first
+    # encoding.
+    def g_weekday(dt: datetime):
+        return get_weekday(dt).value + 1
+
+    # iterate through the arguments, one at a time, searching for date and time
+    # specifications
+    now = datetime.now()
+    dt = None
+    for arg in args:
+        # look for a YYYY-MM-DD date stamp
+        datestamp = parse_yyyymmdd(arg)
+        if datestamp is not None:
+            # fill out the starting and ending datetimes with these, depending
+            # on the order received
+            dt = datetime(datestamp[0], datestamp[1], datestamp[2],
+                          hour=0, minute=0, second=0, microsecond=0)
+            continue
+
+        # look for mention of a weekday
+        wd = p_weekday(arg)
+        if wd is not None:
+            # increase the current datetime until it lines up with the
+            # specified weekday
+            dt = add_days(now, 1)
+            while g_weekday(dt) != wd:
+                dt = add_days(dt, 1)
+            continue
+        
+        # look for AM/PM suffixed timestamps
+        clocktime = parse_time_clock(arg)
+        if clocktime is not None:
+            h = clocktime[0]
+            m = clocktime[1]
+            
+            # if `dt` has not yet been set, use the current datetime
+            if dt is None:
+                dt = now
+
+            # compute an offset based on the hour and minute (jump to the next
+            # day if 'dt' is still set to the current day and the hour/minute
+            # have already passed today)
+            offset = 0.0
+            if dt.hour > h and same_day:
+                offset += 86400
+            offset += (h - dt.hour) * 3600
+            offset += (m - dt.minute) * 60
+            dt = add_seconds(dt, offset)
+            dt = adjust_dt(dt, offset)
+            continue
+
+        # look for suffixed time offsets ("1d", "2h", "3m", etc.)
+        offset = parse_time_offset(arg)
+        if offset is not None:
+            # set `dt` to the current time if it hasn't been set yet
+            if dt is None:
+                dt = now
+            dt = add_seconds(dt, offset)
+            continue
+    return dt
 
