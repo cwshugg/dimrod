@@ -161,6 +161,17 @@ def has_same_month(dt1, dt2):
 def has_same_day(dt1, dt2):
     return dt1.day == dt2.day
 
+# Returns True if the two datetimes are on the same calendar month.
+def has_same_exact_day(dt1, dt2):
+    return has_same_year(dt1, dt2) and \
+           has_same_month(dt1, dt2)
+
+# Returns True if the two datetimes are on the same calendar day.
+def has_same_exact_day(dt1, dt2):
+    return has_same_year(dt1, dt2) and \
+           has_same_month(dt1, dt2) and \
+           has_same_day(dt1, dt2)
+
 # Returns True if the two datetimes share the same year AND month.
 def has_same_year_month(dt1, dt2):
     return dt1.year == dt2.year and \
@@ -175,17 +186,15 @@ def has_same_year_month_day(dt1, dt2):
 # Parses a YYYY-MM-DD string and returns the year, month, and day, in an array
 # of three integers [year, month, day]. Returns None if parsing failed.
 def parse_yyyymmdd(text: str):
-    result = None
-    
     # attempt parsing with multiple delimeters
     delimeters = ["-", "/", "."]
     for delim in delimeters:
         try:
             d = datetime.strptime(text, "%Y" + delim + "%m" + delim + "%d")
-            result = [d.year, d.month, d.day]
+            return [d.year, d.month, d.day]
         except:
             pass
-    return result
+    return None
 
 # Returns a weekday enum value on the given text. Returns None if the string
 # isn't recognized.
@@ -218,9 +227,11 @@ def parse_time_offset(text: str):
         if not text.endswith(suffix):
             continue
         # parse digits from the string and return the offset
-        multiplier = float(re.findall("\d+", text)[0])
-        return multiplier * suffixes[suffix]
-    return 0.0
+        re_result = re.findall("\d+", text)
+        if len(re_result) > 0:
+            multiplier = float(re_result[0])
+            return multiplier * suffixes[suffix]
+    return None
 
 # Attempts to parse timestamps such as "9pm" or "10:30am".
 # Returns an (hour, minute) tuple.
@@ -253,7 +264,12 @@ def parse_time_clock(text: str):
 
 # Parses a single datetime from a variety of formats. Returns a datetime
 # object, or None, depending on what was found in the given string arguments.
-def parse_datetime(args: list):
+#
+# If `now` is provided (a datetime object), the parsed datetime will use `now`
+# as a reference point from which to jump. (By default, `now` becomes
+# `datetime.now()`.) For example, if the args `["1h" "20m"]` were provided, the
+# resulting datetime object would be one hour and twenty minutes after `now`.
+def parse_datetime(args: list, now=None):
     # Returns a weekday number based on the given text. Returns None if the
     # string isn't recognized.
     def p_weekday(text: str):
@@ -264,10 +280,13 @@ def parse_datetime(args: list):
     # encoding.
     def g_weekday(dt: datetime):
         return get_weekday(dt).value + 1
+    
+    # if `now` was not specified, default to the current datetime
+    if now is None:
+        now = datetime.now()
 
     # iterate through the arguments, one at a time, searching for date and time
     # specifications
-    now = datetime.now()
     dt = None
     for arg in args:
         # look for a YYYY-MM-DD date stamp
@@ -303,7 +322,7 @@ def parse_datetime(args: list):
             # day if 'dt' is still set to the current day and the hour/minute
             # have already passed today)
             offset = 0.0
-            if dt.hour > h and has_same_day(dt, now):
+            if dt.hour > h and has_same_exact_day(dt, now):
                 offset += 86400
             offset += (h - dt.hour) * 3600
             offset += (m - dt.minute) * 60

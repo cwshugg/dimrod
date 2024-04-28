@@ -41,9 +41,11 @@ class GoogleCalendar:
         c = self.creds.authenticate()
         self.service = build("calendar", "v3", credentials=c)
     
+    # ------------------------------- Helpers -------------------------------- #
     # Takes in a datetime (or gets the current time) and returns it as a
     # Google-API-friendly UTC time string.
-    def make_calendar_time(self, dt=None, time_zone=None):
+    @staticmethod
+    def make_calendar_time(dt=None, time_zone=None):
         # if no datetime was given, use the current time
         if dt is None:
             dt = datetime.now(timezone.utc).astimezone()
@@ -59,6 +61,37 @@ class GoogleCalendar:
         
         # convert to ISO format and return
         return dt.isoformat() + suffix
+    
+    # Extracts the given Google Calendar event object's starting datetime,
+    # converts it based on the timezone and ISO formatted string into a
+    # datetime object, and returns it.
+    @staticmethod
+    def get_event_start(event):
+        info = event["start"]
+        dt = datetime.fromisoformat(info["dateTime"])
+        dt = dt.replace(tzinfo=pytz.timezone(info["timeZone"]))
+        return dt
+    
+    # Does the same as `get_event_start()`, but returns the given event's
+    # *ending* datetime object.
+    @staticmethod
+    def get_event_end(event):
+        info = event["end"]
+        dt = datetime.fromisoformat(info["dateTime"])
+        dt = dt.replace(tzinfo=pytz.timezone(info["timeZone"]))
+        return dt
+    
+    # Returns a calendar event's title as a string.
+    @staticmethod
+    def get_event_title(event):
+        return event["summary"]
+    
+    # Returns a calendar event's description as a string. None if returned if
+    # it has no description.
+    @staticmethod
+    def get_event_description(event):
+        key = "description"
+        return None if key not in event else event[key]
     
     # --------------------------- Event Retrieval ---------------------------- #
     # Generic event-retrieving function.

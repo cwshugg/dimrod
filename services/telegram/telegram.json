@@ -57,5 +57,12 @@
     "speaker_address": "0.0.0.0",
     "speaker_port": 2357,
     "speaker_auth_username": "ABC",
-    "speaker_auth_password": "XYZ"
+    "speaker_auth_password": "XYZ",
+
+    "google_calendar_config":
+    {
+        "service_account_credentials_path": "/path/to/google/cloud/service_account_creds.json"
+    },
+    "google_calendar_id": "your_google_calendar_id",
+    "google_calendar_timezone": "America/New_York"
 }

@@ -23,6 +23,7 @@ from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle, OracleSession
 from lib.cli import ServiceCLI
+from lib.google.google_calendar import GoogleCalendarConfig
 
 # Service imports
 from telegram_objects import TelegramChat, TelegramUser
@@ -68,7 +69,10 @@ class TelegramConfig(ServiceConfig):
             ConfigField("speaker_address",          [str],      required=True),
             ConfigField("speaker_port",             [int],      required=True),
             ConfigField("speaker_auth_username",    [str],      required=True),
-            ConfigField("speaker_auth_password",    [str],      required=True)
+            ConfigField("speaker_auth_password",    [str],      required=True),
+            ConfigField("google_calendar_config",   [GoogleCalendarConfig], required=True),
+            ConfigField("google_calendar_id",       [str],      required=True),
+            ConfigField("google_calendar_timezone", [str],      required=False, default="America/New_York")
         ]
 
 
