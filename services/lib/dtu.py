@@ -303,12 +303,11 @@ def parse_datetime(args: list):
             # day if 'dt' is still set to the current day and the hour/minute
             # have already passed today)
             offset = 0.0
-            if dt.hour > h and same_day:
+            if dt.hour > h and has_same_day(dt, now):
                 offset += 86400
             offset += (h - dt.hour) * 3600
             offset += (m - dt.minute) * 60
             dt = add_seconds(dt, offset)
-            dt = adjust_dt(dt, offset)
             continue
 
         # look for suffixed time offsets ("1d", "2h", "3m", etc.)
