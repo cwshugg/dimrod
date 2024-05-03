@@ -68,6 +68,11 @@ def is_evening(dt):
 def is_night(dt):
     return dt.hour >= 21 or dt.hour < 6
 
+# Returns True if the given time is exactly at midnight (hour 0, minute 0,
+# second 0).
+def is_exact_midnight(dt):
+    return dt.hour == 0 and dt.minute == 0 and dt.second == 0
+
 # Returns True if the time is between 9am and 5pm.
 def is_workhours(dt):
     return dt.hour >= 9 and dt.hour < 17
@@ -132,6 +137,10 @@ def add_days(dt, mult=1):
 # Adds 'mult' numbers of weeks to the given datetime.
 def add_weeks(dt, mult=1):
     return dt.fromtimestamp(dt.timestamp() + (mult * 604800))
+
+# Returns the difference between the two datetimes in seconds.
+def diff_in_seconds(dt1, dt2):
+    return dt1.timestamp() - dt2.timestamp()
 
 # Returns the difference between the two datetimes in minutes.
 def diff_in_minutes(dt1, dt2):

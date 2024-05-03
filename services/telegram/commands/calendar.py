@@ -54,17 +54,49 @@ def subcommand_list_events(service, message, args: list,
         event_start = GoogleCalendar.get_event_start(event)
         event_end = GoogleCalendar.get_event_end(event)
 
+        # is the event starting/ending today or tomorrow?
+        now = datetime.now()
+        tomorrow = dtu.add_days(now, 1)
+        event_starts_today = dtu.has_same_exact_day(event_start, now)
+        event_starts_tomorrow = dtu.has_same_exact_day(event_start, tomorrow)
+        event_ends_tomorrow = dtu.has_same_exact_day(event_end, tomorrow)
+        
+        # is the event all day?
+        event_is_all_day = dtu.diff_in_hours(event_end, event_start) == 24 and \
+                           dtu.is_exact_midnight(event_start)
+
+        # select a string to specify the day the event starts
+        day_str_start = None
+        if event_starts_today:
+            day_str_start = "Today"
+        elif event_starts_tomorrow:
+            day_str_start = "Tomorrow"
+        else:
+            day_str_start = event_start.strftime("%A, %b %d")
+
+        # do the same for the day the event ends
+        day_str_end = None
+        if event_ends_tomorrow:
+            day_str_end = "Tomorrow"
+        else:
+            day_str_end = event_end.strftime("%A, %b %d")
+
         # form a "when" formatted datetime message
         when = ""
         if dtu.has_same_exact_day(event_start, event_end):
             when = "%s, from %s to %s" % \
-                   (event_start.strftime("%A, %b %d"),
-                    event_start.strftime("%I:%M %p"),
-                    event_end.strftime("%I:%M %p"))
+                   (day_str_start,
+                   event_start.strftime("%I:%M %p"),
+                   event_end.strftime("%I:%M %p"))
         else:
-            when = "%s to %s" % \
-                   (event_start.strftime("%A, %Y-%m-%d at %I:%M %p"),
-                   event_end.strftime("%A, %Y-%m-%d at %I:%M %p"))
+            if event_is_all_day:
+                when = "%s, all day" % day_str_start
+            else:
+                when = "%s at %s to %s at %s" % \
+                       (day_str_start,
+                        event_start.strftime("%I:%M %p"),
+                        day_str_end,
+                        event_end.strftime("%I:%M %p"))
 
         # form the full message
         msg += "<b>%s</b>\n" \
@@ -74,7 +106,6 @@ def subcommand_list_events(service, message, args: list,
         if desc is not None:
             msg += "• <u>Description</u>: %s\n" % desc
         msg += "\n"
-        print(event)
 
     service.send_message(message.chat.id, msg, parse_mode="HTML")
 
@@ -149,17 +180,23 @@ def command_calendar(service, message, args: list):
         service.send_message(message.chat.id, msg, parse_mode="HTML")
         return
 
-    # if an ending time wasn't specified, default it to ending one hour after
-    # the starting time
-    if event_end is None:
-        event_end = dtu.add_hours(event_start, 1)
-
     # if an event title wasn't specified, then only dates must have been
     # specified. What we'll do in this case is list all events occurring
     # between the starting and ending time
     if event_title is None:
+        # if an ending time wasn't specified, default to 24 hours after the
+        # starting time. This'll let the user see all the events coming up over
+        # the next 24 hours after the start time
+        if event_end is None:
+            event_end = dtu.add_days(event_start, 1)
         subcommand_list_events(service, message, args, event_start, event_end)
         return
+
+    # if an ending time wasn't specified, default it to ending one hour after
+    # the starting time. This way, calendar events that are created will
+    # default to being 1 hour in length.
+    if event_end is None:
+        event_end = dtu.add_hours(event_start, 1)
 
     # create the event
     subcommand_create_event(service, message, args,
