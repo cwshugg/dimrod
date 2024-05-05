@@ -61,25 +61,34 @@ class GoogleCalendar:
         
         # convert to ISO format and return
         return dt.isoformat() + suffix
+
+    # Returns a datetime object from the given JSON object (either an event's
+    # "start" or "end" field). Either "date" or "dateTime" may be provided, so
+    # this function looks for both.
+    @staticmethod
+    def get_datetime_from_json(jdata):
+        dt = None
+        if "date" in jdata:
+            dt = datetime.strptime(jdata["date"], "%Y-%m-%d")
+        elif "dateTime" in jdata:
+            dt = datetime.fromisoformat(jdata["dateTime"])
+            dt = dt.replace(tzinfo=pytz.timezone(jdata["timeZone"]))
+        else:
+            assert False, "Could not find \"date\" nor \"dateTime\" in the given event JSON"
+        return dt
     
     # Extracts the given Google Calendar event object's starting datetime,
     # converts it based on the timezone and ISO formatted string into a
     # datetime object, and returns it.
     @staticmethod
     def get_event_start(event):
-        info = event["start"]
-        dt = datetime.fromisoformat(info["dateTime"])
-        dt = dt.replace(tzinfo=pytz.timezone(info["timeZone"]))
-        return dt
+        return GoogleCalendar.get_datetime_from_json(event["start"])
     
     # Does the same as `get_event_start()`, but returns the given event's
     # *ending* datetime object.
     @staticmethod
     def get_event_end(event):
-        info = event["end"]
-        dt = datetime.fromisoformat(info["dateTime"])
-        dt = dt.replace(tzinfo=pytz.timezone(info["timeZone"]))
-        return dt
+        return GoogleCalendar.get_datetime_from_json(event["end"])
     
     # Returns a calendar event's title as a string.
     @staticmethod
