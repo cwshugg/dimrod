@@ -18,7 +18,7 @@ import lib.dtu as dtu
 # Base class for automotive-based tasks.
 class TaskJob_Automotive(TaskJob):
     def update(self, todoist, gcal):
-        super().update(todoist)
+        super().update(todoist, gcal)
         return False
 
     def get_project(self, todoist):
@@ -27,7 +27,7 @@ class TaskJob_Automotive(TaskJob):
 # Base class for medical-based tasks.
 class TaskJob_Medical(TaskJob):
     def update(self, todoist, gcal):
-        super().update(todoist)
+        super().update(todoist, gcal)
         return False
 
     def get_project(self, todoist):
@@ -40,7 +40,7 @@ class TaskJob_Medical(TaskJob):
 # Base class for finance-based tasks.
 class TaskJob_Finance(TaskJob):
     def update(self, todoist, gcal):
-        super().update(todoist)
+        super().update(todoist, gcal)
         return False
 
     def get_project(self, todoist):
@@ -53,7 +53,7 @@ class TaskJob_Finance(TaskJob):
 # Base class for house chores and maintenance.
 class TaskJob_Household(TaskJob):
     def update(self, todoist, gcal):
-        super().update(todoist)
+        super().update(todoist, gcal)
         return False
 
     def get_project(self, todoist):
@@ -66,13 +66,26 @@ class TaskJob_Household(TaskJob):
 # Base class for the grocery list.
 class TaskJob_Groceries(TaskJob):
     def update(self, todoist, gcal):
-        super().update(todoist)
+        super().update(todoist, gcal)
         return False
 
     def get_project(self, todoist):
         proj = todoist.get_project_by_name("Groceries")
         if proj is None:
             proj = todoist.add_project("Groceries", color="green")
+        self.project = proj
+        return proj
+
+# Base class for wedding-based tasks.
+class TaskJob_Wedding(TaskJob):
+    def update(self, todoist, gcal):
+        super().update(todoist, gcal)
+        return False
+
+    def get_project(self, todoist):
+        proj = todoist.get_project_by_name("Wedding")
+        if proj is None:
+            proj = todoist.add_project("Wedding", color="lavender")
         self.project = proj
         return proj
 

@@ -14,7 +14,8 @@ if pdir not in sys.path:
 from task import TaskConfig
 from tasks.base import *
 import lib.dtu as dtu
-from lib.dialogue import DialogueConfig, DialogueInterface, DialogueAuthor, DialogueAuthorType
+from lib.dialogue.dialogue import DialogueConfig, DialogueInterface, \
+                                  DialogueAuthor, DialogueAuthorType
 
 # Helper class used to keep an on-disk record of the current grocery items and
 # the categories they've been assigned.
