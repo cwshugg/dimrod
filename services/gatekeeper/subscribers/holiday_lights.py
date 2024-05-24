@@ -8,13 +8,8 @@ import sys
 import json
 import requests
 import time
-from datetime import datetime, timezone
-from dateutil import parser
+from datetime import datetime
 import pickle
-
-import geopy.geocoders
-import timezonefinder
-import pytz
 
 # Enable import from the main directory
 fdir = os.path.dirname(__file__)
@@ -24,6 +19,7 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.oracle import OracleSession
+import lib.lu as lu
 
 # Globals
 lumen_config_path = "/home/provolone/chs/services/lumen/cwshugg_lumen.json"
@@ -105,37 +101,20 @@ def main():
     # longitude and latitude, to determine what time the sun sets, and when to
     # turn the lights on and off
     now = datetime.now()
-    latitude = 35.786168069281715   # default: raleigh, nc
-    longitude = -78.68165659384003  # default: raleigh, nc
+    loc = None
     if "address" not in data:
         print("No address provided. Assuming default longitude and latitude.")
+        loc = lu.Location(latitude=35.786168069281715, longitude=-78.68165659384003)
     else:
-        addr = data["address"]
-        loc = geopy.geocoders.Nominatim(user_agent="dimrod").geocode(addr)
-        latitude = loc.latitude
-        longitude = loc.longitude
-    print("Longitude:   %s" % longitude)
-    print("Latitude:    %s" % latitude)
+        loc = lu.Location(data["address"])
     
     # make an API request to retrieve the sunrise/sunset times for today
     sunrise = now.replace(hour=6, minute=0, second=0)
     sunset = now.replace(hour=18, minute=0, second=0)
     try:
-        r = requests.get("https://api.sunrise-sunset.org/json",
-                         params={"lat": latitude, "lng": longitude})
-        jdata = r.json()["results"]
-
-        # use the latitude and longitude to determine the timezone to convert to
-        tzname = timezonefinder.TimezoneFinder().timezone_at(lng=longitude, lat=latitude)
-        tz = pytz.timezone(tzname)
-        print("Timezone:    %s" % tz)
-
-        # parse sunrise and sunset
-        sunrise = parser.parse("%s %s" % (now.strftime("%Y-%m-%d"), jdata["sunrise"]))
-        sunrise = sunrise.replace(tzinfo=timezone.utc).astimezone(tz)
-        sunset = parser.parse("%s %s" % (now.strftime("%Y-%m-%d"), jdata["sunset"]))
-        sunset = sunset.replace(tzinfo=timezone.utc).astimezone(tz)
+        [sunrise, sunset] = lu.get_sunrise_sunset(loc=loc, dt=now)
     except Exception as e:
+        raise e
         print("Failed to retireve sunrise/sunset times: %s" % e)
 
     print("Sunrise:     %s" % sunrise.strftime("%H:%M:%S %p"))

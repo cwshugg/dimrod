@@ -9,7 +9,7 @@ class Mode:
         self.service = service
         self.config = self.service.config
         self.name = "base"
-        self.tick_rate = 10
+        self.tick_rate = 60
         self.priority_override = priority
     
     def __str__(self):

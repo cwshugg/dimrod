@@ -37,6 +37,7 @@ class ModerConfig(ServiceConfig):
         self.fields += [
             ConfigField("moder_mode_away_devices",          [list], required=True),
             ConfigField("moder_mode_away_device_timeout",   [int],  required=False, default=1200),
+            ConfigField("moder_mode_away_address",          [str],  required=False, default=None),
             ConfigField("moder_tick_rate",                  [int],  required=False, default=5)
         ]
 

@@ -16,6 +16,8 @@ if gpdir not in sys.path:
 
 # Imports
 from lib.oracle import OracleSession
+import lib.lu as lu
+import lib.dtu as dtu
 from mode import Mode
 
 class Mode_Away(Mode):
@@ -156,13 +158,53 @@ class Mode_Away(Mode):
     def light_cleanup(self):
         # retrieve all light groups
         groups = self.light_groups()
+        
+        # use the sunset/sunrise times to determine if the lights should be
+        # turned on or off
+        [sunrise, sunset] = self.get_sunrise_sunset()
+        sunrise_ts = sunrise.timestamp()
+        sunset_ts = sunset.timestamp()
+        now = datetime.now()
+        now_ts = now.timestamp()
+        midnight = dtu.set_time_end_of_day(now)
+        midnight_ts = midnight.timestamp()
+
+        # use the current time (and sunrise/sunset) to determine if we should
+        # turn the lights ON or OFF
+        action = "off"
+        # CASE 1: is it after sunset, but before midnight?
+        if now_ts > sunset_ts and now_ts <= midnight_ts:
+            action = "on"
+
         # turn all light groups off
         for group in groups:
-            self.log("Clean-up: turning off light group with %d lights." % len(group["lights"]))
+            self.log("Clean-up: turning %s light group with %d lights." %
+                     (action, len(group["lights"])))
             for light in group["lights"]:
-                pyld = {"id": light["id"], "action": "off"}
+                pyld = {"id": light["id"], "action": action}
                 self.ls.post("/toggle", payload=pyld)
+    
+    # Retrieves the sunrise and sunset times. If the inner API call fails,
+    # default values are used.
+    def get_sunrise_sunset(self, dt: datetime = None):
+        if dt is None:
+            dt = datetime.now()
+        sunrise = dt.replace(hour=6, minute=0, second=0)
+        sunset = dt.replace(hour=18, minute=0, second=0)
+        
+        # use the stored address as the location, if applicable
+        loc = None
+        if self.config.moder_mode_away_address is not None:
+            loc = lu.Location(address=self.config.moder_mode_away_address)
 
+        # attempt to make the API call
+        try:
+            [sunrise, sunset] = lu.get_sunrise_sunset(loc=loc, dt=dt)
+        except:
+            # if the API call fails, we'll use default values
+            pass
+
+        return [sunrise, sunset]
 
     # ---------------------------- Main Functions ---------------------------- #
     def priority(self):
@@ -202,10 +244,32 @@ class Mode_Away(Mode):
 
     def step(self):
         now = datetime.now()
+        [sunrise, sunset] = self.get_sunrise_sunset(dt=now)
+        
+        # ----------------------- Lighting Tomfoolery ------------------------ #
+        # next, we'll examine a few cases during which we'll play with the
+        # lights to make it seem like somebody's home
+        play_with_lights = False
 
-        # if the current time of day is in the evening or early morning, we'll
-        # play with the lights
-        if now.hour in range(17, 24) or now.hour in range(0, 9):
+        # grab some timestamps
+        now_ts = now.timestamp()
+        sunrise_ts = sunrise.timestamp()
+        sunset_ts = sunset.timestamp()
+        midnight = dtu.set_time_end_of_day(now)
+        midnight_ts = midnight.timestamp()
+        early_morning = now.replace(hour=5, minute=0, second=0, microsecond=0)
+        early_morning_ts = early_morning.timestamp()
+
+        # CASE 1: is the current time after sunset, but before midnight?
+        if now_ts > sunset_ts and now_ts <= midnight_ts:
+            play_with_lights = True
+        # CASE 2: is the current time in the early hours of the morning, before
+        # sunrise?
+        elif now_ts < sunrise_ts and now_ts >= early_morning_ts:
+            play_with_lights = True
+        
+        # select a lighting group at random and toggle them
+        if play_with_lights:
             groups = self.light_groups()
             group = random.choice(groups)
             self.light_toggle(group)
