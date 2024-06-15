@@ -1,5 +1,5 @@
-# This module defines information about intents to be used by an NLP library to
-# parse actions out of dialogue.
+# This module defines classes used to carry out intent-parsing-based actions
+# when processing dialogue messages.
 
 import os
 import sys
@@ -12,37 +12,40 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.config import Config, ConfigField
-from lib.service import Service, ServiceConfig
-from lib.oracle import Oracle
-from lib.cli import ServiceCLI
-from lib.dialogue import DialogueConfig, DialogueInterface, DialogueAuthor, \
-                         DialogueAuthorType, DialogueConversation, DialogueMessage
+from lib.dialogue.dialogue import DialogueConfig, DialogueInterface, \
+                                  DialogueAuthor, DialogueAuthorType, \
+                                  DialogueConversation, DialogueMessage
 
 
-# =============================== Config Class =============================== #
-class DialogueActionConfig(Config):
+# The configuration class for a speaker action. This can be extended by
+# subclasses.
+class SpeakerActionConfig(Config):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("class_name",               [str],      required=True),
-            ConfigField("confidence_threshold",     [float],    required=True)
+            ConfigField("class_name",               [str],      required=True)
         ]
 
-
-class DialogueAction(abc.ABC):
+# The main class for a speaker action.
+class SpeakerAction(abc.ABC):
     # Constructor. Takes in a config object.
-    def __init__(self, config_data: dict):
-        self.config = None # must be handled by child class
-
-    # -------------------------- Abstract Interface -------------------------- #
-    # Builds and initializes an intent parsing engine.
+    def __init__(self, config: SpeakerActionConfig):
+        self.config = config
+    
+    # Builds and initializes a DialogueIntent object. This object will be used
+    # to process intents in user messages in order to trigger this action.
+    #
+    # This must be implemented by subclasses.
     @abc.abstractmethod
-    def engine_init(self):
+    def intent_init(self):
         pass
     
-    # Takes in text and parses it for intent. If a valid intent is found by the
-    # engine with a high enough confidence, this may carry out an action.
+    # Takes in the original user message and the list of parsed intent
+    # parameters. This is the main function that should be implemented to carry
+    # out an action.
+    #
+    # This must be implemented by subclasses.
     @abc.abstractmethod
-    def engine_process(self, text: str):
-        return None
+    def run(self, msg: str, params: list):
+        pass
 

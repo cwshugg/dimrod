@@ -24,8 +24,9 @@ from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
 from lib.cli import ServiceCLI
-from lib.dialogue import DialogueConfig, DialogueInterface, DialogueAuthor, \
-                         DialogueAuthorType, DialogueConversation, DialogueMessage
+from lib.dialogue.dialogue import DialogueConfig, DialogueInterface, \
+                                  DialogueAuthor, DialogueAuthorType, \
+                                  DialogueConversation, DialogueMessage
 
 # Speaker imports
 from action import *
@@ -83,7 +84,7 @@ class SpeakerService(Service):
 
     # ------------------------------- Actions -------------------------------- #
     # Imports all available action classes and reads from the config to build
-    # and return a list of DialogueAction classes.
+    # and return a list of SpeakerAction classes.
     def actions_load(self):
         # only do this once per execution of the speaker
         if self.actions is not None:
@@ -106,7 +107,7 @@ class SpeakerService(Service):
                     for (name, cls) in inspect.getmembers(mod, inspect.isclass):
                         # ignore the base class - append everything else that's
                         # a child of the "base" class
-                        if issubclass(cls, DialogueAction):
+                        if issubclass(cls, SpeakerAction):
                             self.action_classes[name] = cls
         
         # with the classes loaded in, examine the config field and use the data
@@ -220,7 +221,10 @@ class SpeakerOracle(Oracle):
             # before passing anything to the dialogue library, try to parse the
             # text as a call to action. If successful, an array of messages will
             # be returned.
-            responses = self.service.actions_process(msg)
+            # ---------- TODO - IMPLEMENT NEW AI-BASED ACTIONS ---------- #
+            #responses = self.service.actions_process(msg)
+            responses = None
+            # ---------- TODO - IMPLEMENT NEW AI-BASED ACTIONS ---------- #
             if responses is not None:
                 # build a comprehensive response message to send back,
                 # containing all the reported response messages from the
