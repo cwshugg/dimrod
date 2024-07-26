@@ -389,7 +389,7 @@ class DialogueConfig(lib.config.Config):
         # set up fields
         self.fields = [
             lib.config.ConfigField("openai_api_key",            [str],  required=True),
-            lib.config.ConfigField("openai_chat_model",         [str],  required=False, default="gpt-3.5-turbo"),
+            lib.config.ConfigField("openai_chat_model",         [str],  required=False, default="gpt-4o-mini"),
             lib.config.ConfigField("openai_chat_behavior",      [str],  required=False, default=openai_intro),
             lib.config.ConfigField("openai_chat_moods",         [list], required=False, default=openai_moods_json),
             lib.config.ConfigField("dialogue_db",               [str],  required=False, default=default_db_path),
