@@ -63,6 +63,10 @@ def command_remind(service, message, args: list):
 
     # parse the arguments as a reminder
     dt = dtu.parse_datetime(dt_args)
+    if dt is None:
+        service.send_message(message.chat.id,
+                             "Sorry, I couldn't parse a date or time from your message.")
+        return
 
     # create a HTTP session with notif
     session = OracleSession(service.config.notif_address,
