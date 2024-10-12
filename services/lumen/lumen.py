@@ -22,6 +22,7 @@ from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
 from lib.ifttt import WebhookConfig, Webhook
 from lib.cli import ServiceCLI
+from lib.wyze import WyzeConfig, Wyze
 
 # Service imports
 from light import Light, LightConfig
@@ -34,11 +35,12 @@ class LumenConfig(ServiceConfig):
         super().__init__()
         # create lumen-specific fields to append to the existing service fields
         fields = [
-            ConfigField("lights",               [list],     required=True),
-            ConfigField("webhook_event",        [str],      required=True),
-            ConfigField("webhook_key",          [str],      required=True),
-            ConfigField("refresh_rate",         [int],      required=False,     default=60),
-            ConfigField("action_threads",       [int],      required=False,     default=4),
+            ConfigField("lights",               [list],         required=True),
+            ConfigField("webhook_event",        [str],          required=True),
+            ConfigField("webhook_key",          [str],          required=True),
+            ConfigField("wyze_config",          [WyzeConfig],   required=True),
+            ConfigField("refresh_rate",         [int],          required=False,     default=60),
+            ConfigField("action_threads",       [int],          required=False,     default=4),
         ]
         self.fields += fields
 
@@ -131,6 +133,11 @@ class LumenService(Service):
         webhook_conf.parse_file(config_path)
         self.webhooker = Webhook(webhook_conf)
 
+        # set up a Wyze API object
+        self.wyze = Wyze(self.config.wyze_config)
+        self.wyze.login()
+        self.log.write("logged into Wyze successfully.")
+
         # for each of the entries in the config's 'lights' field, we'll create a
         # new Light object
         self.lights = []
@@ -196,9 +203,11 @@ class LumenService(Service):
             jdata["brightness"] = brightness
             light.set_brightness(jdata["brightness"])
 
-        # initialize an IFTTT webhook pinger and send the request
-        light.set_power(True)
-        r = self.webhooker.send(self.config.webhook_event, jdata)
+        # choose a way to toggle the light
+        if light.match_tags("wyze"):
+            r = self.power_toggle_wyze(light, "on")
+        else:
+            r = self.power_toggle_webhook(light, "on")
         light.unlock() # release the light's lock
         return r
     
@@ -218,9 +227,10 @@ class LumenService(Service):
         light.lock()
 
         # build a JSON object and send the request
-        jdata = {"id": light.lid, "action": "off"}
-        light.set_power(False)
-        r = self.webhooker.send(self.config.webhook_event, jdata)
+        if light.match_tags("wyze"):
+            r = self.power_toggle_wyze(light, "off")
+        else:
+            r = self.power_toggle_webhook(light, "off")
         light.unlock() # release the light's lock
         return r
     
@@ -229,10 +239,50 @@ class LumenService(Service):
         a = LumenThreadQueueAction("off", lid)
         self.log.write("Queueing OFF action for %s." % lid)
         self.queue.push(a)
-
+    
     # ------------------------------- Helpers -------------------------------- #
+    # Uses IFTTT webhooks to toggle a light.
+    def power_toggle_webhook(self, light: Light, action: str):
+        action = action.strip().lower()
+        assert action in ["on", "off"]
+
+        # build a payload, update the light's current state, and send the
+        # request to IFTTT
+        jdata = {"id": light.lid, "action": action}
+        light.set_power(True if action == "on" else False)
+        return self.webhooker.send(self.config.webhook_event, jdata)
+    
+    # Uses the Wyze API to toggle a light.
+    def power_toggle_wyze(self, light: Light, action: str):
+        action = action.strip().lower()
+        assert action in ["on", "off"]
+
+        device = self.search_wyze(light.lid)
+        if device is None:
+            self.log.write("Could not find Wyze device with name \"%s\"." % light.lid)
+            return
+        
+        # currently, only wyze plugs are supported
+        if not light.match_tags("wyze-plug"):
+            self.log.write("Wyze device \"%s\" is not a Wyze plug (not supported)." % light.lid)
+            return
+       
+        power_on = True if action == "on" else False
+        self.log.write("Toggling Wyze device \"%s\" to \"%s\"." % (light.lid, action))
+        return self.wyze.toggle_plug(device.mac, power_on)
+    
+    # Searches for a Wyze device with the given ID string and returns it (or
+    # None).
+    def search_wyze(self, lid: str):
+        self.wyze.refresh()
+        devices = self.wyze.get_devices()
+        for dev in devices:
+            if dev.nickname == lid:
+                return dev
+        return None
+
     # Searches lumen's light array and returns a Light object if one with a
-    # maching light ID is found. Otherwise, None is returned.
+    # matching light ID is found. Otherwise, None is returned.
     def search(self, lid):
         for light in self.lights:
             if light.lid == lid:

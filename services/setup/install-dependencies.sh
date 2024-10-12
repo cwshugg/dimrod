@@ -66,6 +66,10 @@ python3 -m pip install google-auth-httplib2
 python3 -m pip install google-auth-oauthlib
 echo ""
 
+echo -e "${C_ACC1}Installing Wyze SDK...${C_NONE}"
+python3 -m pip install wyze-sdk
+echo ""
+
 # nmap
 echo -e "${C_ACC1}Installing nmap...${C_NONE}"
 sudo apt install nmap

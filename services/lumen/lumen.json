@@ -32,5 +32,13 @@
         }
     ],
     "webhook_event": "YOUR_IFTTT_WEBHOOK_HERE",
-    "webhook_key": "YOUR_IFTTT_KEY_HERE"
+    "webhook_key": "YOUR_IFTTT_KEY_HERE",
+
+    "wyze_config":
+    {
+        "email": "YOUR_WYZE_EMAIL",
+        "password": "YOUR_WYZE_PASSWORD",
+        "api_key_id": "YOUR_WYZE_API_KEY_ID",
+        "api_key": "YOUR_WYZE_API_KEY"
+    }
 }

@@ -10,9 +10,6 @@ pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 if pdir not in sys.path:
     sys.path.append(pdir)
 
-# Local imports
-from lib.config import Config, ConfigField
-
 # Todoist imports
 from todoist_api_python.api import TodoistAPI
 
