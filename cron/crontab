@@ -5,3 +5,22 @@
 */10  *   *   *   * /home/provolone/chs/cron/holiday-lights.sh
 */5   *   *   *   * /home/provolone/chs/cron/mode_switch.py
 */5   *   *   *   * /home/provolone/chs/cron/whos_online.py
+
+# ------------------------ Scheduled Service Restarts ------------------------ #
+# LUMEN: Monday mornings at 4:00am
+0     4   *   *   1 /home/provolone/chs/cron/restart-service.sh lumen
+# WARDEN: Wednesday afternoons at 12:30pm
+30    12  *   *   3 /home/provolone/chs/cron/restart-service.sh warden
+# TELEGRAM: Saturday mornings at 4:00am
+0     4   *   *   6 /home/provolone/chs/cron/restart-service.sh telegram
+# NOTIF: Sunday mornings at 4:00am
+0     4   *   *   0 /home/provolone/chs/cron/restart-service.sh notif
+# SPEAKER: Tuesday mornings at 4:00am
+0     4   *   *   2 /home/provolone/chs/cron/restart-service.sh speaker
+# MODER: Thursday mornings at 4:00am
+0     4   *   *   4 /home/provolone/chs/cron/restart-service.sh moder
+# TASKMASTER: Friday mornings at 4:00am
+0     4   *   *   4 /home/provolone/chs/cron/restart-service.sh taskmaster
+# GATEKEEPER: Monday mornings at 3:00am
+0     4   *   *   4 /home/provolone/chs/cron/restart-service.sh gatekeeper
+
