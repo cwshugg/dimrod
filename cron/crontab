@@ -6,6 +6,11 @@
 */5   *   *   *   * /home/provolone/chs/cron/mode_switch.py
 */5   *   *   *   * /home/provolone/chs/cron/whos_online.py
 
+# ------------------------------- LetsEncrypt -------------------------------- #
+# Renew my LetsEncrypt certificate periodically, on the 2nd day of every other
+# month at 5:10am.
+10    5   2   1,3,5,7,9,11 * /home/provolone/chs/cron/letsencrypt-renew.sh
+
 # ------------------------ Scheduled Service Restarts ------------------------ #
 # LUMEN: Monday mornings at 4:00am
 0     4   *   *   1 /home/provolone/chs/cron/restart-service.sh lumen
