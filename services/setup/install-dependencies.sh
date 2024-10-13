@@ -7,6 +7,8 @@ C_ACC1="\033[36m"
 C_GOOD="\033[32m"
 C_BAD="\033[31m"
 
+script_dir="$(dirname $(realpath "$0"))"
+
 # Find Pip
 pipout="$(python3 -m pip 2> /dev/null)"
 if [ -z "${pipout}" ]; then
@@ -68,6 +70,15 @@ echo ""
 
 echo -e "${C_ACC1}Installing Wyze SDK...${C_NONE}"
 python3 -m pip install wyze-sdk
+echo ""
+
+echo -e "${C_ACC1}Installing LIFX LAN SDK...${C_NONE}"
+lifxlan_dir="${script_dir}/lifxlan"
+git clone "https://github.com/mclarkk/lifxlan" "${lifxlan_dir}"
+pushd "${lifxlan_dir}" 2> /dev/null
+python3 -m pip install ./
+popd 2> /dev/null
+rm -rf "${lifxlan_dir}"
 echo ""
 
 # nmap

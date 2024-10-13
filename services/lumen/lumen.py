@@ -23,6 +23,7 @@ from lib.oracle import Oracle
 from lib.ifttt import WebhookConfig, Webhook
 from lib.cli import ServiceCLI
 from lib.wyze import WyzeConfig, Wyze
+from lib.lifx import LIFXConfig, LIFX
 
 # Service imports
 from light import Light, LightConfig
@@ -39,8 +40,9 @@ class LumenConfig(ServiceConfig):
             ConfigField("webhook_event",        [str],          required=True),
             ConfigField("webhook_key",          [str],          required=True),
             ConfigField("wyze_config",          [WyzeConfig],   required=True),
-            ConfigField("refresh_rate",         [int],          required=False,     default=60),
-            ConfigField("action_threads",       [int],          required=False,     default=4),
+            ConfigField("lifx_config",          [LIFXConfig],   required=False, default=None),
+            ConfigField("refresh_rate",         [int],          required=False, default=60),
+            ConfigField("action_threads",       [int],          required=False, default=4),
         ]
         self.fields += fields
 
@@ -138,6 +140,13 @@ class LumenService(Service):
         self.wyze.login()
         self.log.write("logged into Wyze successfully.")
 
+        # set up a LIFX LAN object
+        lifx_config = self.config.lifx_config
+        if lifx_config is None:
+            lifx_config = LIFXConfig()
+            lifx_config.parse_json({})
+        self.lifx = LIFX(lifx_config)
+
         # for each of the entries in the config's 'lights' field, we'll create a
         # new Light object
         self.lights = []
@@ -184,30 +193,28 @@ class LumenService(Service):
         # the same light
         light.lock()
 
-        # build JSON data to send to the remote API
-        jdata = {"id": light.lid, "action": "on"}
-
         # make sure color is supported by this light, if color was given
-        if color:
+        if color is not None:
             self.check(light.has_color, "\"%s\" does not support color" % light.lid)
             self.check(type(color) == list, "'color' must be a list of 3 RGB ints")
             self.check(len(color) == 3, "'color' must have exactly 3 ints")
-            jdata["color"] = "%d,%d,%d" % (color[0], color[1], color[2])
-            light.set_color(jdata["color"])
+            light.set_color(color)
 
         # do the same for brightness
-        if brightness != None:
+        if brightness is not None:
             self.check(light.has_brightness, "\"%s\" does not support brightness" % light.lid)
             self.check(type(brightness) == float, "'brightness' must be a float between [0.0, 1.0]")
             brightness = max(min(brightness, 1.0), 0.0)
-            jdata["brightness"] = brightness
-            light.set_brightness(jdata["brightness"])
+            light.set_brightness(brightness)
 
         # choose a way to toggle the light
+        r = None
         if light.match_tags("wyze"):
-            r = self.power_toggle_wyze(light, "on")
+            r = self.toggle_wyze(light, "on", color=color, brightness=brightness)
+        elif light.match_tags("lifx"):
+            r = self.toggle_lifx(light, "on", color=color, brightness=brightness)
         else:
-            r = self.power_toggle_webhook(light, "on")
+            r = self.toggle_webhook(light, "on", color=color, brightness=brightness)
         light.unlock() # release the light's lock
         return r
     
@@ -227,10 +234,13 @@ class LumenService(Service):
         light.lock()
 
         # build a JSON object and send the request
+        r = None
         if light.match_tags("wyze"):
-            r = self.power_toggle_wyze(light, "off")
+            r = self.toggle_wyze(light, "off")
+        elif light.match_tags("lifx"):
+            r = self.toggle_lifx(light, "off")
         else:
-            r = self.power_toggle_webhook(light, "off")
+            r = self.toggle_webhook(light, "off")
         light.unlock() # release the light's lock
         return r
     
@@ -242,18 +252,24 @@ class LumenService(Service):
     
     # ------------------------------- Helpers -------------------------------- #
     # Uses IFTTT webhooks to toggle a light.
-    def power_toggle_webhook(self, light: Light, action: str):
+    def toggle_webhook(self, light: Light, action: str, color=None, brightness=None):
         action = action.strip().lower()
         assert action in ["on", "off"]
+        
+        # build a payload to send to IFTTT
+        jdata = {"id": light.lid, "action": action}
+        if color is not None:
+            jdata["color"] = "%s,%s,%s" % (color[0], color[1], color[2])
+        if brightness is not None:
+            jdata["brightness"] = brightness
 
         # build a payload, update the light's current state, and send the
         # request to IFTTT
-        jdata = {"id": light.lid, "action": action}
         light.set_power(True if action == "on" else False)
         return self.webhooker.send(self.config.webhook_event, jdata)
     
     # Uses the Wyze API to toggle a light.
-    def power_toggle_wyze(self, light: Light, action: str):
+    def toggle_wyze(self, light: Light, action: str, color=None, brightness=None):
         action = action.strip().lower()
         assert action in ["on", "off"]
 
@@ -270,6 +286,30 @@ class LumenService(Service):
         power_on = True if action == "on" else False
         self.log.write("Toggling Wyze device \"%s\" to \"%s\"." % (light.lid, action))
         return self.wyze.toggle_plug(device.mac, power_on)
+
+    # Uses the LIFX LAN SDK to toggle LIFX devices.
+    def toggle_lifx(self, light: Light, action: str, color=None, brightness=None):
+        action = action.strip().lower()
+        assert action in ["on", "off"]
+        
+        # retrieve the device from the LIFX object
+        l = self.lifx.get_light_by_name(light.lid)
+        if l is None:
+            self.log.write("LIFX device \"%s\" not found." % light.lid)
+            return
+
+        # toggle the light
+        self.log.write("Toggling LIFX device \"%s\" to \"%s\"." % (light.lid, action))
+        self.lifx.set_light_power(l, action)
+
+        # if color and brightness was specified, apply it
+        if color is not None:
+            self.lifx.set_light_color(l, color)
+
+        # if brightness was specified, apply it
+        if brightness is not None:
+            # TODO
+            pass
     
     # Searches for a Wyze device with the given ID string and returns it (or
     # None).
