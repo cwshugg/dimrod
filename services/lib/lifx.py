@@ -25,7 +25,7 @@ class LIFXConfig(Config):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("refresh_delay",    [int],  required=False, default=1800),
+            ConfigField("refresh_delay",    [int],  required=False, default=7200),
             ConfigField("retry_attempts",   [int],  required=False, default=4),
             ConfigField("retry_delay",      [int],  required=False, default=1)
         ]
