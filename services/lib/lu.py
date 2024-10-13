@@ -93,12 +93,12 @@ def get_sunrise_sunset(loc: Location = None, dt: datetime = None):
     # parse sunrise
     sunrise_str = "%s %s" % (dt_str, jdata["sunrise"])
     sunrise = parser.parse(sunrise_str)
-    sunrise = sunrise.replace(tzinfo=timezone.utc).astimezone(tz)
+    sunrise = sunrise.replace(tzinfo=tz)
 
     # parse sunset
     sunset_str = "%s %s" % (dt_str, jdata["sunset"])
     sunset = parser.parse(sunset_str)
-    sunset = sunset.replace(tzinfo=timezone.utc).astimezone(tz)
+    sunset = sunset.replace(tzinfo=tz)
 
     # return both
     return [sunrise, sunset]
