@@ -20,13 +20,15 @@ if pdir not in sys.path:
 # Local imports
 from lib.oracle import OracleSession
 import lib.lu as lu
+import lib.dtu as dtu
 
 # Globals
 lumen_config_path = "/home/provolone/chs/services/lumen/cwshugg_lumen.json"
 lumen_config_data = None
 lumen_session = None
 sunrise_window = 1800
-sunset_window = 1800
+sunset_window = 2700
+msghub_window = 3600 * 4
 sunrise_msghub_file = os.path.realpath(os.path.join(fdir, ".holiday_lights_sunrise_last_msg_get.pkl"))
 sunset_msghub_file = os.path.realpath(os.path.join(fdir, ".holiday_lights_sunset_last_msg_get.pkl"))
 
@@ -117,13 +119,14 @@ def main():
         raise e
         print("Failed to retireve sunrise/sunset times: %s" % e)
 
-    print("Sunrise:     %s" % sunrise.strftime("%H:%M:%S %p"))
-    print("Sunset:      %s" % sunset.strftime("%H:%M:%S %p"))
+    print("Sunrise:     %s (%d)" % (sunrise.strftime("%Y-%m-%d %H:%M:%S %p"), sunrise.timestamp()))
+    print("Sunset:      %s (%d)" % (sunset.strftime("%Y-%m-%d %H:%M:%S %p"), sunset.timestamp()))
+    print("Now:         %s (%d)" % (now.strftime("%Y-%m-%d %H:%M:%S %p"), now.timestamp()))
     
     # ------------------------------- Holidays ------------------------------- #
     if now.month in [10, 12]:
-        sunset_diff = abs(now.timestamp() - sunset.timestamp())
-        sunrise_diff = abs(now.timestamp() - sunrise.timestamp())
+        sunset_diff = dtu.diff_in_seconds(now, sunset)
+        sunrise_diff = dtu.diff_in_seconds(now, sunrise)
         print("Seconds away from sunrise: %d (window is %d)" % (sunrise_diff, sunrise_window))
         print("Seconds away from sunset:  %d (window is %d)" % (sunset_diff, sunset_window))
 
@@ -145,7 +148,9 @@ def main():
             # send a message via lumen's message hub, as long as it wasn't sent
             # recently
             last_msg = sunset_last_msg_get()
-            if last_msg is None or now.timestamp() - last_msg.timestamp() > sunset_window:
+            if last_msg is None or \
+               abs(dtu.diff_in_seconds(now, last_msg)) > msghub_window:
+            
                 lumen_init()
                 msgdata = {
                     "message": "It's sunset. I'm turning on the %s lights." % holiday,
@@ -168,7 +173,8 @@ def main():
             # send a message via lumen's message hub, as long as it wasn't sent
             # recently
             last_msg = sunrise_last_msg_get()
-            if last_msg is None or now.timestamp() - last_msg.timestamp() > sunrise_window:
+            if last_msg is None or \
+               abs(dtu.diff_in_seconds(now, last_msg)) > msghub_window:
                 lumen_init()
                 msgdata = {
                     "message": "It's sunrise. I'm turning off the %s lights." % holiday,
