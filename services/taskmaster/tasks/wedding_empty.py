@@ -19,5 +19,5 @@ class TaskJob_Wedding_Empty(TaskJob_Wedding):
         proj = self.get_project(todoist)
 
         # this is empty; it simply ensures that the project exists
-        return True
+        return False
 
