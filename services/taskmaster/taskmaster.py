@@ -25,6 +25,7 @@ from lib.oracle import Oracle
 from lib.cli import ServiceCLI
 from lib.todoist import Todoist
 from lib.google.google_calendar import GoogleCalendar, GoogleCalendarConfig
+from lib.oracle import OracleSession
 
 # Service imports
 from task import TaskJob
@@ -40,7 +41,11 @@ class TaskmasterConfig(ServiceConfig):
             ConfigField("taskmaster_todoist_api_key",   [str], required=True),
             ConfigField("openai_api_key",               [str], required=True),
             ConfigField("google_calendar",              [GoogleCalendarConfig], required=True),
-            ConfigField("taskmaster_refresh_rate",      [int], required=False, default=300)
+            ConfigField("taskmaster_refresh_rate",      [int], required=False, default=300),
+            ConfigField("lumen_address",                [str], required=True),
+            ConfigField("lumen_port",                   [int], required=True),
+            ConfigField("lumen_auth_username",          [str], required=True),
+            ConfigField("lumen_auth_password",          [str], required=True),
         ]
 
 
@@ -77,6 +82,17 @@ class TaskmasterService(Service):
                                 self.task_dict[name] = cls
 
         return self.task_dict
+    
+    # Uses the lumen configuration fields to retrieve and return an
+    # authenticated Lumen OracleSession.
+    def get_lumen_session(self):
+        ls = OracleSession(self.config.lumen_address,
+                           self.config.lumen_port)
+
+        # authenticate with the service
+        ls.login(self.config.lumen_auth_username,
+                 self.config.lumen_auth_password)
+        return ls
 
     # Overridden abstract class implementation for the service thread.
     def run(self):

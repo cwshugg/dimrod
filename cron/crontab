@@ -2,7 +2,6 @@
 30    21  *   *   * /home/provolone/chs/cron/weather.py
 30    16  *   *   * /home/provolone/chs/cron/weather.py
 # */3   *   *   *   * /home/provolone/chs/cron/nudges.py
-*/10  *   *   *   * /home/provolone/chs/cron/holiday-lights.sh
 */5   *   *   *   * /home/provolone/chs/cron/mode_switch.py
 */5   *   *   *   * /home/provolone/chs/cron/whos_online.py
 

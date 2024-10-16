@@ -25,5 +25,10 @@
         "service_account_credentials_path": "/path/to/google/cloud/service_account_creds.json"
     },
 
-    "openai_api_key": "YOUR_OPENAI_API_KEY"
+    "openai_api_key": "YOUR_OPENAI_API_KEY",
+
+    "lumen_addr": "0.0.0.0",
+    "lumen_port": 1234,
+    "lumen_auth_username": "YOUR_LUMEN_USERNAME",
+    "lumen_auth_password": "YOUR_LUMEN_PASSWORD"
 }

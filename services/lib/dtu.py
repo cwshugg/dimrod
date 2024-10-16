@@ -140,7 +140,11 @@ def add_weeks(dt, mult=1):
 
 # Returns the difference between the two datetimes in seconds.
 def diff_in_seconds(dt1, dt2):
-    diff = dt1 - dt2
+    # make copies of the datetimes, with both timezones removed, so we can do a
+    # clean subtraction
+    notz_dt1 = dt1.replace(tzinfo=None)
+    notz_dt2 = dt2.replace(tzinfo=None)
+    diff = notz_dt1 - notz_dt2
     return diff.total_seconds()
 
 # Returns the difference between the two datetimes in minutes.
