@@ -140,23 +140,24 @@ def add_weeks(dt, mult=1):
 
 # Returns the difference between the two datetimes in seconds.
 def diff_in_seconds(dt1, dt2):
-    return dt1.timestamp() - dt2.timestamp()
+    diff = dt1 - dt2
+    return diff.total_seconds()
 
 # Returns the difference between the two datetimes in minutes.
 def diff_in_minutes(dt1, dt2):
-    return (dt1.timestamp() - dt2.timestamp()) / 60
+    return diff_in_seconds(dt1, dt2) / 60
 
 # Returns the difference between the two datetimes in hours.
 def diff_in_hours(dt1, dt2):
-    return (dt1.timestamp() - dt2.timestamp()) / 3600
+    return diff_in_seconds(dt1, dt2) / 3600
 
 # Returns the difference between the two datetimes in days.
 def diff_in_days(dt1, dt2):
-    return (dt1.timestamp() - dt2.timestamp()) / 86400
+    return diff_in_seconds(dt1, dt2) / 86400
 
 # Returns the difference between the two datetimes in weeks.
 def diff_in_weeks(dt1, dt2):
-    return (dt1.timestamp() - dt2.timestamp()) / 604800
+    return diff_in_seconds(dt1, dt2) / 604800
 
 # Returns True if the two datetimes share the same year.
 def has_same_year(dt1, dt2):
