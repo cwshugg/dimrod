@@ -35,10 +35,20 @@ class TaskJob_Household_Holiday_Lights(TaskJob_Household):
         # *minutes*)
         self.sunrise_window = 30
         self.sunset_window = 30
+    
+    # Returns True if the given datetime is the holiday season.
+    def is_holiday_season(self, dt: datetime):
+        # currently this supports all of Octoboer (for Halloween) and all of
+        # December (for Christmas)
+        return dt.month in [10, 12]
 
     def update(self, todoist, gcal):
-        # retrieve the current timestamp, and the sunrise/sunset times for home
+        # make sure we are in holiday times!
         now = datetime.now()
+        if not self.is_holiday_season(now):
+            return False
+
+        # retrieve the sunrise/sunset times for home
         sunrise = now.replace(hour=6, minute=0, second=0)
         sunset = now.replace(hour=18, minute=0, second=0)
         try:
