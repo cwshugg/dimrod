@@ -58,34 +58,48 @@ class TaskJob_Household_Holiday_Lights(TaskJob_Household):
             return False
         
         # log the time and sunrise/sunset times
-        self.log("Now:                  %s (%d)" % (now.strftime("%Y-%m-%d %H:%M:%S %p"), now.timestamp()))
-        self.log("Sunrise:              %s (%d)" % (sunrise.strftime("%Y-%m-%d %H:%M:%S %p"), sunrise.timestamp()))
-        self.log("Sunset:               %s (%d)" % (sunset.strftime("%Y-%m-%d %H:%M:%S %p"), sunset.timestamp()))
+        log_messages = [
+            "Now:                  %s (%d)" % \
+            (now.strftime("%Y-%m-%d %H:%M:%S %p"), now.timestamp()),
+            "Sunrise:              %s (%d)" % \
+            (sunrise.strftime("%Y-%m-%d %H:%M:%S %p"), sunrise.timestamp()),
+            "Sunset:               %s (%d)" % \
+            (sunset.strftime("%Y-%m-%d %H:%M:%S %p"), sunset.timestamp())
+        ]
 
         # determine how far away sunrise and sunset is
         sunrise_diff = int(abs(dtu.diff_in_minutes(now, sunrise)))
         sunset_diff = int(abs(dtu.diff_in_minutes(now, sunset)))
-        self.log("Minutes from sunrise: %d (window = %d)" %
-                 (sunrise_diff, self.sunrise_window))
-        self.log("Minutes from sunset:  %d (window = %d)" %
-                 (sunset_diff, self.sunset_window))
+        log_messages.append("Minutes from sunrise: %d (window = %d)" %
+                            (sunrise_diff, self.sunrise_window))
+        log_messages.append("Minutes from sunset:  %d (window = %d)" %
+                            (sunset_diff, self.sunset_window))
         
         # if we're in the sunrise window, we'll turn the lights off
         if sunrise_diff <= self.sunrise_window:
             lumen = self.service.get_lumen_session()
+
+            # write all log messages
+            for msg in log_messages:
+                self.log(msg)
             self.log("Turning the holiday lights off...")
+
             self.toggle_lights(lumen, "off")
             return True
 
         # if we're in the sunrise window, we'll turn the lights on
         if sunset_diff <= self.sunset_window:
             lumen = self.service.get_lumen_session()
+            
+            # write all log messages
+            for msg in log_messages:
+                self.log(msg)
             self.log("Turning the holiday lights on...")
+
             self.toggle_lights(lumen, "on")
             return True
 
         # otherwise, there's nothing to do
-        self.log("We are not in either sunrise nor sunset window. Nothing to do.")
         return False
     
     # Retrieves all lights tagged for holidays within Lumen.
