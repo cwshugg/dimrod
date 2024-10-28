@@ -12,7 +12,7 @@
 
 # ------------------------ Scheduled Service Restarts ------------------------ #
 # LUMEN: Monday mornings at 4:00am
-0     4   *   *   1 /home/provolone/chs/cron/restart-service.sh lumen
+0     */2 *   *   * /home/provolone/chs/cron/restart-service.sh lumen
 # WARDEN: Wednesday afternoons at 12:30pm
 30    12  *   *   3 /home/provolone/chs/cron/restart-service.sh warden
 # TELEGRAM: Saturday mornings at 4:00am
