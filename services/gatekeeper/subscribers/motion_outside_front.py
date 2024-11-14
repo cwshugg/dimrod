@@ -121,7 +121,7 @@ def get_color(now: datetime):
             return [216, 230, 243]
 
     # default: warm white
-    return [255, 228, 218]
+    return [255, 235, 225]
 
 # Main function.
 def main():
@@ -133,6 +133,7 @@ def main():
     # ---------------------- Color/Brightness Decision ----------------------- #
     now = datetime.now()
     color = get_color(now)
+    print("COLOR: %s" % color)
     brightness = 1.0
 
     # ------------------------------ Lights On ------------------------------- #
