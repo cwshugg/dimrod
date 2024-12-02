@@ -96,6 +96,7 @@ class NotifService(Service):
                     except Exception as e:
                         self.log.write("Failed to load reminder JSON file %s: %s" %
                                         (f, e))
+                        continue
                     
                     # check all reminders for readiness
                     check_all(rems)
