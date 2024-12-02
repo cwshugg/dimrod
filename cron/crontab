@@ -5,14 +5,18 @@
 */5   *   *   *   * /home/provolone/chs/cron/mode_switch.py
 */5   *   *   *   * /home/provolone/chs/cron/whos_online.py
 
+# --------------------------------- Backups ---------------------------------- #
+# Back up all my config files every month, on the 5th day at 4:30am.
+30    4   5   *   * /home/provolone/chs/cron/backup-configs.sh
+
 # ------------------------------- LetsEncrypt -------------------------------- #
 # Renew my LetsEncrypt certificate periodically, on the 2nd day of every other
 # month at 5:10am.
 10    5   2   1,3,5,7,9,11 * /home/provolone/chs/cron/letsencrypt-renew.sh
 
 # ------------------------ Scheduled Service Restarts ------------------------ #
-# LUMEN: Monday mornings at 4:00am
-0     */2 *   *   * /home/provolone/chs/cron/restart-service.sh lumen
+# LUMEN: every 4 hours
+0     */4 *   *   * /home/provolone/chs/cron/restart-service.sh lumen
 # WARDEN: Wednesday afternoons at 12:30pm
 30    12  *   *   3 /home/provolone/chs/cron/restart-service.sh warden
 # TELEGRAM: Saturday mornings at 4:00am
