@@ -35,10 +35,8 @@ class Mode_Away(Mode):
         # use the warden information in the config file to reach out and
         # get an authenticated session
         if self.ws is None:
-            self.ws = OracleSession(self.config.warden_address,
-                               self.config.warden_port)
-            r = self.ws.login(self.config.warden_auth_username,
-                         self.config.warden_auth_password)
+            self.ws = OracleSession(self.config.warden)
+            r = self.ws.login()
 
         # with the session, ping warden's /clients endpoint to retrieve all
         # client connection information
@@ -57,7 +55,7 @@ class Mode_Away(Mode):
                 
             # iterate through the devices specified in the config; these are the
             # ones were care about in "away mode"
-            for text in self.config.moder_mode_away_devices:
+            for text in self.config.mode_away_devices:
                 t = text.lower()
                 # the MAC address must be an exact match, or the text must be
                 # contained by a device's name
@@ -100,10 +98,8 @@ class Mode_Away(Mode):
     def light_groups(self):
         # create a lumen session and ask for all lights
         if self.ls is None:
-            self.ls = OracleSession(self.config.lumen_address,
-                               self.config.lumen_port)
-            r = self.ls.login(self.config.lumen_auth_username,
-                         self.config.lumen_auth_password)
+            self.ls = OracleSession(self.config.lumen)
+            r = self.ls.login()
 
         # with the session, ping lumen's /lights endpoint to retrieve all
         # light information
@@ -115,7 +111,7 @@ class Mode_Away(Mode):
         # build up a list of light groups
         lights = OracleSession.get_response_json(r)
         groups = []
-        for ldata in self.config.moder_mode_away_lights:
+        for ldata in self.config.mode_away_lights:
             taglist = ldata["tags"]
             group = {"chance": ldata["chance"], "lights": []}
             for light in lights:
@@ -194,8 +190,8 @@ class Mode_Away(Mode):
         
         # use the stored address as the location, if applicable
         loc = None
-        if self.config.moder_mode_away_address is not None:
-            loc = lu.Location(address=self.config.moder_mode_away_address)
+        if self.config.mode_away_address is not None:
+            loc = lu.Location(address=self.config.mode_away_address)
 
         # attempt to make the API call
         try:
@@ -216,7 +212,7 @@ class Mode_Away(Mode):
         # using the latest diff time, determine if someone is "home" or not by
         # using the configured threshold
         if ldev is not None and \
-           ldev["last_seen_diff"] < self.config.moder_mode_away_device_threshold:
+           ldev["last_seen_diff"] < self.config.mode_away_device_threshold:
             # if the amount of time since it was last pinged is LESS than the
             # configured threshold, we still consider someone to be home,
             # so we return a priority of 0 (indicating we DON'T want to activate
@@ -232,7 +228,7 @@ class Mode_Away(Mode):
         # online. If it is, the mode is complete
         ldev = self.latest_device()
         if ldev is not None and \
-           ldev["last_seen_diff"] < self.config.moder_mode_away_device_threshold:
+           ldev["last_seen_diff"] < self.config.mode_away_device_threshold:
             # log a message and return True
             device_str = ldev["macaddr"] if "name" not in ldev else ldev["name"]
             self.log("Device \"%s\" was last seen online %d seconds ago. "

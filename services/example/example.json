@@ -2,17 +2,20 @@
     "service_name": "example-service1",
     "service_log": "stdout",
 
-    "oracle_addr": "0.0.0.0",
-    "oracle_port": 2323,
-    "oracle_log": "stdout",
-    "oracle_auth_cookie": "example_auth",
-    "oracle_auth_secret": "YOUR_JWT_SECRET_HERE",
-    "oracle_auth_users":
-    [
-        {
-            "username": "luke",
-            "password": "skywalker",
-            "privilege": 0
-        }
-    ]
+    "oracle":
+    {
+        "addr": "0.0.0.0",
+        "port": 2323,
+        "log": "stdout",
+        "auth_cookie": "example_auth",
+        "auth_secret": "YOUR_JWT_SECRET_HERE",
+        "auth_users":
+        [
+            {
+                "username": "luke",
+                "password": "skywalker",
+                "privilege": 0
+            }
+        ]
+    }
 }

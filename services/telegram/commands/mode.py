@@ -18,11 +18,9 @@ from lumen.light import LightConfig, Light
 # Main function.
 def command_mode(service, message, args: list):
     # create a HTTP session with moder
-    session = OracleSession(service.config.moder_address,
-                            service.config.moder_port)
+    session = OracleSession(service.config.moder)
     try:
-        r = session.login(service.config.moder_auth_username,
-                            service.config.moder_auth_password)
+        r = session.login()
     except Exception as e:
         service.send_message(message.chat.id,
                              "Sorry, I couldn't reach Moder. "

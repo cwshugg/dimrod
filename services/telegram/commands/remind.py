@@ -69,11 +69,9 @@ def command_remind(service, message, args: list):
         return
 
     # create a HTTP session with notif
-    session = OracleSession(service.config.notif_address,
-                            service.config.notif_port)
+    session = OracleSession(service.config.notif)
     try:
-        r = session.login(service.config.notif_auth_username,
-                          service.config.notif_auth_password)
+        r = session.login()
     except Exception as e:
         service.send_message(message.chat.id,
                              "Sorry, I couldn't reach Notif. "

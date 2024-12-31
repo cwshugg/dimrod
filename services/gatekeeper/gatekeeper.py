@@ -32,9 +32,9 @@ class GatekeeperConfig(ServiceConfig):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("gatekeeper_events",            [list], required=True),
-            ConfigField("gatekeeper_thread_limit",      [int],  required=False, default=8),
-            ConfigField("gatekeeper_thread_timeout",    [int],  required=False, default=0.01)
+            ConfigField("events",           [list], required=True),
+            ConfigField("thread_limit",     [int],  required=False, default=8),
+            ConfigField("thread_timeout",   [int],  required=False, default=0.01)
         ]
 
 
@@ -48,7 +48,7 @@ class GatekeeperService(Service):
 
         # parse each event as an event object
         self.events = []
-        for edata in self.config.gatekeeper_events:
+        for edata in self.config.events:
             e = GatekeeperEvent(edata)
             self.events.append(e)
             self.log.write("Loaded event: %s" % str(e))
@@ -81,12 +81,13 @@ class GatekeeperService(Service):
                 # make sure we aren't maxed out on threads. If we are, we'll
                 # have to wait for one to complete before we spawn another
                 join_dt1 = datetime.now()
-                join_idx = 0 if len(self.threads) >= self.config.gatekeeper_thread_limit else -1
-                while len(self.threads) >= self.config.gatekeeper_thread_limit:
-                    self.threads[join_idx].join(timeout=self.config.gatekeeper_thread_timeout)
+                join_idx = 0 if len(self.threads) >= self.config.thread_limit else -1
+                while len(self.threads) >= self.config.thread_limit:
+                    self.threads[join_idx].join(timeout=self.config.thread_timeout)
                     if not self.threads[join_idx].is_alive():
                         self.threads.pop(join_idx)
                         break
+
                 # measure the time and report how long it took
                 join_dt2 = datetime.now()
                 join_diff = join_dt2.timestamp() - join_dt1.timestamp()

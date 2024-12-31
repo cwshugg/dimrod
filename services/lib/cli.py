@@ -81,7 +81,7 @@ class ServiceCLI:
         if "oracle" in args and args["oracle"]:
             global oracle
             try:
-                oracle = self.oracle_class(config_path, service)
+                oracle = self.oracle_class(config.oracle, service)
             except Exception as e:
                 self.panic("Failed to initialize %s" % self.config_class.__name__,
                            exception=e)

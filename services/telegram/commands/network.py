@@ -97,11 +97,9 @@ def network_list_info(service, message, args, clients):
 # =================================== Main =================================== #
 def command_network(service, message, args: list):
     # create a HTTP session with warden
-    session = OracleSession(service.config.warden_address,
-                            service.config.warden_port)
+    session = OracleSession(service.config.warden)
     try:
-        r = session.login(service.config.warden_auth_username,
-                            service.config.warden_auth_password)
+        r = session.login()
     except Exception as e:
         service.send_message(message.chat.id,
                              "Sorry, I couldn't reach Warden. "

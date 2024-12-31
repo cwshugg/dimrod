@@ -139,11 +139,9 @@ def lights_off(service, message, args: list, session, lights: list):
 # Main function.
 def command_lights(service, message, args: list):
     # create a HTTP session with lumen
-    session = OracleSession(service.config.lumen_address,
-                            service.config.lumen_port)
+    session = OracleSession(service.config.lumen)
     try:
-        r = session.login(service.config.lumen_auth_username,
-                            service.config.lumen_auth_password)
+        r = session.login()
     except Exception as e:
         service.send_message(message.chat.id,
                              "Sorry, I couldn't reach Lumen. "

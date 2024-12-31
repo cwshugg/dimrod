@@ -17,7 +17,7 @@ if pdir not in sys.path:
 # Local imports
 from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
-from lib.oracle import Oracle, OracleSession
+from lib.oracle import Oracle, OracleSession, OracleSessionConfig
 from lib.cli import ServiceCLI
 from lib.mail import MessengerConfig, Messenger
 from lib.ntfy import ntfy_send
@@ -33,12 +33,9 @@ class NotifConfig(ServiceConfig):
         super().__init__()
         self.fields += [
             ConfigField("reminder_dir",             [str],  required=True),
-            ConfigField("telegram_addr",            [str],  required=True),
-            ConfigField("telegram_port",            [int],  required=True),
-            ConfigField("telegram_auth_username",   [str],  required=True),
-            ConfigField("telegram_auth_password",   [str],  required=True),
             ConfigField("messenger_webhook_event",  [str],  required=True),
             ConfigField("webhook_key",              [str],  required=True),
+            ConfigField("telegram",     [OracleSessionConfig],  required=True),
         ]
 
 
@@ -226,9 +223,8 @@ class NotifService(Service):
 
     # Creates and returns an authenticated OracleSession with the telegram bot.
     def get_telegram_session(self):
-        s = OracleSession(self.config.telegram_addr, self.config.telegram_port)
-        s.login(self.config.telegram_auth_username,
-                self.config.telegram_auth_password)
+        s = OracleSession(self.config.telegram)
+        s.login()
         return s
 
 

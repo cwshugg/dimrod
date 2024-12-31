@@ -21,7 +21,7 @@ if pdir not in sys.path:
 # Local imports
 from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
-from lib.oracle import Oracle, OracleSession
+from lib.oracle import Oracle, OracleSession, OracleSessionConfig
 from lib.cli import ServiceCLI
 from lib.google.google_calendar import GoogleCalendarConfig
 
@@ -50,26 +50,11 @@ class TelegramConfig(ServiceConfig):
             ConfigField("bot_chats",                [list],     required=True),
             ConfigField("bot_users",                [list],     required=True),
             ConfigField("bot_conversation_timeout", [int],      required=False, default=900),
-            ConfigField("lumen_address",            [str],      required=True),
-            ConfigField("lumen_port",               [int],      required=True),
-            ConfigField("lumen_auth_username",      [str],      required=True),
-            ConfigField("lumen_auth_password",      [str],      required=True),
-            ConfigField("warden_address",           [str],      required=True),
-            ConfigField("warden_port",              [int],      required=True),
-            ConfigField("warden_auth_username",     [str],      required=True),
-            ConfigField("warden_auth_password",     [str],      required=True),
-            ConfigField("notif_address",            [str],      required=True),
-            ConfigField("notif_port",               [int],      required=True),
-            ConfigField("notif_auth_username",      [str],      required=True),
-            ConfigField("notif_auth_password",      [str],      required=True),
-            ConfigField("moder_address",            [str],      required=True),
-            ConfigField("moder_port",               [int],      required=True),
-            ConfigField("moder_auth_username",      [str],      required=True),
-            ConfigField("moder_auth_password",      [str],      required=True),
-            ConfigField("speaker_address",          [str],      required=True),
-            ConfigField("speaker_port",             [int],      required=True),
-            ConfigField("speaker_auth_username",    [str],      required=True),
-            ConfigField("speaker_auth_password",    [str],      required=True),
+            ConfigField("lumen",    [OracleSessionConfig],      required=True),
+            ConfigField("warden",   [OracleSessionConfig],      required=True),
+            ConfigField("notif",    [OracleSessionConfig],      required=True),
+            ConfigField("moder",    [OracleSessionConfig],      required=True),
+            ConfigField("speaker",  [OracleSessionConfig],      required=True),
             ConfigField("google_calendar_config",   [GoogleCalendarConfig], required=True),
             ConfigField("google_calendar_id",       [str],      required=True),
             ConfigField("google_calendar_timezone", [str],      required=False, default="America/New_York")
@@ -173,8 +158,8 @@ class TelegramService(Service):
     # Creates and returns a new OracleSession with the speaker.
     # If authentication fails, None is returned.
     def get_speaker_session(self):
-        s = OracleSession(self.config.speaker_address, self.config.speaker_port)
-        r = s.login(self.config.speaker_auth_username, self.config.speaker_auth_password)
+        s = OracleSession(self.config.speaker)
+        r = s.login()
         if not OracleSession.get_response_success(r):
             self.log.write("Failed to authenticate with speaker: %s" %
                            OracleSession.get_response_message(r))

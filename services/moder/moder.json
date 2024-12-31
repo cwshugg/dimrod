@@ -2,37 +2,46 @@
     "service_name": "moder",
     "service_log": "stdout",
 
-    "oracle_addr": "0.0.0.0",
-    "oracle_port": 2358,
-    "oracle_log": "stdout",
-    "oracle_auth_cookie": "moder_auth",
-    "oracle_auth_secret": "YOUR_SECRET_HERE",
-    "oracle_auth_users":
-    [
-        {
-            "username": "bob",
-            "password": "bob!",
-            "privilege": 0
-        }
-    ],
-
-    "warden_address": "0.0.0.0",
-    "warden_port": 2351,
-    "warden_auth_username": "ABC",
-    "warden_auth_password": "XYZ",
-
-    "lumen_address": "0.0.0.0",
-    "lumen_port": 2350,
-    "lumen_auth_username": "ABC",
-    "lumen_auth_password": "XYZ",
+    "oracle":
+    {
+        "addr": "0.0.0.0",
+        "port": 2358,
+        "log": "stdout",
+        "auth_cookie": "moder_auth",
+        "auth_secret": "YOUR_SECRET_HERE",
+        "auth_users":
+        [
+            {
+                "username": "bob",
+                "password": "bob!",
+                "privilege": 0
+            }
+        ]
+    },
     
-    "moder_mode_away_device_threshold": 1200,
-    "moder_mode_away_devices": [
+    "warden":
+    {
+        "addr": "0.0.0.0",
+        "port": 2351,
+        "auth_username": "ABC",
+        "auth_password": "XYZ"
+    },
+    
+    "lumen":
+    {
+        "addr": "0.0.0.0",
+        "port": 2350,
+        "auth_username": "ABC",
+        "auth_password": "XYZ"
+    },
+    
+    "mode_away_device_threshold": 1200,
+    "mode_away_devices": [
         "This list contains MAC addresses (or Warden device names) of the",
         "devices you want to use for detecting when someone is at home or not.",
         "Add them here!"
     ],
-    "moder_mode_away_lights": [
+    "mode_away_lights": [
         {
             "tags": ["use", "tags", "from", "your", "lumen", "lights"],
             "chance": 0.01
@@ -45,6 +54,6 @@
             "tags": ["the", "matching", "lights", "will", "be", "randomly", "toggled", "in", "groups"]
             "chance": 0.01
         }
-    ]
-    "moder_mode_away_address": "HOME ADDRESS GOES HERE"
+    ],
+    "mode_away_address": "HOME ADDRESS GOES HERE"
 }

@@ -16,6 +16,7 @@ if pdir not in sys.path:
 
 # Local imports
 import lib.config
+import lib.oracle
 import lib.log
 import lib.ntfy
 
@@ -26,9 +27,10 @@ class ServiceConfig(lib.config.Config):
     def __init__(self):
         super().__init__()
         self.fields = [
-            lib.config.ConfigField("service_name",  [str],      required=True),
-            lib.config.ConfigField("service_log",   [str],      required=False),
-            lib.config.ConfigField("msghub_name",   [str],      required=True)
+            lib.config.ConfigField("service_name",  [str],          required=True),
+            lib.config.ConfigField("service_log",   [str],          required=False,     default="stdout"),
+            lib.config.ConfigField("msghub_name",   [str],          required=True),
+            lib.config.ConfigField("oracle",        [lib.oracle.OracleConfig], required=True),
         ]
 
 

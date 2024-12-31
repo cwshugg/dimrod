@@ -2,19 +2,22 @@
     "service_name": "taskmaster",
     "service_log": "stdout",
 
-    "oracle_addr": "0.0.0.0",
-    "oracle_port": 2361,
-    "oracle_log": "stdout",
-    "oracle_auth_cookie": "taskmaster_auth",
-    "oracle_auth_secret": "YOUR_JWT_SECRET_HERE",
-    "oracle_auth_users":
-    [
-        {
-            "username": "luke",
-            "password": "skywalker",
-            "privilege": 0
-        }
-    ],
+    "oracle":
+    {
+        "addr": "0.0.0.0",
+        "port": 2361,
+        "log": "stdout",
+        "auth_cookie": "taskmaster_auth",
+        "auth_secret": "YOUR_JWT_SECRET_HERE",
+        "auth_users":
+        [
+            {
+                "username": "luke",
+                "password": "skywalker",
+                "privilege": 0
+            }
+        ]
+    },
 
     "msghub_name": "YOUR_MSGHUB_NAME",
 
@@ -24,11 +27,12 @@
     {
         "service_account_credentials_path": "/path/to/google/cloud/service_account_creds.json"
     },
-
-    "openai_api_key": "YOUR_OPENAI_API_KEY",
-
-    "lumen_addr": "0.0.0.0",
-    "lumen_port": 1234,
-    "lumen_auth_username": "YOUR_LUMEN_USERNAME",
-    "lumen_auth_password": "YOUR_LUMEN_PASSWORD"
+    
+    "lumen":
+    {
+        "addr": "0.0.0.0",
+        "port": 1234,
+        "auth_username": "YOUR_LUMEN_USERNAME",
+        "auth_password": "YOUR_LUMEN_PASSWORD"
+    }
 }

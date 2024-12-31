@@ -37,10 +37,10 @@ def lumen_send(lid: str, action: str, color=None, brightness=None):
     # set up the session, only the first time
     global lumen_session
     if lumen_session is None:
-        lumen_session = OracleSession(lumen_config_data["oracle_addr"],
-                                      lumen_config_data["oracle_port"])
+        lumen_session = OracleSession(lumen_config_data["oracle"]["addr"],
+                                      lumen_config_data["oracle"]["port"])
         # authenticate with the service
-        users = lumen_config_data["oracle_auth_users"]
+        users = lumen_config_data["oracle"]["auth_users"]
         user = users[0]
         lumen_session.login(user["username"], user["password"])
     

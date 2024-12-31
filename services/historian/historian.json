@@ -2,17 +2,20 @@
     "service_name": "historian",
     "service_log": "stdout",
 
-    "oracle_addr": "0.0.0.0",
-    "oracle_port": 2360,
-    "oracle_log": "stdout",
-    "oracle_auth_cookie": "historian_auth",
-    "oracle_auth_secret": "YOUR_JWT_SECRET_HERE",
-    "oracle_auth_users":
-    [
-        {
-            "username": "indiana",
-            "password": "jones",
-            "privilege": 0
-        }
-    ]
+    "oracle":
+    {
+        "addr": "0.0.0.0",
+        "port": 2360,
+        "log": "stdout",
+        "auth_cookie": "historian_auth",
+        "auth_secret": "YOUR_JWT_SECRET_HERE",
+        "auth_users":
+        [
+            {
+                "username": "indiana",
+                "password": "jones",
+                "privilege": 0
+            }
+        ]
+    }
 }

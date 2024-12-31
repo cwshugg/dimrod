@@ -32,16 +32,16 @@ class OracleConfig(lib.config.Config):
     def __init__(self):
         super().__init__()
         self.fields = [
-            lib.config.ConfigField("oracle_addr",           [str],  required=True),
-            lib.config.ConfigField("oracle_port",           [int],  required=True),
-            lib.config.ConfigField("oracle_log",            [str],  required=False),
-            lib.config.ConfigField("oracle_auth_cookie",    [str],  required=True),
-            lib.config.ConfigField("oracle_auth_secret",    [str],  required=True),
-            lib.config.ConfigField("oracle_auth_users",     [list], required=True),
-            lib.config.ConfigField("oracle_auth_exptime",   [int],  required=False),
-            lib.config.ConfigField("oracle_debug",          [bool], required=False, default=False),
-            lib.config.ConfigField("oracle_https_cert",     [str],  required=False),
-            lib.config.ConfigField("oracle_https_key",      [str],  required=False),
+            lib.config.ConfigField("addr",           [str],  required=True),
+            lib.config.ConfigField("port",           [int],  required=True),
+            lib.config.ConfigField("log",            [str],  required=False),
+            lib.config.ConfigField("auth_cookie",    [str],  required=True),
+            lib.config.ConfigField("auth_secret",    [str],  required=True),
+            lib.config.ConfigField("auth_users",     [list], required=True),
+            lib.config.ConfigField("auth_exptime",   [int],  required=False),
+            lib.config.ConfigField("debug",          [bool], required=False, default=False),
+            lib.config.ConfigField("https_cert",     [str],  required=False),
+            lib.config.ConfigField("https_key",      [str],  required=False),
         ]
 
 
@@ -52,38 +52,37 @@ class OracleConfig(lib.config.Config):
 # well.
 class Oracle(threading.Thread):
     # Constructor.
-    def __init__(self, config_path, service):
+    def __init__(self, config, service):
         threading.Thread.__init__(self, target=self.run)
         self.service = service
-        self.config = OracleConfig()
-        self.config.parse_file(config_path)
+        self.config = config
         self.server = flask.Flask(__name__)
 
         # initialize the user objects
         self.users = []
-        for udata in self.config.oracle_auth_users:
+        for udata in self.config.auth_users:
             self.users.append(User(udata))
 
         # initialize the optional JWT expiration time
         jwt_exptime = 2592000
-        if not self.config.oracle_auth_exptime:
-            self.config.oracle_auth_exptime = jwt_exptime
+        if not self.config.auth_exptime:
+            self.config.auth_exptime = jwt_exptime
         else:
-            self.config.oracle_auth_exptime = abs(self.config.oracle_auth_exptime)
+            self.config.auth_exptime = abs(self.config.auth_exptime)
 
         # make sure both certification files were given
-        self.https_enabled = self.config.oracle_https_cert is not None and \
-                             self.config.oracle_https_key is not None
+        self.https_enabled = self.config.https_cert is not None and \
+                             self.config.https_key is not None
         if self.https_enabled:
-            assert os.path.isfile(self.config.oracle_https_cert), \
-                   "the oracle_https_cert could not be accessed"
-            assert os.path.isfile(self.config.oracle_https_key), \
-                   "the oracle_https_key could not be accessed"
+            assert os.path.isfile(self.config.https_cert), \
+                   "the https_cert could not be accessed"
+            assert os.path.isfile(self.config.https_key), \
+                   "the https_key could not be accessed"
         
         # examine the config for a log stream
         log_file = sys.stdout
-        if self.config.oracle_log:
-            log_file = self.config.oracle_log
+        if self.config.log:
+            log_file = self.config.log
         log_name = self.service.config.service_name + "-oracle"
         self.log = lib.log.Log(log_name, stream=log_file)
         
@@ -112,16 +111,16 @@ class Oracle(threading.Thread):
         # with all endpoints and handlers set up, run the server under a WSGI
         # production server (unless debug is enabled)
         self.log.write("launching flask...")
-        addr = self.config.oracle_addr
-        port = self.config.oracle_port
-        if self.config.oracle_debug:
+        addr = self.config.addr
+        port = self.config.port
+        if self.config.debug:
             self.server.run(addr, port=port)
         else:
             # run with our without HTTPS certification
             if self.https_enabled:
                 serv = WSGIServer((addr, port), self.server, log=None,
-                                  certfile=self.config.oracle_https_cert,
-                                  keyfile=self.config.oracle_https_key)
+                                  certfile=self.config.https_cert,
+                                  keyfile=self.config.https_key)
             else:
                 serv = WSGIServer((addr, port), self.server, log=None)
             serv.serve_forever()
@@ -162,8 +161,8 @@ class Oracle(threading.Thread):
 
             # create a cookie for the user
             cookie = self.auth_make_cookie(user)
-            cookie_age = 999999999 if user.config.privilege == 0 else self.config.oracle_auth_exptime
-            cookie_str = "%s=%s; Path=/; Max-Age=%d" % (self.config.oracle_auth_cookie, cookie, cookie_age)
+            cookie_age = 999999999 if user.config.privilege == 0 else self.config.auth_exptime
+            cookie_str = "%s=%s; Path=/; Max-Age=%d" % (self.config.auth_cookie, cookie, cookie_age)
             return self.make_response(msg="Authentication successful. Hello, %s." % user.config.username,
                                  rheaders={"Set-Cookie": cookie_str})
         
@@ -274,7 +273,7 @@ class Oracle(threading.Thread):
             pieces = c.split("=")
             # check the cookie name - if this is the one we want, break out of the
             # loop and proceed
-            if pieces[0] == self.config.oracle_auth_cookie:
+            if pieces[0] == self.config.auth_cookie:
                 result = pieces[0]
                 break
 
@@ -286,7 +285,7 @@ class Oracle(threading.Thread):
         # function call - we'll do this ourself)
         try:
             result = jwt.decode(pieces[len(pieces) - 1],
-                                self.config.oracle_auth_secret,
+                                self.config.auth_secret,
                                 algorithms=["HS512"],
                                 options={"verify_exp": False})
         except:
@@ -323,10 +322,10 @@ class Oracle(threading.Thread):
         now = int(datetime.now().timestamp())
         data = {
             "iat": now,
-            "exp": now + self.config.oracle_auth_exptime,
+            "exp": now + self.config.auth_exptime,
             "sub": user.config.username
         }
-        token = jwt.encode(data, self.config.oracle_auth_secret, algorithm="HS512")
+        token = jwt.encode(data, self.config.auth_secret, algorithm="HS512")
         return token
 
     # ------------------------------- Helpers -------------------------------- #
@@ -390,22 +389,35 @@ class User:
 
 
 # ============================== Oracle Session ============================== #
+# A config class for a generic oracle session.
+class OracleSessionConfig(lib.config.Config):
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            lib.config.ConfigField("addr",           [str],     required=True),
+            lib.config.ConfigField("port",           [int],     required=True),
+            lib.config.ConfigField("auth_username",  [str],     required=True),
+            lib.config.ConfigField("auth_password",  [str],     required=True),
+        ]
+
 # The OracleSession object serves as an interface for interacting with a
 # service's oracle. This is useful for scripts, or other services, that wish to
 # talk with oracles via HTTP.
 class OracleSession:
-    # Constructor. Takes in the oracle's address and port and sets up an
-    # internal session.
-    def __init__(self, address: str, port: int):
-        self.address = address
-        self.port = port
-        self.url_base = "http://%s:%d" % (address, port)
+    # Constructor. Takes in a config and sets up internal state.
+    def __init__(self, config: OracleSessionConfig):
+        self.config = config
+        self.url_base = "http://%s:%d" % (self.config.addr, self.config.port)
         self.session = requests.Session()
     
-    # Logs into the service, given the username and password.
-    def login(self, username: str, password: str):
+    # Logs into the service, using the username/password provided in
+    # `self.config`.
+    def login(self):
         url = self.url_base + "/auth/login"
-        login_data = {"username": username, "password": password}
+        login_data = {
+            "username": self.config.auth_username,
+            "password": self.config.auth_password
+        }
         return self.session.post(url, json=login_data)
     
     # Sends a POST request.

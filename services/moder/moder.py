@@ -23,7 +23,7 @@ if pdir not in sys.path:
 # Local imports
 from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
-from lib.oracle import Oracle
+from lib.oracle import Oracle, OracleSessionConfig
 from lib.cli import ServiceCLI
 
 # Mode imports
@@ -35,10 +35,12 @@ class ModerConfig(ServiceConfig):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("moder_mode_away_devices",          [list], required=True),
-            ConfigField("moder_mode_away_device_timeout",   [int],  required=False, default=1200),
-            ConfigField("moder_mode_away_address",          [str],  required=False, default=None),
-            ConfigField("moder_tick_rate",                  [int],  required=False, default=5)
+            ConfigField("mode_away_devices",          [list], required=True),
+            ConfigField("mode_away_device_timeout",   [int],  required=False, default=1200),
+            ConfigField("mode_away_address",          [str],  required=False, default=None),
+            ConfigField("tick_rate",                  [int],  required=False, default=5),
+            ConfigField("warden",   [OracleSessionConfig],  required=True),
+            ConfigField("lumen",    [OracleSessionConfig],  required=True),
         ]
 
 
@@ -181,13 +183,13 @@ class ModerService(Service):
             # than wait for a higher-priority mode to surface or for the current
             # mode to finish
             if hpm is None:
-                time.sleep(self.config.moder_tick_rate)
+                time.sleep(self.config.tick_rate)
                 continue
 
             # otherwise, we know 'hpm' references a mode with a higher priority
             # than the current one. Launch it and sleep
             self.launch(hpm)
-            time.sleep(self.config.moder_tick_rate)
+            time.sleep(self.config.tick_rate)
 
 # This class represents a thread spawned by the Moder service to carry out the
 # currently-active house mode.

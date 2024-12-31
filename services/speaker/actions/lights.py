@@ -16,7 +16,7 @@ if gpdir not in sys.path:
 
 # Local imports
 from lib.config import Config, ConfigField
-from lib.oracle import OracleSession
+from lib.oracle import OracleSession, OracleSessionConfig
 
 # Speaker imports
 from action import DialogueActionConfig, DialogueAction
@@ -27,10 +27,7 @@ class DialogueActionConfig_Lights(DialogueActionConfig):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("lumen_addr",           [str],      required=True),
-            ConfigField("lumen_port",           [int],      required=True),
-            ConfigField("lumen_auth_username",  [str],      required=True),
-            ConfigField("lumen_auth_password",  [str],      required=True)
+            ConfigField("lumen",        [OracleSessionConfig],  required=True),
         ]
 
 
@@ -45,9 +42,8 @@ class DialogueAction_Lights(DialogueAction):
     # Gets and returns a new session with lumen.
     def lumen_session(self):
         # createa  session and log in
-        s = OracleSession(self.config.lumen_addr, self.config.lumen_port)
-        r = s.login(self.config.lumen_auth_username,
-                    self.config.lumen_auth_password)
+        s = OracleSession(self.config.lumen)
+        r = s.login()
         assert OracleSession.get_response_success(r), "failed to authenticate with lumen"
         return s
 
