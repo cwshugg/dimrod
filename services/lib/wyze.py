@@ -7,6 +7,7 @@
 import os
 import sys
 import logging
+import time
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -70,8 +71,15 @@ class Wyze:
     
     # Refreshes the internal client after already logging in.
     def refresh(self):
-        self.assert_is_authenticated()
-        self.client.refresh_token()
+        # attempt to log out (we don't care if this fails)
+        try:
+            self.client.logout()
+        except:
+            pass
+        
+        # reset the client and create a new one
+        self.client = None
+        self.login()
 
     # --------------------------- Device Retrieval --------------------------- #
     # Retrieves and returns a list of all devices on your account.

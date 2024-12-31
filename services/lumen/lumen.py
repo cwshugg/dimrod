@@ -215,6 +215,7 @@ class LumenService(Service):
             r = self.toggle_lifx(light, "on", color=color, brightness=brightness)
         else:
             r = self.toggle_webhook(light, "on", color=color, brightness=brightness)
+        light.set_power(True)
         light.unlock() # release the light's lock
         return r
     
@@ -232,7 +233,7 @@ class LumenService(Service):
         # acquire the light's lock, in case another thread is trying to access
         # the same light
         light.lock()
-
+        
         # build a JSON object and send the request
         r = None
         if light.match_tags("wyze"):
@@ -242,6 +243,7 @@ class LumenService(Service):
         else:
             r = self.toggle_webhook(light, "off")
         light.unlock() # release the light's lock
+        light.set_power(False)
         return r
     
     # Adds a power_off action to the thread queue for asynchronous processing.

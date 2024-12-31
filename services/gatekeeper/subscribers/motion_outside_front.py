@@ -106,7 +106,7 @@ def get_color(now: datetime):
         else:
             return [181, 200, 2]
     # christmas colors
-    elif now.month == 12 and now.day <= 25:
+    elif now.month == 12:
         # at night: candle-ish
         if now.hour in range(0, 5) or now.hour in range(21, 24):
             return [205, 147, 109]
