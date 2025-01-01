@@ -11,38 +11,35 @@ import time
 from datetime import datetime
 
 # Enable import from the main directory
-pdir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-if pdir not in sys.path:
-    sys.path.append(pdir)
+cdir = os.path.realpath(os.path.dirname(__file__))
+pdir = os.path.dirname(cdir)
+maindir = os.path.dirname(pdir)
+if maindir not in sys.path:
+    sys.path.append(maindir)
 
 # Local imports
-from lib.oracle import OracleSession
+from lib.oracle import OracleSession, OracleSessionConfig
 
 # Globals
 lumen_config_path = "/home/provolone/chs/services/lumen/cwshugg_lumen.json"
-lumen_config_data = None
+lumen_config_path = os.path.join(cdir, "cwshugg_lumen_config.json")
+lumen_config = None
 lumen_session = None
 light_cooldown = 180
 
 # Helper function for talking with Lumen.
 def lumen_send(lid: str, action: str, color=None, brightness=None):
     # open and read the config file, if necessary
-    global lumen_config_data
-    if lumen_config_data is None:
-        # parse the lumen config file
-        lumen_config_data = None
-        with open(lumen_config_path, "r") as fp:
-            lumen_config_data = json.load(fp)
+    global lumen_config
+    if lumen_config is None:
+        lumen_config = OracleSessionConfig()
+        lumen_config.parse_file(lumen_config_path)
     
     # set up the session, only the first time
     global lumen_session
     if lumen_session is None:
-        lumen_session = OracleSession(lumen_config_data["oracle"]["addr"],
-                                      lumen_config_data["oracle"]["port"])
-        # authenticate with the service
-        users = lumen_config_data["oracle"]["auth_users"]
-        user = users[0]
-        lumen_session.login(user["username"], user["password"])
+        lumen_session = OracleSession(lumen_config)
+        lumen_session.login()
     
     # now, take the parameters and build a request payload
     toggle_data = {

@@ -64,8 +64,8 @@ class GatekeeperService(Service):
         # Helper function that fires a single event and all of its subscribers.
         def run_event(e: GatekeeperEvent, out_fd, err_fd):
             asyncio.run(e.fire(data=pconf.data,
-                                stdout_fd=out_fd,
-                                stderr_fd=err_fd))
+                               stdout_fd=out_fd,
+                               stderr_fd=err_fd))
             self.log.return_fd(out_fd)
         
         # iterate through all events and fire off those that match
