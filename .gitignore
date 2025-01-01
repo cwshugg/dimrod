@@ -2,8 +2,10 @@
 *.swp
 *.swo
 
-# python artifacts
+# python artifacts, venv, etc.
 __pycache__
+.venv
+venv
 
 # my service config files and other private files
 cwshugg*.json

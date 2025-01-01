@@ -5,7 +5,7 @@ After=syslog.target network.target
 
 [Service]
 Type=simple
-ExecStart=/path/to/rambler.py --config /path/to/config.json --oracle
+ExecStart=/path/to/run-service.sh /path/to/rambler.py --config /path/to/config.json --oracle
 
 [Install]
 WantedBy=multi-user.target
