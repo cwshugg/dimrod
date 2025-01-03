@@ -1,0 +1,13 @@
+flask==3.1.0
+gevent==24.11.1
+PyJWT==2.10.1
+geopy==2.4.1
+timezonefinder==6.5.7
+pytz==2024.2
+python-dateutil==2.9.0
+openai==1.58.1
+todoist-api-python==2.1.7
+google-auth==2.37.0
+google-api-python-client==1.7.12
+wyze-sdk==2.2.0
+lifxlan==1.2.8

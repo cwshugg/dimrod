@@ -21,7 +21,6 @@ if maindir not in sys.path:
 from lib.oracle import OracleSession, OracleSessionConfig
 
 # Globals
-lumen_config_path = "/home/provolone/chs/services/lumen/cwshugg_lumen.json"
 lumen_config_path = os.path.join(cdir, "cwshugg_lumen_config.json")
 lumen_config = None
 lumen_session = None

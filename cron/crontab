@@ -16,19 +16,19 @@
 
 # ------------------------ Scheduled Service Restarts ------------------------ #
 # LUMEN: every 4 hours
-0     */4 *   *   * /home/provolone/chs/cron/restart-service.sh lumen
+0     */4 *   *   * /home/provolone/chs/scripts/restart-service.sh lumen
 # WARDEN: Wednesday afternoons at 12:30pm
-30    12  *   *   3 /home/provolone/chs/cron/restart-service.sh warden
+30    12  *   *   3 /home/provolone/chs/scripts/restart-service.sh warden
 # TELEGRAM: Saturday mornings at 4:00am
-0     4   *   *   6 /home/provolone/chs/cron/restart-service.sh telegram
+0     4   *   *   6 /home/provolone/chs/scripts/restart-service.sh telegram
 # NOTIF: Sunday mornings at 4:00am
-0     4   *   *   0 /home/provolone/chs/cron/restart-service.sh notif
+0     4   *   *   0 /home/provolone/chs/scripts/restart-service.sh notif
 # SPEAKER: Tuesday mornings at 4:00am
-0     4   *   *   2 /home/provolone/chs/cron/restart-service.sh speaker
+0     4   *   *   2 /home/provolone/chs/scripts/restart-service.sh speaker
 # MODER: Thursday mornings at 4:00am
-0     4   *   *   4 /home/provolone/chs/cron/restart-service.sh moder
+0     4   *   *   4 /home/provolone/chs/scripts/restart-service.sh moder
 # TASKMASTER: Friday mornings at 4:00am
-0     4   *   *   4 /home/provolone/chs/cron/restart-service.sh taskmaster
+0     4   *   *   4 /home/provolone/chs/scripts/restart-service.sh taskmaster
 # GATEKEEPER: Monday mornings at 3:00am
-0     4   *   *   4 /home/provolone/chs/cron/restart-service.sh gatekeeper
+0     4   *   *   4 /home/provolone/chs/scripts/restart-service.sh gatekeeper
 
