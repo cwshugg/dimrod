@@ -12,6 +12,7 @@ from enum import Enum
 import openai
 import sqlite3
 import zlib
+import asyncio
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -20,6 +21,14 @@ if pdir not in sys.path:
 
 # Local imports
 import lib.config
+
+
+# ================================= Helpers ================================== #
+# Takes in an existing dialogue conversation and sends it to OpenAI for
+# completion of the next message.
+def dialogue_chat_completion(api_key: str, **kwargs):
+    openai_client = openai.AsyncOpenAI(api_key=api_key)
+    return asyncio.run(openai_client.chat.completions.create(**kwargs))
 
 # =========================== OpenAI Introduction ============================ #
 # This is the prompt that will be fed to OpenAI to allow it to understand its
@@ -446,7 +455,7 @@ class DialogueInterface:
             
         # set the interface's mood and return it
         return self.mood
-    
+ 
     # Takes in a question, request, or statement, and passes it along to the
     # OpenAI chat API. If 'conversation' is specified, the given message will be
     # appended to the conversation's internal list, and the conversation's
@@ -470,22 +479,27 @@ class DialogueInterface:
             m = DialogueMessage(a, intro)
             c.add(m)
 
-        # add the user's message to the conversation and contact OpenAI
+        # add the user's message to the conversation
         a = author
         if a is None:
             a = DialogueAuthor("user", DialogueAuthorType.USER)
         self.save_author(a)
         m = DialogueMessage(a, prompt)
         c.add(m)
-        result = openai.ChatCompletion.create(model=self.conf.openai_chat_model,
-                                              messages=c.to_openai_json())
-        
+
+        # set up an OpenAI client and send it off
+        result = dialogue_chat_completion(
+            self.conf.openai_api_key,
+            model=self.conf.openai_chat_model,
+            messages=c.to_openai_json()
+        )
+
         # grab the first response choice and add it to the conversation
-        choices = result["choices"]
+        choices = result.choices
         response = choices[0]
         assistant_author = DialogueAuthor("assistant", DialogueAuthorType.SYSTEM)
         self.save_author(assistant_author)
-        m = DialogueMessage(assistant_author, response["message"]["content"])
+        m = DialogueMessage(assistant_author, response.message.content)
         c.add(m)
 
         # save conversation to the database and return
@@ -507,9 +521,12 @@ class DialogueInterface:
         c.add(DialogueMessage(a, "!reword %s" % prompt))
         
         # ping OpenAI for the result
-        result = openai.ChatCompletion.create(model=self.conf.openai_chat_model,
-                                              messages=c.to_openai_json())
-        result = result["choices"][0]["message"]["content"]
+        result = dialogue_chat_completion(
+            self.conf.openai_api_key,
+            model=self.conf.openai_chat_model,
+            messages=c.to_openai_json()
+        )
+        result = result.choices[0].message.content
         return result
 
     # -------------------------- SQLite3 Databasing -------------------------- #

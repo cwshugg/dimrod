@@ -15,7 +15,7 @@ if pdir not in sys.path:
 from lib.config import Config, ConfigField
 from lib.dialogue.dialogue import DialogueConfig, DialogueConversation, \
                                   DialogueAuthor, DialogueAuthorType, \
-                                  DialogueMessage
+                                  DialogueMessage, dialogue_chat_completion
 
 
 # ================================= Intents ================================== #
@@ -149,8 +149,11 @@ class DialogueIntentParser(abc.ABC):
         c.add(DialogueMessage(a, msg))
 
         # ping OpenAI for the result
-        openai.api_key = self.config.openai_api_key
-        result = openai.ChatCompletion.create(model=self.config.openai_chat_model,
-                                              messages=c.to_openai_json())
-        return result["choices"][0]["message"]["content"]
+        openai_client = openai.AsyncOpenAI()
+        result = dialogue_chat_completion(
+            self.conf.openai_api_key,
+            model=self.config.openai_chat_model,
+            messages=c.to_openai_json()
+        )
+        return result.choices[0].message.content
 
