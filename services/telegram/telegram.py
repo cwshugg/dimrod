@@ -27,6 +27,8 @@ from lib.google.google_calendar import GoogleCalendarConfig
 
 # Service imports
 from telegram_objects import TelegramChat, TelegramUser
+from menu import Menu, MenuConfig
+from menu import MenuOption, Menu
 from command import TelegramCommand
 from commands.help import command_help
 from commands.system import command_system
@@ -38,6 +40,7 @@ from commands.remind import command_remind
 from commands.mode import command_mode
 from commands.calendar import command_calendar
 from commands.s_reset import command_s_reset
+from commands.s_menu import command_s_menu
 
 
 # =============================== Config Class =============================== #
@@ -102,7 +105,13 @@ class TelegramService(Service):
             TelegramCommand(["_reset"],
                             "Resets the current chat conversation.",
                             command_s_reset,
+                            secret=True),
+            # ----- DEBUGGING TODO - REMOVE WHEN DONE ----- #
+            TelegramCommand(["_menu"],
+                            "Tests the new menu feature.",
+                            command_s_menu,
                             secret=True)
+            # ----- DEBUGGING TODO - REMOVE WHEN DONE ----- #
         ]
 
         # parse each chat as a TelegramChat object
@@ -217,7 +226,9 @@ class TelegramService(Service):
     
     # ------------------------------ Messaging ------------------------------- #
     # Wrapper for sending a message.
-    def send_message(self, chat_id, message, parse_mode=None):
+    def send_message(self, chat_id, message,
+                     parse_mode=None,
+                     reply_markup=None):
         # modify the message, if necessary, before sending
         if parse_mode is not None and parse_mode.lower() == "html":
             # adjust hyperlinks
@@ -236,7 +247,9 @@ class TelegramService(Service):
         tries = 8
         for i in range(tries):
             try:
-                return self.bot.send_message(chat_id, message, parse_mode=parse_mode)
+                return self.bot.send_message(chat_id, message,
+                                             parse_mode=parse_mode,
+                                             reply_markup=reply_markup)
             except Exception as e:
                 # on failure, sleep for a small amount of time, and get a new
                 # bot instance
@@ -246,6 +259,15 @@ class TelegramService(Service):
                 self.refresh()
                 time.sleep(1)
         self.log.write("Failed to send message %d times. Giving up." % tries)
+
+    # Builds and sends a menu of buttons.
+    def send_menu(self, chat_id, config: MenuConfig,
+                  parse_mode=None):
+        m = Menu(config)
+        markup = m.get_markup()
+        return self.send_message(chat_id, config.title,
+                                 parse_mode=parse_mode,
+                                 reply_markup=markup)
 
     # ----------------------------- Bot Behavior ----------------------------- #
     # Main runner function.
@@ -274,16 +296,6 @@ class TelegramService(Service):
                                   "Try /help.")
                 return
             
-            # SECRET COMMAND: this can be used to reset a conversation
-            # (i.e. force the bot to begin a new conversation rather than
-            # use the existing one)
-            chat_id = str(message.chat.id)
-            if message.text.lower().startswith("/_reset"):
-                if chat_id in self.chat_conversations:
-                    self.chat_conversations.pop(chat_id)
-                self.send_message(message.chat.id, "Conversation reset.\n")
-                return
-
             # if a matching command wasn't found, we'll interpret it as a chat
             # message to dimrod. First, look for an existing conversation object
             # for this specific chat. If one exists, AND it hasn't been too long

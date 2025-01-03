@@ -1,8 +1,5 @@
 # This module defines a class that represents a command for the DImROD bot.
 
-# Imports
-import telebot
-
 class TelegramCommand:
     prefix = "/"
 
