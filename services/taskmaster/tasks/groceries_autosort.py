@@ -14,8 +14,8 @@ if pdir not in sys.path:
 from task import TaskConfig
 from tasks.base import *
 import lib.dtu as dtu
-from lib.dialogue.dialogue import DialogueConfig, DialogueInterface, \
-                                  DialogueAuthor, DialogueAuthorType
+from lib.dialogue.dialogue import DialogueInterface, DialogueAuthor, \
+                                  DialogueAuthorType
 
 # Helper class used to keep an on-disk record of the current grocery items and
 # the categories they've been assigned.
@@ -165,9 +165,7 @@ class TaskJob_Groceries_Autosort(TaskJob_Groceries):
                                          DialogueAuthorType.SYSTEM)
 
         # pass the prompt to the dialogue library
-        dialogue_config = DialogueConfig()
-        dialogue_config.parse_json(self.service.config.to_json())
-        dialogue = DialogueInterface(dialogue_config)
+        dialogue = DialogueInterface(self.service.config.dialogue)
         c = dialogue.talk(dialogue_message, author=dialogue_author, intro=dialogue_intro)
         result = c.latest_response().content
         

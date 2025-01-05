@@ -26,6 +26,7 @@ from lib.cli import ServiceCLI
 from lib.todoist import Todoist
 from lib.google.google_calendar import GoogleCalendar, GoogleCalendarConfig
 from lib.oracle import OracleSession, OracleSessionConfig
+from lib.dialogue.dialogue import DialogueConfig
 
 # Service imports
 from task import TaskJob
@@ -42,6 +43,7 @@ class TaskmasterConfig(ServiceConfig):
             ConfigField("google_calendar",              [GoogleCalendarConfig], required=True),
             ConfigField("taskmaster_refresh_rate",      [int], required=False, default=300),
             ConfigField("lumen",        [OracleSessionConfig], required=True),
+            ConfigField("dialogue",     [DialogueConfig],      required=True),
         ]
 
 

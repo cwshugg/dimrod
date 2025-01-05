@@ -34,5 +34,10 @@
         "port": 1234,
         "auth_username": "YOUR_LUMEN_USERNAME",
         "auth_password": "YOUR_LUMEN_PASSWORD"
+    },
+
+    "dialogue":
+    {
+        "openai_api_key": "YOUR_OPENAI_API_KEY"
     }
 }
