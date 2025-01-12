@@ -419,8 +419,10 @@ class DialogueInterface:
         # take the chat moods and parse them into DialogueMood objects
         moods = []
         for mdata in self.conf.openai_chat_moods:
-            mood = DialogueMood()
-            mood.parse_json(mdata)
+            mood = mdata
+            if type(mdata) == dict:
+                mood = DialogueMood()
+                mood.parse_json(mdata)
             moods.append(mood)
         self.conf.openai_chat_moods = moods
         self.remood() # select the first mood
