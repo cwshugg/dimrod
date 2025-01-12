@@ -68,6 +68,13 @@ class ServiceCLI:
         except Exception as e:
             self.panic("Failed to initialize %s" % self.config_class.__name__,
                        exception=e)
+
+        # make sure we're in a python virtual environment. If we're not,
+        # complain and exit
+        if sys.prefix == sys.base_prefix:
+            self.panic("This is not running in a Python Virtual Environment. "
+                       "Please restart this and run in a venv.")
+            return
         
         # next, attempt to initialize the service
         global service
