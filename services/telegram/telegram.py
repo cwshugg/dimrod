@@ -364,23 +364,37 @@ class TelegramService(Service):
             menu_option_id = call.data
 
             # query the database for a menu option with the matching ID
-            op = self.menu_db.search_menu_option(menu_option_id)
-            if op is None:
+            op_info = self.menu_db.search_menu_option(menu_option_id)
+            if op_info is None:
                 self.log.write("Unknown menu option selected.")
                 return
 
-            self.log.write(op)
-            self.log.write("Menu option (ID \"%s\") was pressed." % op.get_id())
-
             # with the menu option retrieve, query for the menu that owns this
             # menu option
-            m = self.menu_db.search_menu(op.menu_id)
+            m = self.menu_db.search_menu(op_info.menu_id)
             if m is None:
                 self.log.write("Menu option belongs to an unknown menu.")
                 return
 
-            self.log.write(m)
-            self.log.write("Menu option belongs to menu (ID \"%s\")." % m.get_id())
+            # because the above `MenuOption` object was recreated from a
+            # database entry, (and so was the `Menu` object), we want to get a
+            # reference to the menu's version of the `MenuOption` object,
+            # instead of the one reconstructed from the database entry.
+            #
+            # Why? Because we will write the `Menu` back out to the database,
+            # which means *its* `MenuOption` object will be the one written out
+            # to disk. This means that all modifications to the menu option
+            # need to be applied to the `Menu`'s `MenuOption` object.
+            op = m.get_option(op_info.get_id())
+
+            # update the menu option to increment its selection counter
+            op.select()
+            self.log.write("Menu option (ID \"%s\") from Menu (ID \"%s\") "
+                           "was pressed. (count: %d)" %
+                           (op.get_id(), m.get_id(), op.selection_count))
+
+            # write the updated menu back out to the database
+            self.menu_db.save_menu(m)
 
         # start the bot and set it to poll periodically for updates (catch
         # errors and restart when necessary)

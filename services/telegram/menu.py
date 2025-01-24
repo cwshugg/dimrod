@@ -67,7 +67,6 @@ class MenuOption(MenuObject):
         self.fields += [
             ConfigField("title",            [str],      required=True),
             ConfigField("menu_id",          [str],      required=False, default=""),
-            ConfigField("kills_menu",       [bool],     required=False, default=True),
             ConfigField("selection_count",  [int],      required=False, default=0),
         ]
 
@@ -83,6 +82,7 @@ class MenuOption(MenuObject):
     # This should be called when the menu option is selected by the user.
     def select(self):
         self.selection_count += 1
+
     
 # Config object used to create a Menu object.
 class Menu(MenuObject):
@@ -131,20 +131,13 @@ class Menu(MenuObject):
         now = datetime.now() if now is None else now
         return dtu.diff_in_seconds(now, self.birth_time) > self.timeout
     
-    # Examines the menu's various options and determines if it has been "dead",
-    # i.e. all used up and no longer available for interaction.
-    def is_dead(self):
-        # if the menu has already died, return early
-        if self.death_time is not None:
-            return True
-
-        # otherwise, examine all menu options
+    # Gets and returns one of the menu's inner `MenuOption` objects, given its
+    # ID. If a match isn't found, `None` if returned.
+    def get_option(self, option_id: str):
         for op in self.options:
-            # if any option that is selected multiple times is configured to
-            # "kill" the menu upon selection, then we should deem the menu dead
-            if op.selection_count > 0 and op.kills_menu:
-                return True
-        return False
+            if option_id == op.get_id():
+                return op
+        return None
     
 
 # ============================= Menu Databasing ============================== #
@@ -168,7 +161,8 @@ class MenuDatabase:
         # make sure the option table exists
         cur.execute(op.get_sqlite3_table_definition(
             "menu_options",
-            fields_to_keep_visible=self.visible_fields_menu_option
+            fields_to_keep_visible=self.visible_fields_menu_option,
+            primary_key_field="id"
         ))
         
         cur.execute("INSERT OR REPLACE INTO menu_options VALUES %s" %
@@ -192,7 +186,8 @@ class MenuDatabase:
         # make sure the option table exists
         cur.execute(m.get_sqlite3_table_definition(
             "menus",
-            fields_to_keep_visible=self.visible_fields_menu
+            fields_to_keep_visible=self.visible_fields_menu,
+            primary_key_field="id"
         ))
         
         # insert the menu into the database
@@ -252,12 +247,13 @@ class MenuDatabase:
         # Interpret the first returned "row" as the menu option and return the
         # reconstructed object
         cond = "id == \"%s\"" % menu_id
-        for row in self.search("menus", cond):
+        for (i, row) in enumerate(self.search("menus", cond)):
             m = Menu()
             m.parse_sqlite3(
                 row,
                 fields_kept_visible=self.visible_fields_menu
             )
+
             return m
         return None
     

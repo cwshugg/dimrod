@@ -255,10 +255,22 @@ class Config:
     # object, bearing in mind the same `fields_to_keep_visible` as described
     # above in `to_sqlite3()`.
     #
+    # Additionally, a `primary_key_field` can be specified as the name of a
+    # field to represent the entry's primary ID. If this is specified, the
+    # given field name must also be present in `fields_to_keep_visible`.
+    #
     # The SQLite statement is returned.
-    def get_sqlite3_table_definition(self, table_name: str, fields_to_keep_visible=[]):
+    def get_sqlite3_table_definition(self, table_name: str,
+                                     fields_to_keep_visible=[],
+                                     primary_key_field=None):
         result = "CREATE TABLE IF NOT EXISTS %s (" % table_name
         result += "encoded_obj TEXT, "
+
+        # if a primary key field was given, make sure it is part of
+        # `fields_to_keep_visible`
+        if primary_key_field is not None:
+            assert primary_key_field in fields_to_keep_visible, \
+                   "the given primary key field \"%s\" must also be present in `fields_to_keep_visible`"
 
         # add all visible fields as separate colums
         fields_to_keep_visible_len = len(fields_to_keep_visible)
@@ -281,9 +293,15 @@ class Config:
             elif type(val) == float:
                 sqlite3_type = "REAL"
             
-            # add the name and type definition, plus a comma and a space if
-            # this isn't the last field
+            # add the name and type definition
             result += "%s %s" % (name, sqlite3_type)
+
+            # add the "PRIMARY KEY" specifier if this field is supposed to be
+            # the primary key
+            if name == primary_key_field:
+                result += " PRIMARY KEY"
+
+            # add a comma and space if this isn't the last field
             if i < fields_to_keep_visible_len - 1:
                 result += ", "
 
