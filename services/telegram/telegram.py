@@ -11,6 +11,7 @@ import re
 from datetime import datetime
 import flask
 import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import traceback
 
 # Enable import from the parent directory
@@ -27,8 +28,7 @@ from lib.google.google_calendar import GoogleCalendarConfig
 
 # Service imports
 from telegram_objects import TelegramChat, TelegramUser
-from menu import Menu, MenuConfig
-from menu import MenuOption, Menu
+from menu import Menu, MenuDatabase
 from command import TelegramCommand
 from commands.help import command_help
 from commands.system import command_system
@@ -53,6 +53,7 @@ class TelegramConfig(ServiceConfig):
             ConfigField("bot_chats",                [list],     required=True),
             ConfigField("bot_users",                [list],     required=True),
             ConfigField("bot_conversation_timeout", [int],      required=False, default=900),
+            ConfigField("bot_menu_db",              [str],      required=False, default=None),
             ConfigField("lumen",    [OracleSessionConfig],      required=True),
             ConfigField("warden",   [OracleSessionConfig],      required=True),
             ConfigField("notif",    [OracleSessionConfig],      required=True),
@@ -131,6 +132,20 @@ class TelegramService(Service):
         # store converstaion IDs and timestamps in a dictionary, indexed by
         # telegram chat ID
         self.chat_conversations = {}
+
+        # set up a menu database; generate a fitting file path if one wasn't
+        # specified
+        menu_db_path = self.config.bot_menu_db
+        if menu_db_path is None:
+            menu_db_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                        ".telegram_bot_menus.db")
+        self.menu_db = MenuDatabase(menu_db_path)
+
+        # TODO - set up a separate thread for Telegram whose job is to examine
+        # the dictionary and prune menus (and update them to show that they are
+        # dead) when they expire/die
+        # TODO - make this stored on disk, so IDs aren't lost when
+        # the bot restarts
     
     # ------------------------------- Helpers -------------------------------- #
     # Sets up a new TeleBot instance.
@@ -261,14 +276,26 @@ class TelegramService(Service):
         self.log.write("Failed to send message %d times. Giving up." % tries)
 
     # Builds and sends a menu of buttons.
-    def send_menu(self, chat_id, config: MenuConfig,
+    def send_menu(self, chat_id, m: Menu,
                   parse_mode=None):
-        m = Menu(config)
         markup = m.get_markup()
-        return self.send_message(chat_id, config.title,
-                                 parse_mode=parse_mode,
-                                 reply_markup=markup)
+        msg = self.send_message(chat_id, m.title,
+                                parse_mode=parse_mode,
+                                reply_markup=markup)
+        
+        # perform a few sanity checks
+        assert msg.reply_markup is not None
+        assert type(msg.reply_markup) == InlineKeyboardMarkup
+        assert len(msg.reply_markup.keyboard) == len(m.options)
 
+        # attach the telegram message we just sent to the menu object, and save
+        # it to the database
+        m.set_telegram_message(msg)
+        self.menu_db.save_menu(m)
+        self.log.write("Add menu to database (ID: %s)" % m.get_id())
+
+        return msg
+    
     # ----------------------------- Bot Behavior ----------------------------- #
     # Main runner function.
     def run(self):
@@ -301,6 +328,7 @@ class TelegramService(Service):
             # for this specific chat. If one exists, AND it hasn't been too long
             # since it was last touched, we'll use it
             convo_id = None
+            chat_id = str(message.chat.id)
             if chat_id in self.chat_conversations:
                 timediff = now.timestamp() - self.chat_conversations[chat_id]["timestamp"].timestamp()
                 if timediff < self.config.bot_conversation_timeout:
@@ -328,6 +356,31 @@ class TelegramService(Service):
                 self.send_message(message.chat.id,
                                   "I'm not sure what you mean. Try /help.")
                 raise e
+
+
+        # Callback for any menu buttons that are pressed.
+        @self.bot.callback_query_handler(func=lambda call: True)
+        def menu_button_callback(call):
+            menu_option_id = call.data
+
+            # query the database for a menu option with the matching ID
+            op = self.menu_db.search_menu_option(menu_option_id)
+            if op is None:
+                self.log.write("Unknown menu option selected.")
+                return
+
+            self.log.write(op)
+            self.log.write("Menu option (ID \"%s\") was pressed." % op.get_id())
+
+            # with the menu option retrieve, query for the menu that owns this
+            # menu option
+            m = self.menu_db.search_menu(op.menu_id)
+            if m is None:
+                self.log.write("Menu option belongs to an unknown menu.")
+                return
+
+            self.log.write(m)
+            self.log.write("Menu option belongs to menu (ID \"%s\")." % m.get_id())
 
         # start the bot and set it to poll periodically for updates (catch
         # errors and restart when necessary)

@@ -10,41 +10,24 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 # Service imports
-from menu import MenuConfig
+from menu import Menu
 
 # Main function.
 def command_s_menu(service, message, args: list):
-    mconf = MenuConfig()
-    mconf.parse_json({
+    m = Menu()
+    m.parse_json({
         "title": "This is a menu",
-        "children": [
+        "options": [
             {
                 "title": "A",
-                "children": []
             },
             {
                 "title": "B",
-                "children": [
-                    {
-                        "title": "This is B's inner menu",
-                        "children": [
-                            {
-                                "title": "B1",
-                                "children": []
-                            },
-                            {
-                                "title": "B2",
-                                "children": []
-                            }
-                        ]
-                    }
-                ]
             },
             {
                 "title": "C",
-                "children": []
             },
         ]
     })
-    service.send_menu(message.chat.id, mconf)
+    service.send_menu(message.chat.id, m)
 
