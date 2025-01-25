@@ -444,6 +444,20 @@ class TelegramService(Service):
             self.log.write("Menu option (ID: %s) from Menu (ID %s) "
                            "was selected. (count: %d)" %
                            (op.get_id(), m.get_id(), op.selection_count))
+            
+            # there doesn't seem to be a clear way to update the menu to remove
+            # the shimmery effect that plays for ~10 seconds when a button is
+            # pressed. UNLESS the menu is updated.
+            # So, we'll modify the pressed button's text ever-so-slightly, then
+            # change it back to the original. This will remove the shimmery
+            # effect, which will be a nice visual indicator to the user that
+            # the button was pressed.
+            new_button_titles = [" %s " % op.title, op.title]
+            for text in new_button_titles:
+                op.title = text
+                self.update_menu(m.telegram_msg_info.chat.id,
+                                 m.telegram_msg_info.id,
+                                 m)
 
             # write the updated menu back out to the database
             self.menu_db.save_menu(m)
