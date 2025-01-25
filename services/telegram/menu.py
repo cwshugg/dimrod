@@ -20,6 +20,7 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import sqlite3
 import json
+import threading
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -146,10 +147,11 @@ class MenuDatabase:
     def __init__(self, path: str):
         self.db_path = path
         self.visible_fields_menu_option = ["id", "menu_id"]
-        self.visible_fields_menu = ["id"]
+        self.visible_fields_menu = ["id", "birth_time", "death_time"]
+        self.lock = threading.Lock()
     
     # Saves a Menu option to the database.
-    def save_menu_option(self, op: MenuOption, connection=None):
+    def save_menu_option_locked(self, op: MenuOption, connection=None):
         # establish a connection, if one wasn't already passed in
         connection_was_provided = connection is not None
         if not connection_was_provided:
@@ -173,8 +175,26 @@ class MenuDatabase:
         if not connection_was_provided:
             connection.close()
     
+    # Wrapper around `save_menu_option_locked` that acquires and released the
+    # lock, if specified by `use_lock`.
+    def save_menu_option(self, op: MenuOption, connection=None, use_lock=True):
+        if use_lock:
+            self.lock.acquire()
+
+        # attempt the database access. If it fails, capture the exception and
+        # release the lock before raising it
+        try:
+            self.save_menu_option_locked(op, connection=connection)
+        except Exception as e:
+            if use_lock:
+                self.lock.release()
+                raise e
+
+        if use_lock:
+            self.lock.release()
+    
     # Saves a menu, and all of its options, into the database.
-    def save_menu(self, m: Menu, connection=None):
+    def save_menu_locked(self, m: Menu, connection=None):
         # establish a connection, if one wasn't already passed in
         connection_was_provided = connection is not None
         if not connection_was_provided:
@@ -196,15 +216,33 @@ class MenuDatabase:
 
         # next, examine the menu's options; add each to the menu option table
         for op in m.options:
-            self.save_menu_option(op, connection=connection)
+            self.save_menu_option(op, connection=connection, use_lock=False)
         
         # commit and close (only if the connection wasn't provided)
         connection.commit()
         if not connection_was_provided:
             connection.close()
     
+    # Wrapper around `save_menu_locked` that acquires and released the lock, if
+    # specified by `use_lock`.
+    def save_menu(self, m: Menu, connection=None, use_lock=True):
+        if use_lock:
+            self.lock.acquire()
+
+        # attempt the database access. If it fails, capture the exception and
+        # release the lock before raising it
+        try:
+            self.save_menu_locked(m, connection=connection)
+        except Exception as e:
+            if use_lock:
+                self.lock.release()
+                raise e
+
+        if use_lock:
+            self.lock.release()
+    
     # Performs a generic result and returns the SQLite3 result.
-    def search(self, table: str, condition: str):
+    def search_locked(self, table: str, condition: str):
         # construct a condition string
         cmd = "SELECT * FROM %s" % table
         if condition is not None and len(condition) > 0:
@@ -215,6 +253,24 @@ class MenuDatabase:
         cur = con.cursor()
         result = cur.execute(cmd)
         return result
+    
+    # Wrapper around `search_locked` that acquires and released the lock, if
+    # specified by `use_lock`.
+    def search(self, table: str, condition: str, use_lock=True):
+        if use_lock:
+            self.lock.acquire()
+
+        # attempt the database access. If it fails, capture the exception an
+        # release the lock before raising it
+        try:
+            result = self.search_locked(table, condition)
+            if use_lock:
+                self.lock.release()
+            return result
+        except Exception as e:
+            if use_lock:
+                self.lock.release()
+                raise e
 
     # Searches for a menu option by its ID and returns it if found. Returns
     # None if no match is found.
@@ -236,24 +292,108 @@ class MenuDatabase:
             return op
         return None
     
-    # Searches for a menu by its ID and returns it if found. Returns None if no
-    # match is found.
-    def search_menu(self, menu_id: str):
+    # Searches for menus, with a condition string, instead of a menu ID. A list
+    # of matching Menu objects are returned.
+    def search_menu_by_condition(self, condition: str):
         # return early if the database doesn't exist
         if not os.path.isfile(self.db_path):
-            return None
+            return []
 
-        # build a partial condition string and pass it to the helper function.
-        # Interpret the first returned "row" as the menu option and return the
-        # reconstructed object
-        cond = "id == \"%s\"" % menu_id
-        for (i, row) in enumerate(self.search("menus", cond)):
+        # pass the condition string into the helper function, and build a list
+        # of results
+        result = []
+        for (i, row) in enumerate(self.search("menus", condition)):
             m = Menu()
             m.parse_sqlite3(
                 row,
                 fields_kept_visible=self.visible_fields_menu
             )
+            result.append(m)
+        return result
 
-            return m
-        return None
+    # Searches for a menu by its ID and returns it if found. Returns None if no
+    # match is found.
+    def search_menu(self, menu_id: str):
+        cond = "id == \"%s\"" % menu_id
+        result = self.search_menu_by_condition(cond)
+        result_len = len(result)
+
+        if result_len == 0:
+            return None
+
+        assert result_len == 1, \
+               "duplicate menu ID found in database: %s" % menu_id
+        return result[0]
     
+    # Deletes a menu option from the database.
+    def delete_menu_option_locked(self, op_id: str, connection=None):
+        connection_was_provided = connection is not None
+        if not connection_was_provided:
+            connection = sqlite3.connect(self.db_path)
+        
+        # open a cursor
+        cur = connection.cursor()
+
+        # execute a command to delete the menu option
+        cmd = "DELETE FROM menu_options WHERE id == \"%s\"" % op_id
+        cur.execute(cmd)
+
+        # commit and close (only if the connection wasn't provided)
+        connection.commit()
+        if not connection_was_provided:
+            connection.close()
+
+    # Wrapper around `delete_menu_locked` that acquires and released the lock,
+    # if specified by `use_lock`.
+    def delete_menu_option(self, op_id: str, connection=None, use_lock=True):
+        if use_lock:
+            self.lock.acquire()
+
+        try:
+            self.delete_menu_option_locked(op_id, connection=connection)
+        except Exception as e:
+            if use_lock:
+                self.lock.release()
+                raise e
+
+        if use_lock:
+            self.lock.release()
+    
+    # Deletes a menu (and its menu options) from the database.
+    def delete_menu_locked(self, menu_id: str, connection=None):
+        connection_was_provided = connection is not None
+        if not connection_was_provided:
+            connection = sqlite3.connect(self.db_path)
+        
+        # open a cursor
+        cur = connection.cursor()
+
+        # execute a command to delete the menu object
+        cmd = "DELETE FROM menus WHERE id == \"%s\"" % menu_id
+        cur.execute(cmd)
+        
+        # execute a command to delete the menu's options
+        cmd = "DELETE FROM menu_options WHERE menu_id == \"%s\"" % menu_id
+        cur.execute(cmd)
+
+        # commit and close (only if the connection wasn't provided)
+        connection.commit()
+        if not connection_was_provided:
+            connection.close()
+
+    # Wrapper around `delete_menu_locked` that acquires and released the lock,
+    # if specified by `use_lock`.
+    def delete_menu(self, menu_id: str, connection=None, use_lock=True):
+        if use_lock:
+            self.lock.acquire()
+
+        try:
+            self.delete_menu_locked(menu_id, connection=connection)
+        except Exception as e:
+            if use_lock:
+                self.lock.release()
+                raise e
+
+        if use_lock:
+            self.lock.release()
+

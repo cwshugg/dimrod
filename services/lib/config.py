@@ -240,13 +240,18 @@ class Config:
             val = getattr(self, name)
             
             # make sure the value is a primitive type
-            assert type(val) in [int, float, str, bool], \
+            assert type(val) in [int, float, str, bool, datetime], \
                    "only primitive types can be placed into a SQLite3 tuple for an %s object" % \
                    __class__.__name__
+
+            # convert datetimes to ISO strings
+            if type(val) == datetime:
+                val = val.timestamp()
             
             # convert booleans to integers
             if type(val) == bool:
                 val = int(val)
+
             result += (val,)
 
         return result
@@ -281,10 +286,6 @@ class Config:
             val = getattr(self, name)
 
             # determine the correct SQLite3 type to be used for this data type
-            # (first, make sure the value is a primitive type)
-            assert type(val) in [int, float, str, bool], \
-                   "only primitive types can be placed into a SQLite3 tuple for an %s object" % \
-                   __class__.__name__
             sqlite3_type = "BLOB"
             if type(val) == str:
                 sqlite3_type = "TEXT"
@@ -292,6 +293,12 @@ class Config:
                 sqlite3_type = "INTEGER"
             elif type(val) == float:
                 sqlite3_type = "REAL"
+            elif type(val) == datetime:
+                # we'll convert datetime objects to ISO strings when storing
+                # them in a tuple
+                sqlite3_type = "INTEGER"
+            else:
+                raise Exception("unsupported type for SQLite3 tuple: %s" % str(type(val)))
             
             # add the name and type definition
             result += "%s %s" % (name, sqlite3_type)
@@ -332,6 +339,11 @@ class Config:
             # convert any expected booleans from integers
             if bool in field.types:
                 value = bool(value)
+
+            # if the value is a string, and the expected type is a datetime,
+            # attempt to parse it as an ISO string
+            if datetime in field.types:
+                value = datetime.fromtimestamp(value)
 
             # otherwise, make sure the value's type is correct
             assert type(value) in field.types, \

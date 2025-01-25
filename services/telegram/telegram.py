@@ -13,6 +13,7 @@ import flask
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import traceback
+import threading
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -52,8 +53,11 @@ class TelegramConfig(ServiceConfig):
             ConfigField("bot_api_key",              [str],      required=True),
             ConfigField("bot_chats",                [list],     required=True),
             ConfigField("bot_users",                [list],     required=True),
+            ConfigField("bot_error_retry_attempts", [int],      required=False, default=8),
+            ConfigField("bot_error_retry_delay",    [int],      required=False, default=1),
             ConfigField("bot_conversation_timeout", [int],      required=False, default=900),
             ConfigField("bot_menu_db",              [str],      required=False, default=None),
+            ConfigField("bot_menu_db_refresh_rate", [int],      required=False, default=5),
             ConfigField("lumen",    [OracleSessionConfig],      required=True),
             ConfigField("warden",   [OracleSessionConfig],      required=True),
             ConfigField("notif",    [OracleSessionConfig],      required=True),
@@ -141,11 +145,9 @@ class TelegramService(Service):
                                         ".telegram_bot_menus.db")
         self.menu_db = MenuDatabase(menu_db_path)
 
-        # TODO - set up a separate thread for Telegram whose job is to examine
-        # the dictionary and prune menus (and update them to show that they are
-        # dead) when they expire/die
-        # TODO - make this stored on disk, so IDs aren't lost when
-        # the bot restarts
+        # set up a menu thread to manage the database asynchronously
+        self.menu_thread = TelegramService_MenuThread(self)
+        self.menu_thread.start()
     
     # ------------------------------- Helpers -------------------------------- #
     # Sets up a new TeleBot instance.
@@ -259,8 +261,7 @@ class TelegramService(Service):
                     message = message[:end_idx] + "</a>" + message[end_idx:]
 
         # try sending the message a finite number of times
-        tries = 8
-        for i in range(tries):
+        for i in range(self.config.bot_error_retry_attempts):
             try:
                 return self.bot.send_message(chat_id, message,
                                              parse_mode=parse_mode,
@@ -271,9 +272,30 @@ class TelegramService(Service):
                 self.log.write("Failed to send message. "
                                "Resetting the bot, sleeping for a short time, "
                                "and trying again.")
+                tb = traceback.format_exc()
+                for line in tb.split("\n"):
+                    self.log.write(line)
                 self.refresh()
-                time.sleep(1)
-        self.log.write("Failed to send message %d times. Giving up." % tries)
+                time.sleep(self.config.bot_error_retry_delay)
+        self.log.write("Failed to send message. Giving up.")
+    
+    # Wrapper for deleting an existing message.
+    def delete_message(self, chat_id, message_id):
+        for i in range(self.config.bot_error_retry_attempts):
+            try:
+                return self.bot.delete_message(chat_id, message_id)
+            except Exception as e:
+                # on failure, sleep for a small amount of time, and get a new
+                # bot instance
+                self.log.write("Failed to delete message. "
+                               "Resetting the bot, sleeping for a short time, "
+                               "and trying again.")
+                tb = traceback.format_exc()
+                for line in tb.split("\n"):
+                    self.log.write(line)
+                self.refresh()
+                time.sleep(self.config.bot_error_retry_delay)
+        self.log.write("Failed to delete message. Giving up.")
 
     # Builds and sends a menu of buttons.
     def send_menu(self, chat_id, m: Menu,
@@ -294,7 +316,37 @@ class TelegramService(Service):
         self.menu_db.save_menu(m)
         self.log.write("Add menu to database (ID: %s)" % m.get_id())
 
-        return msg
+        return m
+    
+    # Updates the menu for an existing message.
+    def update_menu(self, chat_id, message_id, m: Menu = None):
+       # try updating the message's menu a finite number of times
+        for i in range(self.config.bot_error_retry_attempts):
+            try:
+                # if `None` was given for the menu, we'll remove the menu from
+                # the message by passing in `None`. Otherwise, we'll use the
+                # `Menu` object to generate a markup object
+                markup = None
+                if m is not None:
+                    markup = m.get_markup()
+
+                return self.bot.edit_message_reply_markup(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    reply_markup=markup
+                )
+            except Exception as e:
+                # on failure, sleep for a small amount of time, and get a new
+                # bot instance
+                self.log.write("Failed to update menu. "
+                               "Resetting the bot, sleeping for a short time, "
+                               "and trying again.")
+                tb = traceback.format_exc()
+                for line in tb.split("\n"):
+                    self.log.write(line)
+                self.refresh()
+                time.sleep(self.config.bot_error_retry_delay)
+        self.log.write("Failed to update menu. Giving up.")
     
     # ----------------------------- Bot Behavior ----------------------------- #
     # Main runner function.
@@ -389,8 +441,8 @@ class TelegramService(Service):
 
             # update the menu option to increment its selection counter
             op.select()
-            self.log.write("Menu option (ID \"%s\") from Menu (ID \"%s\") "
-                           "was pressed. (count: %d)" %
+            self.log.write("Menu option (ID: %s) from Menu (ID %s) "
+                           "was selected. (count: %d)" %
                            (op.get_id(), m.get_id(), op.selection_count))
 
             # write the updated menu back out to the database
@@ -410,9 +462,64 @@ class TelegramService(Service):
                 self.log.write("Waiting for a short time and restarting...")
                 time.sleep(5)
 
+# A class instantiated by the main `TelegramService` class whose job is to
+# routinely examine and prune the database of Telegram menus.
+class TelegramService_MenuThread(threading.Thread):
+    def __init__(self, service: TelegramService):
+        threading.Thread.__init__(self, target=self.run)
+        self.service = service
+    
+    # Main runner function for the thread.
+    def run(self):
+        while True:
+            now = datetime.now()
+
+            # get all menus whose death time has passed the current time
+            dead_menus = self.service.menu_db.search_menu_by_condition(
+                "death_time < %f" % now.timestamp()
+            )
+            for m in dead_menus:
+                self.service.log.write("Menu (ID: %s) is dead. "
+                                       "Deleting from database." %
+                                       m.get_id())
+                self.service.menu_db.delete_menu(m.get_id())
+
+                # delete the message
+                self.service.delete_message(m.telegram_msg_info.chat.id,
+                                            m.telegram_msg_info.id)
+
+            # sleep for the configured time
+            time.sleep(self.service.config.bot_menu_db_refresh_rate)
+
+
 
 # ============================== Service Oracle ============================== #
 class TelegramOracle(Oracle):
+    # Helper function used to determine what chat ID to use when sending a
+    # message in the below endpoint handlers.
+    def resolve_chat_id(self, jdata: dict):
+        # look for a "chat" object in the JSON data
+        chat_id = None
+        if "chat" in jdata:
+            try:
+                chat = TelegramChat()
+                chat.parse_json(jdata["chat"])
+                chat_id = chat.id
+            except Exception as e:
+                return self.make_response(success=False,
+                                          msg="Invalid chat data: %s" % e)
+
+        # alternatively, look for a "user" object in the JSON data
+        if chat_id is None and "user" in jdata:
+            try:
+                user = TelegramUser()
+                user.parse_json(jdata["user"])
+                chat_id = user.id
+            except Exception as e:
+                return self.make_response(success=False,
+                                          msg="Invalid user data: %s" % e)
+        return chat_id
+
     def endpoints(self):
         super().endpoints()
         
@@ -454,28 +561,8 @@ class TelegramOracle(Oracle):
                 return self.make_response(success=False,
                                           msg="No message provided.")
             
-            # look for a "chat" object in the JSON data
-            chat_id = None
-            if "chat" in flask.g.jdata:
-                try:
-                    chat = TelegramChat()
-                    chat.parse_json(flask.g.jdata["chat"])
-                    chat_id = chat.id
-                except Exception as e:
-                    return self.make_response(success=False,
-                                              msg="Invalid chat data: %s" % e)
-
-            # alternatively, look for a "user" object in the JSON data
-            if chat_id is None and "user" in flask.g.jdata:
-                try:
-                    user = TelegramUser()
-                    user.parse_json(flask.g.jdata["user"])
-                    chat_id = user.id
-                except Exception as e:
-                    return self.make_response(success=False,
-                                              msg="Invalid user data: %s" % e)
-
             # make sure we have a chat ID to work with
+            chat_id = self.resolve_chat_id(flask.g.jdata)
             if chat_id is None:
                 return self.make_response(success=False,
                                           msg="No chat or user provided.")
@@ -483,6 +570,66 @@ class TelegramOracle(Oracle):
             # send the message and respond
             self.service.send_message(chat_id, flask.g.jdata["message"], parse_mode="HTML")
             return self.make_response(msg="Message sent successfully.")
+
+        # Endpoint used to instruct the bot to send a message with a menu (a
+        # series of buttons) attached..
+        @self.server.route("/bot/send/menu", methods=["POST"])
+        def endpoint_bot_send_menu():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No JSON data provided.")
+
+            # look for a "menu" field in the JSON data
+            if "menu" not in flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No menu provided.")
+
+            # attempt to parse the JSON representing the menu
+            menu = Menu()
+            try:
+                menu.parse_json(flask.g.jdata["menu"])
+            except:
+                return self.make_response(success=False,
+                                          msg="Invalid menu data.")
+            
+            # make sure we have a chat ID to work with
+            chat_id = self.resolve_chat_id(flask.g.jdata)
+            if chat_id is None:
+                return self.make_response(success=False,
+                                          msg="No chat or user provided.")
+
+            # send the menu and respond (return the menu object)
+            self.service.send_menu(chat_id, menu, parse_mode="HTML")
+            return self.make_response(msg="Menu sent successfully.",
+                                      payload=menu.to_json())
+        
+        # Endpoint used to retrieve information about an existing menu.
+        @self.server.route("/bot/get/menu", methods=["POST"])
+        def endpoint_bot_get_menu():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No JSON data provided.")
+
+            # look for a "menu_id" field in the JSON data
+            if "menu_id" not in flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No menu ID provided.")
+            menu_id = str(flask.g.jdata["menu_id"])
+            
+            # search for the menu in the database; return early if it can't be
+            # found
+            m = self.menu_db.search_menu(menu_id)
+            if m is None:
+                return self.make_response(success=False,
+                                          msg="Unknown menu ID.")
+
+            # return the menu as a JSON object in the response payload
+            return self.make_response(payload=m.to_json())
+
 
 # =============================== Runner Code ================================ #
 cli = ServiceCLI(config=TelegramConfig, service=TelegramService, oracle=TelegramOracle)
