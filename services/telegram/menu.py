@@ -95,7 +95,7 @@ class Menu(MenuObject):
             ConfigField("timeout",      [int],      required=False, default=86400),
             ConfigField("birth_time",   [datetime], required=False, default=None),
             ConfigField("death_time",   [datetime], required=False, default=None),
-            ConfigField("telegram_msg_info", [TelegramMessage],      required=False, default=None),
+            ConfigField("telegram_msg_info", [TelegramMessage], required=False, default=None),
         ]
 
     # Overridden `parse_json()`.

@@ -193,8 +193,8 @@ class NotifService(Service):
 
             # pack the message into a payload and send it to the telegram
             # service for delivery
-            msg_data = {"chat": matched_chat, "message": msg}
-            r = telegram_session.post("/bot/send", payload=msg_data)
+            msg_data = {"chat": matched_chat, "text": msg}
+            r = telegram_session.post("/bot/send/message", payload=msg_data)
             self.log.write(" - Telegrammed \"%s\"." % matched_chat["name"])
 
             # check telegram's response and write a log message

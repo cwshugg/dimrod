@@ -242,28 +242,37 @@ class TelegramService(Service):
         return (None, None)
     
     # ------------------------------ Messaging ------------------------------- #
-    # Wrapper for sending a message.
-    def send_message(self, chat_id, message,
-                     parse_mode=None,
-                     reply_markup=None):
-        # modify the message, if necessary, before sending
-        if parse_mode is not None and parse_mode.lower() == "html":
-            # adjust hyperlinks
+    # Helper function for properly formatting and sanitizing text to be used in
+    # a Telegram message.
+    def sanitize_message_text(self, text: str, parse_mode=None):
+        if parse_mode is None:
+            return text
+
+        if parse_mode.lower() == "html":
+            # adjust hyperlinks such that they are wrapped in HTML anchor tags
             url_starts = ["http://", "https://"]
             for url_start in url_starts:
                 # find all string indexes where URLs begin
-                idxs = [m.start() for m in re.finditer(url_start, message)]
+                idxs = [m.start() for m in re.finditer(url_start, text)]
                 for idx in idxs:
                     # for each index, insert a "<a>" and "</a>" at the front and
                     # end of the string
-                    message = message[:idx] + "<a>" + message[idx:]
-                    end_idx = idx + len(message[idx:].split()[0])
-                    message = message[:end_idx] + "</a>" + message[end_idx:]
+                    text = text[:idx] + "<a>" + text[idx:]
+                    end_idx = idx + len(text[idx:].split()[0])
+                    text = text[:end_idx] + "</a>" + text[end_idx:]
 
+        return text
+
+    # Wrapper for sending a message.
+    def send_message(self, chat_id, text,
+                     parse_mode=None,
+                     reply_markup=None):
+        text = self.sanitize_message_text(text, parse_mode=parse_mode)
+        
         # try sending the message a finite number of times
         for i in range(self.config.bot_error_retry_attempts):
             try:
-                return self.bot.send_message(chat_id, message,
+                return self.bot.send_message(chat_id, text,
                                              parse_mode=parse_mode,
                                              reply_markup=reply_markup)
             except Exception as e:
@@ -278,6 +287,30 @@ class TelegramService(Service):
                 self.refresh()
                 time.sleep(self.config.bot_error_retry_delay)
         self.log.write("Failed to send message. Giving up.")
+
+    # Wrapper for updating a message's text.
+    def update_message(self, chat_id, message_id,
+                       new_text: str,
+                       parse_mode=None):
+        new_text = self.sanitize_message_text(new_text, parse_mode=parse_mode)
+
+        for i in range(self.config.bot_error_retry_attempts):
+            try:
+                return self.bot.edit_message_text(new_text,
+                                                  chat_id=chat_id,
+                                                  message_id=message_id)
+            except Exception as e:
+                # on failure, sleep for a small amount of time, and get a new
+                # bot instance
+                self.log.write("Failed to update message. "
+                               "Resetting the bot, sleeping for a short time, "
+                               "and trying again.")
+                tb = traceback.format_exc()
+                for line in tb.split("\n"):
+                    self.log.write(line)
+                self.refresh()
+                time.sleep(self.config.bot_error_retry_delay)
+        self.log.write("Failed to update message. Giving up.")
     
     # Wrapper for deleting an existing message.
     def delete_message(self, chat_id, message_id):
@@ -562,18 +595,18 @@ class TelegramOracle(Oracle):
             return self.make_response(payload=users)
 
         # Endpoint used to instruct the bot to send a message.
-        @self.server.route("/bot/send", methods=["POST"])
-        def endpoint_bot_send():
+        @self.server.route("/bot/send/message", methods=["POST"])
+        def endpoint_bot_send_message():
             if not flask.g.user:
                 return self.make_response(rstatus=404)
             if not flask.g.jdata:
                 return self.make_response(success=False,
                                           msg="No JSON data provided.")
 
-            # look for a "message" field in the JSON data
-            if "message" not in flask.g.jdata:
+            # look for a "text" field in the JSON data
+            if "text" not in flask.g.jdata:
                 return self.make_response(success=False,
-                                          msg="No message provided.")
+                                          msg="No message text provided.")
             
             # make sure we have a chat ID to work with
             chat_id = self.resolve_chat_id(flask.g.jdata)
@@ -582,11 +615,68 @@ class TelegramOracle(Oracle):
                                           msg="No chat or user provided.")
 
             # send the message and respond
-            self.service.send_message(chat_id, flask.g.jdata["message"], parse_mode="HTML")
+            self.service.send_message(chat_id, flask.g.jdata["text"], parse_mode="HTML")
             return self.make_response(msg="Message sent successfully.")
 
+        # Endpoint used to instruct the bot to update a message.
+        @self.server.route("/bot/update/message", methods=["POST"])
+        def endpoint_bot_update_message():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No JSON data provided.")
+
+            # make sure we have a chat ID to work with
+            chat_id = self.resolve_chat_id(flask.g.jdata)
+            if chat_id is None:
+                return self.make_response(success=False,
+                                          msg="No chat or user provided.")
+
+            # look for a "message_id" field in the JSON data
+            if "message_id" not in flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No message ID provided.")
+            
+            # look for a "text" field in the JSON data
+            if "text" not in flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No message text provided.")
+            
+            # send the message and respond
+            self.service.update_message(chat_id,
+                                        flask.g.jdata["message_id"],
+                                        flask.g.jdata["text"],
+                                        parse_mode="HTML")
+            return self.make_response(msg="Message updated successfully.")
+
+        # Endpoint used to instruct the bot to delete a message.
+        @self.server.route("/bot/delete/message", methods=["POST"])
+        def endpoint_bot_delete_message():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No JSON data provided.")
+
+            # make sure we have a chat ID to work with
+            chat_id = self.resolve_chat_id(flask.g.jdata)
+            if chat_id is None:
+                return self.make_response(success=False,
+                                          msg="No chat or user provided.")
+
+            # look for a "message_id" field in the JSON data
+            if "message_id" not in flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No message ID provided.")
+            
+            # send the message and respond
+            self.service.delete_message(chat_id,
+                                        flask.g.jdata["message_id"])
+            return self.make_response(msg="Message deleted successfully.")
+
         # Endpoint used to instruct the bot to send a message with a menu (a
-        # series of buttons) attached..
+        # series of buttons) attached.
         @self.server.route("/bot/send/menu", methods=["POST"])
         def endpoint_bot_send_menu():
             if not flask.g.user:
@@ -617,6 +707,47 @@ class TelegramOracle(Oracle):
             # send the menu and respond (return the menu object)
             self.service.send_menu(chat_id, menu, parse_mode="HTML")
             return self.make_response(msg="Menu sent successfully.",
+                                      payload=menu.to_json())
+        
+        # Endpoint used to instruct the bot to update a menu.
+        @self.server.route("/bot/update/menu", methods=["POST"])
+        def endpoint_bot_update_menu():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No JSON data provided.")
+
+            # make sure we have a chat ID to work with
+            chat_id = self.resolve_chat_id(flask.g.jdata)
+            if chat_id is None:
+                return self.make_response(success=False,
+                                          msg="No chat or user provided.")
+
+            # look for a "message_id" field in the JSON data
+            if "message_id" not in flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No message ID provided.")
+            
+            # look for a "menu" field in the JSON data
+            if "menu" not in flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No menu provided.")
+
+            # attempt to parse the JSON representing the menu
+            menu = Menu()
+            try:
+                menu.parse_json(flask.g.jdata["menu"])
+            except:
+                return self.make_response(success=False,
+                                          msg="Invalid menu data.")
+            
+            # send the menu and respond (return the menu object)
+            self.service.update_menu(chat_id,
+                                     flask.g.jdata["message_id"],
+                                     menu,
+                                     parse_mode="HTML")
+            return self.make_response(msg="Menu updated successfully.",
                                       payload=menu.to_json())
         
         # Endpoint used to retrieve information about an existing menu.
