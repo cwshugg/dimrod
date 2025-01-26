@@ -342,8 +342,10 @@ class Oracle(threading.Thread):
         # update the message if necessary
         if msg == None or msg == "":
             if rstatus == 404:
+                success = False
                 msg = "File not found."
             elif rstatus == 400:
+                success = False
                 msg = "Bad request."
     
         # construct the response JSON object

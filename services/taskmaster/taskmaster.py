@@ -43,6 +43,7 @@ class TaskmasterConfig(ServiceConfig):
             ConfigField("google_calendar",              [GoogleCalendarConfig], required=True),
             ConfigField("taskmaster_refresh_rate",      [int], required=False, default=300),
             ConfigField("lumen",        [OracleSessionConfig], required=True),
+            ConfigField("telegram",     [OracleSessionConfig], required=True),
             ConfigField("dialogue",     [DialogueConfig],      required=True),
         ]
 

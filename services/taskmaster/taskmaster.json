@@ -36,6 +36,14 @@
         "auth_password": "YOUR_LUMEN_PASSWORD"
     },
 
+    "telegram":
+    {
+        "addr": "0.0.0.0",
+        "port": 1234,
+        "auth_username": "YOUR_TELEGRAM_USERNAME",
+        "auth_password": "YOUR_TELEGRAM_PASSWORD"
+    },
+
     "dialogue":
     {
         "openai_api_key": "YOUR_OPENAI_API_KEY"

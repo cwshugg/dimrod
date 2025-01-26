@@ -32,6 +32,7 @@ adapt-parser
 # various cron job and script secret files
 .whos_online*
 
-# taskmaster markdown documents
+# taskmaster documents
 services/taskmaster/tasks/*.md
+services/taskmaster/tasks/*.json
 
