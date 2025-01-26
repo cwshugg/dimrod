@@ -6,8 +6,12 @@
 */5   *   *   *   * /home/provolone/chs/cron/whos_online.py
 
 # --------------------------------- Backups ---------------------------------- #
-# Back up all my config files every month, on the 5th day at 4:30am.
-30    4   5   *   * /home/provolone/chs/cron/backup-configs.sh
+# Back up all my config files every month, on the 5th day around 4:30am.
+20    4   5   *   * /home/provolone/chs/cron/backup.sh
+25    4   5   *   * /home/provolone/chs/cron/backup.sh
+30    4   5   *   * /home/provolone/chs/cron/backup.sh
+35    4   5   *   * /home/provolone/chs/cron/backup.sh
+40    4   5   *   * /home/provolone/chs/cron/backup.sh
 
 # ------------------------------- LetsEncrypt -------------------------------- #
 # Renew my LetsEncrypt certificate periodically, on the 2nd day of every other
