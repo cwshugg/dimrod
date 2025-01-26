@@ -217,9 +217,6 @@ class Oracle(threading.Thread):
         
         # attempt to decode the JWT (if present)
         flask.g.user = self.auth_check_cookie(flask.request.headers.get("Cookie"))
-        if flask.g.user:
-            self.log.write("user \"%s\" is making a request." % flask.g.user)
-
     
     # Invoked directly after a request's main handler is invoked.
     def post_process(self, response):
