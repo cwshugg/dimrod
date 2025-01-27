@@ -11,7 +11,8 @@ import re
 from datetime import datetime
 import flask
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, \
+                          ReactionTypeEmoji
 import traceback
 import threading
 
@@ -379,6 +380,29 @@ class TelegramService(Service):
     def remove_menu(self, chat_id, message_id):
         return self.update_menu(chat_id, message_id, m=None)
     
+    # Adds a reaction to a message.
+    def react_to_message(self, chat_id, message_id, emoji="👍", is_big=False):
+        for i in range(self.config.bot_error_retry_attempts):
+            try:
+                return self.bot.set_message_reaction(
+                    chat_id,
+                    message_id,
+                    [ReactionTypeEmoji(emoji)],
+                    is_big=is_big
+                )
+            except Exception as e:
+                # on failure, sleep for a small amount of time, and get a new
+                # bot instance
+                self.log.write("Failed to react to message. "
+                               "Resetting the bot, sleeping for a short time, "
+                               "and trying again.")
+                tb = traceback.format_exc()
+                for line in tb.split("\n"):
+                    self.log.write(line)
+                self.refresh()
+                time.sleep(self.config.bot_error_retry_delay)
+        self.log.write("Failed to react to message. Giving up.")
+    
     # ----------------------------- Bot Behavior ----------------------------- #
     # Main runner function.
     def run(self):
@@ -475,6 +499,11 @@ class TelegramService(Service):
             self.log.write("Menu option (ID: %s) from Menu (ID %s) "
                            "was selected. (count: %d)" %
                            (op.get_id(), m.get_id(), op.selection_count))
+            
+            # react to the message to show that the bot has acknowledged the
+            # user's button press
+            self.react_to_message(m.telegram_msg_info.chat.id,
+                                  m.telegram_msg_info.id)
             
             # there doesn't seem to be a clear way to update the menu to remove
             # the shimmery effect that plays for ~10 seconds when a button is
