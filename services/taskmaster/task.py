@@ -58,7 +58,7 @@ class TaskJob:
 
     # Function that uses the provided API objects to update any tasks, events,
     # etc. This must be implemented by subclasses.
-    # Must return True if the update succeeded some sort of update was made.
+    # Must return True if the update succeeded (some sort of update was made).
     # Otherwise, must return False.
     def update(self, todoist, gcal):
         return False

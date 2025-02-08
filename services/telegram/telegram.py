@@ -30,7 +30,7 @@ from lib.google.google_calendar import GoogleCalendarConfig
 
 # Service imports
 from telegram_objects import TelegramChat, TelegramUser
-from menu import Menu, MenuDatabase
+from menu import Menu, MenuDatabase, MenuBehaviorType
 from command import TelegramCommand
 from commands.help import command_help
 from commands.system import command_system
@@ -106,12 +106,6 @@ class TelegramService(Service):
                             "Resets the current chat conversation.",
                             command_s_reset,
                             secret=True),
-            # ----- DEBUGGING TODO - REMOVE WHEN DONE ----- #
-            TelegramCommand(["_menu"],
-                            "Tests the new menu feature.",
-                            command_s_menu,
-                            secret=True)
-            # ----- DEBUGGING TODO - REMOVE WHEN DONE ----- #
         ]
 
         # parse each chat as a TelegramChat object
@@ -403,6 +397,28 @@ class TelegramService(Service):
                 time.sleep(self.config.bot_error_retry_delay)
         self.log.write("Failed to react to message. Giving up.")
     
+    # Removes reactions from a message.
+    def remove_message_reactions(self, chat_id, message_id):
+        for i in range(self.config.bot_error_retry_attempts):
+            try:
+                return self.bot.set_message_reaction(
+                    chat_id,
+                    message_id,
+                    []
+                )
+            except Exception as e:
+                # on failure, sleep for a small amount of time, and get a new
+                # bot instance
+                self.log.write("Failed to remove message reactions. "
+                               "Resetting the bot, sleeping for a short time, "
+                               "and trying again.")
+                tb = traceback.format_exc()
+                for line in tb.split("\n"):
+                    self.log.write(line)
+                self.refresh()
+                time.sleep(self.config.bot_error_retry_delay)
+        self.log.write("Failed to remove message reactions. Giving up.")
+    
     # ----------------------------- Bot Behavior ----------------------------- #
     # Main runner function.
     def run(self):
@@ -494,32 +510,81 @@ class TelegramService(Service):
             # need to be applied to the `Menu`'s `MenuOption` object.
             op = m.get_option(op_info.get_id())
 
+            # next, look at the menu's behavior type. We'll adjust the menu
+            # options differently depending on the selecteed value
+            original_op_titles = [o.title for o in m.options]
+            do_menu_update = False
+            if m.behavior_type == MenuBehaviorType.ACCUMULATE:
+                # if we're accumulating, our job is easy; just increment the
+                # option that was selected
+                op.select_add()
+                do_menu_update = True
+
+                # iterate through all options and update the corresponding
+                # button on the menu to show the number of times it was
+                # selected (only do so if it's selection count is non-zero)
+                for o in m.options:
+                    if o.selection_count == 0:
+                        continue
+                    o.title = "%s [%d]" % (o.title, o.selection_count)
+            if m.behavior_type == MenuBehaviorType.MULTI_CHOICE:
+                # if the selected option was already selected, we'll reset it
+                if op.selection_count == 1:
+                    op.select_set(0)
+                else:
+                    op.select_set(1)
+
+                # iterate through all options and update the corresponding
+                # button on the menu to show which ones have been selected
+                for o in m.options:
+                    if o.selection_count == 0:
+                        continue
+                    o.title = "%s ✅" % o.title
+            elif m.behavior_type == MenuBehaviorType.SINGLE_CHOICE:
+                # if the menu only allows a single choice, we need to set the
+                # current option's selection count to 1, and reduce all others
+                # to zero
+
+                # (only update the menu in Telegram if the selected option
+                # wasn't previously selected)
+                do_menu_update = op.selection_count == 0
+
+                # zero out all options and set the seleted one's count to 1
+                for o in m.options:
+                    o.select_set(0)
+                op.select_set(1)
+
+                # set the select option's title to show that it was the one
+                # chosen value
+                op.title = "%s ✅" % op.title
+            
+            # apply any changes made above to the option titles (the text on
+            # the buttons) to the Telegram menu
+            if do_menu_update:
+                self.update_menu(m.telegram_msg_info.chat.id,
+                                 m.telegram_msg_info.id,
+                                 m)
+            else:
+                # otherwise, change a single button twice, briefly, to force
+                # telegram to get rid of the shimmery "a button was just
+                # pressed" effect
+                for text in [" %s " % op.title, op.title]:
+                    op.title = text
+                    self.update_menu(m.telegram_msg_info.chat.id,
+                                     m.telegram_msg_info.id,
+                                     m)
+
             # update the menu option to increment its selection counter
-            op.select()
             self.log.write("Menu option (ID: %s) from Menu (ID %s) "
                            "was selected. (count: %d)" %
                            (op.get_id(), m.get_id(), op.selection_count))
             
-            # react to the message to show that the bot has acknowledged the
-            # user's button press
-            self.react_to_message(m.telegram_msg_info.chat.id,
-                                  m.telegram_msg_info.id)
-            
-            # there doesn't seem to be a clear way to update the menu to remove
-            # the shimmery effect that plays for ~10 seconds when a button is
-            # pressed. UNLESS the menu is updated.
-            # So, we'll modify the pressed button's text ever-so-slightly, then
-            # change it back to the original. This will remove the shimmery
-            # effect, which will be a nice visual indicator to the user that
-            # the button was pressed.
-            new_button_titles = [" %s " % op.title, op.title]
-            for text in new_button_titles:
-                op.title = text
-                self.update_menu(m.telegram_msg_info.chat.id,
-                                 m.telegram_msg_info.id,
-                                 m)
-
-            # write the updated menu back out to the database
+            # write the updated menu back out to the database (first, reset the
+            # option titles to reflect the original versions, before we updated
+            # the Telegram menu, so the database retains the original,
+            # un-modified titles)
+            for (i, o) in enumerate(m.options):
+                o.title = original_op_titles[i]
             self.menu_db.save_menu(m)
 
         # start the bot and set it to poll periodically for updates (catch
@@ -679,6 +744,43 @@ class TelegramOracle(Oracle):
                                         parse_mode="HTML")
             return self.make_response(msg="Message updated successfully.")
 
+        # Endpoint used to instruct the bot to update a message's reactions.
+        @self.server.route("/bot/update/message/reaction", methods=["POST"])
+        def endpoint_bot_update_message_reaction():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No JSON data provided.")
+
+            # make sure we have a chat ID to work with
+            chat_id = self.resolve_chat_id(flask.g.jdata)
+            if chat_id is None:
+                return self.make_response(success=False,
+                                          msg="No chat or user provided.")
+
+            # look for a "message_id" field in the JSON data
+            if "message_id" not in flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No message ID provided.")
+
+            # look for an "emoji" field in the JSON data
+            if "emoji" not in flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No reaction emoji provided.")
+
+            # if "is_big" is present, interpret is as a boolean
+            is_big_reaction = False
+            if "is_big" in flask.g.jdata:
+                is_big_reaction = bool(flask.g.jdata["is_big"])
+            
+            # set the message's reaction
+            self.service.react_to_message(chat_id,
+                                          flask.g.jdata["message_id"],
+                                          emoji="👍",
+                                          is_big=is_big_reaction)
+            return self.make_response(msg="Message reaction set successfully.")
+        
         # Endpoint used to instruct the bot to delete a message.
         @self.server.route("/bot/delete/message", methods=["POST"])
         def endpoint_bot_delete_message():
@@ -703,6 +805,31 @@ class TelegramOracle(Oracle):
             self.service.delete_message(chat_id,
                                         flask.g.jdata["message_id"])
             return self.make_response(msg="Message deleted successfully.")
+
+        # Endpoint used to instruct the bot to delete a message's reactions.
+        @self.server.route("/bot/delete/message/reaction", methods=["POST"])
+        def endpoint_bot_delete_message_reaction():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No JSON data provided.")
+
+            # make sure we have a chat ID to work with
+            chat_id = self.resolve_chat_id(flask.g.jdata)
+            if chat_id is None:
+                return self.make_response(success=False,
+                                          msg="No chat or user provided.")
+
+            # look for a "message_id" field in the JSON data
+            if "message_id" not in flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No message ID provided.")
+            
+            # remove reactions from the message
+            self.service.remove_message_reactions(chat_id,
+                                                  flask.g.jdata["message_id"])
+            return self.make_response(msg="Message reactions deleted successfully.")
 
         # Endpoint used to instruct the bot to send a message with a menu (a
         # series of buttons) attached.

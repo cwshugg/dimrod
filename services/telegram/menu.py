@@ -21,6 +21,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import sqlite3
 import json
 import threading
+from enum import Enum
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -80,11 +81,29 @@ class MenuOption(MenuObject):
     def set_telegram_button(self, btn: telebot.types.InlineKeyboardButton):
         self.telegram_btn_info = TelegramButton.from_telegram_to_obj(btn)
     
-    # This should be called when the menu option is selected by the user.
-    def select(self):
-        self.selection_count += 1
-
+    # Sets the option's selection count flat-out to the given value.
+    def select_set(self, value: int):
+        self.selection_count = value
     
+    # Increments the option's selection count by the given value.
+    def select_add(self, value: int = 1):
+        self.selection_count += value
+    
+# An enum used to specify differences in behavior for a menu.
+class MenuBehaviorType(Enum):
+    # Accumulate: all options can be selected, but each accumulates a count of
+    # the number of times they were selected.
+    ACCUMULATE = 0
+    
+    # Multi Choice: multiple values can be selected, but the numbers of times
+    # they are chosen does not accumulate; each `MenuOption` caps at 1.
+    MULTI_CHOICE = 1
+    
+    # Single Choice: only one option can be selected. This causes the selection
+    # count for a `MenuOption` to max at 1, and only one `MenuOption` in a set
+    # can have a value of 1.
+    SINGLE_CHOICE = 2
+
 # Config object used to create a Menu object.
 class Menu(MenuObject):
     def __init__(self):
@@ -95,6 +114,7 @@ class Menu(MenuObject):
             ConfigField("timeout",      [int],      required=False, default=86400),
             ConfigField("birth_time",   [datetime], required=False, default=None),
             ConfigField("death_time",   [datetime], required=False, default=None),
+            ConfigField("behavior_type", [MenuBehaviorType], required=False, default=MenuBehaviorType.ACCUMULATE),
             ConfigField("telegram_msg_info", [TelegramMessage], required=False, default=None),
         ]
 

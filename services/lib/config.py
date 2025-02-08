@@ -7,6 +7,7 @@ import os
 import sys
 import json
 from datetime import datetime
+from enum import Enum
 
 
 # ============================== Config Fields =============================== #
@@ -44,6 +45,15 @@ class Config:
         jdata = self.to_json()
         return json.dumps(jdata, indent=4, default=str)
     
+    # Initializes the object with all fields that are not required. Once this
+    # function is complete, all non-required fields will be present and be set
+    # to their default values.
+    def init_defaults(self):
+        for f in self.fields:
+            if f.required:
+                continue
+            setattr(self, f.name, f.default)
+
     # Returns the `ConfigField` object representing one of the object's fields,
     # or `None` if the field doesn't exist.
     def get_field(self, name: str):
@@ -97,10 +107,27 @@ class Config:
                             c.parse_json(entry)
                             items.append(c)
                         val = items
+
+                # if the expected type is an enum, attempt to reconstruct the
+                # enum object with the integer
+                if val is None and issubclass(types[0], Enum):
+                    cls = types[0]
+                    enum_val = jdata[key]
+                    # convert from an integer
+                    if type(enum_val) == int:
+                        val = cls(jdata[key])
+                    # or, attempt to convert from a string
+                    elif type(enum_val) == str:
+                        val = cls[enum_val]
+                    else:
+                        msg = "%s entry \"%s\" must be a string or integer, " \
+                              "representing enum \"%s\"" % \
+                              (self.fpath if self.fpath else "json", key, cls.__name__)
+                        self.check(False, msg)
                 
                 # if the expected type is a datetime, assume that the value
                 # provided is a string in the ISO date format
-                if types[0] == datetime:
+                if val is None and types[0] == datetime:
                     msg = "%s entry \"%s\" must be a datetime value represented as an ISO string" % \
                           (self.fpath if self.fpath else "json", key)
                     self.check(type(jdata[key]) == str, msg)
@@ -163,6 +190,10 @@ class Config:
             # its `to_json()` function
             if issubclass(obj.__class__, Config):
                 return obj.to_json()
+
+            # if it's an enum, convert it into a plain integer
+            if issubclass(obj.__class__, Enum):
+                return obj.value
             
             # if the object is a datetime, convert it to an ISO string
             if type(obj) == datetime:
@@ -186,8 +217,9 @@ class Config:
         for f in self.fields:
             result[f.name] = to_json_helper(getattr(self, f.name))
         # convert all extra fields to JSON
-        for e in self.extra_fields:
-            result[e] = to_json_helper(getattr(self, e))
+        if hasattr(self, "extra_fields"):
+            for e in self.extra_fields:
+                result[e] = to_json_helper(getattr(self, e))
 
         return result
     
@@ -238,11 +270,16 @@ class Config:
                    "a field that doesn't belong to %s was specified" % \
                    __class__.__name__
             val = getattr(self, name)
+
+            # if the value is an enum, convert it to an integer
+            if issubclass(val.__class__, Enum):
+                val = val.value
             
             # make sure the value is a primitive type
             assert type(val) in [int, float, str, bool, datetime], \
-                   "only primitive types can be placed into a SQLite3 tuple for an %s object" % \
-                   __class__.__name__
+                   "only primitive types can be placed into a SQLite3 tuple for a %s object " \
+                   "(found type: %s)" % \
+                   (__class__.__name__, str(type(val)))
 
             # convert datetimes to ISO strings
             if type(val) == datetime:
@@ -297,6 +334,8 @@ class Config:
                 # we'll convert datetime objects to ISO strings when storing
                 # them in a tuple
                 sqlite3_type = "INTEGER"
+            elif issubclass(val.__class__, Enum):
+                sqlite3_type = "INTEGER"
             else:
                 raise Exception("unsupported type for SQLite3 tuple: %s" % str(type(val)))
             
@@ -339,6 +378,11 @@ class Config:
             # convert any expected booleans from integers
             if bool in field.types:
                 value = bool(value)
+
+            # convert any expected enums from integers
+            if issubclass(field.types[0], Enum):
+                enum_class = field.types[0]
+                value = enum_class(value)
 
             # if the value is a string, and the expected type is a datetime,
             # attempt to parse it as an ISO string

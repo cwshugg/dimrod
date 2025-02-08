@@ -156,9 +156,6 @@ class Oracle(threading.Thread):
                                           msg="Incorrect credentials.",
                                           rstatus=400)
 
-            # log the success
-            self.log.write("user \"%s\" successfully logged in." % user)
-
             # create a cookie for the user
             cookie = self.auth_make_cookie(user)
             cookie_age = 999999999 if user.config.privilege == 0 else self.config.auth_exptime
