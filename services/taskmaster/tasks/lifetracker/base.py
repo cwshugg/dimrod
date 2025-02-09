@@ -82,7 +82,7 @@ class LifeMetricTrigger(Config):
 
         # check for matching weekdays
         if len(self.weekdays) > 0:
-            result = result and any(Weekday(wd) == dtu.get_weekday(dt) for wd in self.weekdays)
+            result = result and any(dtu.Weekday(wd) == dtu.get_weekday(dt) for wd in self.weekdays)
 
         # check for matching hours
         if len(self.hours) > 0:
@@ -124,7 +124,7 @@ class LifeMetric(Config):
             ConfigField("title",        [str],                  required=True),
             ConfigField("values",       [LifeMetricValue],      required=True),
             ConfigField("trigger",      [LifeMetricTrigger],    required=True),
-            ConfigField("telegram_menu_timeout", [int],         required=False, default=300000),
+            ConfigField("telegram_menu_timeout", [int],         required=False, default=90000),
             ConfigField("telegram_menu_behavior_type", [str],   required=False, default="SINGLE_CHOICE"),
         ]
     
@@ -283,6 +283,20 @@ class LifeTracker(Config):
                 )
                 entries.append(entry)
         return entries
+    
+    # Deletes the given `LifeMetricEntry` from the database.
+    def delete_metric(self, entry: LifeMetricEntry):
+        con = sqlite3.connect(self.db_path)
+        cur = con.cursor()
+
+        table_name = entry.metric_name
+        cmd = "DELETE FROM %s WHERE telegram_menu_id == \"%s\"" % \
+              (table_name, entry.telegram_menu_id)
+        cur.execute(cmd)
+        
+        # commit the changes and close the connection
+        con.commit()
+        con.close()
 
 
 # =============================== Base TaskJob =============================== #

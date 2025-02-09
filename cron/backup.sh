@@ -5,7 +5,7 @@
 
 root="$(dirname $(dirname $(realpath $0)))"
 output_dir="${HOME}"
-output_name="dimrod_config_backup_$(date +"%Y-%m-%d_%H-%M-%S").tar.gz"
+output_name="dimrod_backup_$(date +"%Y-%m-%d_%H-%M-%S").tar.gz"
 
 tar -czf "${output_dir}/${output_name}" \
     --exclude ".venv" \

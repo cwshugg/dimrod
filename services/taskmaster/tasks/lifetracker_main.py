@@ -53,9 +53,30 @@ class TaskJob_LifeTracker_Main(TaskJob_LifeTracker):
         for entry in entries:
             metric = tracker.get_metric_by_name(entry.metric_name)
 
-            # get the corresponding Telegram menu and iterate through its
-            # options to determine what buttons were selected
+            # get the corresponding Telegram menu. If the menu no longer
+            # exists, then it must have expired.
             menu = self.get_metric_entry_menu(tracker, entry)
+            if menu is None:
+                # examine the selection counts for each of the metric's values.
+                # Were any of them selected at some point by the user? If they
+                # weren't, then the user completely ignored the menu and we
+                # should delete the entry.
+                selection_total = 0
+                for value in metric.values:
+                    field_name = value.get_sqlite3_column_name_selection_count()
+                    selection_total += getattr(entry, field_name)
+
+                # delete the entry if the menu was untouched
+                if selection_total == 0:
+                    self.delete_metric(entry)
+                    success = True
+
+                # continue to the next iteration of the main loop
+                continue
+            
+            # otherwise, iterate through the menu options and determine which
+            # buttons were pressed. We'll use this information to update the
+            # entry in the database.
             change_count = 0
             for (i, op) in enumerate(menu["options"]):
                 # get the corresponding metric value field

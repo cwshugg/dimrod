@@ -11,6 +11,7 @@ from datetime import datetime
 import inspect
 import importlib.util
 import time
+import traceback
 
 # Enable import from the parent directory
 fdir = os.path.dirname(os.path.realpath(__file__))
@@ -156,6 +157,10 @@ class TaskmasterService(Service):
                 except Exception as e:
                     self.log.write("Task \"%s\" failed to execute: %s" %
                                    (j.get_name(), e))
+                    # write the exception traceback to the log
+                    tb = traceback.format_exc()
+                    for line in tb.split("\n"):
+                        self.log.write(line)
             
             # find the minimum amount of time (if *no* taskjobs were updated
             # above, default to some time)
