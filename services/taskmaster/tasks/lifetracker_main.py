@@ -28,8 +28,14 @@ class TaskJob_LifeTracker_Main(TaskJob_LifeTracker):
         # iterate through all metrics within the tracker, and look for ones
         # that are ready to be triggered
         for metric in tracker.metrics:
+            # retrieve the latest entry in the database for this metric
+            latest_entry = tracker.get_latest_metric_entry(metric)
+            latest_entry_timestamp = None
+            if latest_entry is not None:
+                latest_entry_timestamp = latest_entry.timestamp
+
             # if the metric is ready... send it as a menu
-            if metric.trigger.is_ready():
+            if metric.trigger.is_ready(last_trigger=latest_entry_timestamp):
                 self.log("Metric: \"%s\" is ready. "
                          "Sending menu via Telegram..." %
                          metric.name)
@@ -55,7 +61,7 @@ class TaskJob_LifeTracker_Main(TaskJob_LifeTracker):
 
             # get the corresponding Telegram menu. If the menu no longer
             # exists, then it must have expired.
-            menu = self.get_metric_entry_menu(tracker, entry)
+            menu = self.get_metric_entry_menu(entry)
             if menu is None:
                 # examine the selection counts for each of the metric's values.
                 # Were any of them selected at some point by the user? If they

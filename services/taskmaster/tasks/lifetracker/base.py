@@ -33,6 +33,7 @@ class LifeMetricTrigger(Config):
             ConfigField("weekdays",     [list],  required=False, default=[]),
             ConfigField("hours",        [list],  required=False, default=[]),
             ConfigField("minutes",      [list],  required=False, default=[]),
+            ConfigField("cooldown",     [int],   required=False, default=3600),
         ]
 
     def parse_json(self, jdata: dict):
@@ -60,10 +61,11 @@ class LifeMetricTrigger(Config):
         for m in self.minutes:
             assert type(m) == int, "minutes must be a list of ints"
             assert m in range(0, 60), "minutes must be within 0-59"
+        assert self.cooldown > 0, "cooldown must be a positive integer"
     
     # Returns True if the given datetime (which defaults to the current
     # datetime) matches the trigger conditions.
-    def is_ready(self, dt: datetime = None):
+    def is_ready(self, dt: datetime = None, last_trigger: datetime = None):
         if dt is None:
             dt = datetime.now()
         result = True
@@ -91,6 +93,11 @@ class LifeMetricTrigger(Config):
         # check for matching minutes
         if len(self.minutes) > 0:
             result = result and any(m == dt.minute for m in self.minutes)
+
+        # was a "last triggered" time provided? If so, make sure we are the
+        # cooldown point.
+        if last_trigger is not None:
+            result = result and dtu.diff_in_seconds(dt, last_trigger) > self.cooldown
 
         return result
 
@@ -248,6 +255,20 @@ class LifeTracker(Config):
         con.commit()
         con.close()
     
+    # Returns True if a table exists.
+    def get_table_exists(self, name: str):
+        con = sqlite3.connect(self.db_path)
+        cur = con.cursor()
+
+        cmd = "SELECT name FROM sqlite_master WHERE type='table' AND name='%s'" % \
+              name
+        for _ in cur.execute(cmd):
+            con.close()
+            return True
+
+        con.close()
+        return False
+            
     # Queries the database and returns a list of `LifeMetricEntry` objects,
     # representing the entries that are still "alive" (i.e. whose Telegram
     # menus have not yet expired).
@@ -260,13 +281,7 @@ class LifeTracker(Config):
         for metric in self.metrics:
             # first, determine if the table exists. If it doesn't, we can skip
             # this iteration
-            cmd = "SELECT name FROM sqlite_master WHERE type='table' AND name='%s'" % \
-                  metric.name
-            table_exists = False
-            for _ in cur.execute(cmd):
-                table_exists = True
-                break
-            if not table_exists:
+            if not self.get_table_exists(metric.name):
                 break
             
             cmd = "SELECT * FROM %s WHERE status == %d" % \
@@ -282,6 +297,8 @@ class LifeTracker(Config):
                     fields_kept_visible=entry.get_sqlite3_fields_to_keep_visible()
                 )
                 entries.append(entry)
+
+        con.close()
         return entries
     
     # Deletes the given `LifeMetricEntry` from the database.
@@ -297,6 +314,36 @@ class LifeTracker(Config):
         # commit the changes and close the connection
         con.commit()
         con.close()
+
+    # Returns the latest (according to timestamp) database entry for the
+    # provided metric.
+    def get_latest_metric_entry(self, metric: LifeMetric):
+        # if the metric's table doesn't exist yet, return early
+        if not self.get_table_exists(metric.name):
+            return None
+        
+        # set up a connection to the database
+        con = sqlite3.connect(self.db_path)
+        cur = con.cursor()
+        
+        # build a command to grab the entry with the highest integer timestamp
+        # (which will be the latest time)
+        table_name = metric.name
+        cmd = "SELECT * FROM %s ORDER BY timestamp DESC LIMIT 1" % table_name
+        result = cur.execute(cmd)
+        
+        entry = None
+        for data in result:
+            entry = LifeMetricEntry()
+            entry.init_from_metric(metric)
+            entry.parse_sqlite3(
+                data,
+                fields_kept_visible=entry.get_sqlite3_fields_to_keep_visible()
+            )
+            break # there should only be one result (see `LIMIT 1` above)
+        
+        con.close()
+        return entry
 
 
 # =============================== Base TaskJob =============================== #
@@ -367,7 +414,7 @@ class TaskJob_LifeTracker(TaskJob):
         created_menu = telegram_session.get_response_json(r)
         return created_menu
     
-    def get_metric_entry_menu(self, tracker: LifeTracker, entry: LifeMetricEntry):
+    def get_metric_entry_menu(self, entry: LifeMetricEntry):
         telegram_session = self.get_telegram_session()
 
         # create a payload and send it to Telegram to create the menu
@@ -380,4 +427,4 @@ class TaskJob_LifeTracker(TaskJob):
             return None
 
         return telegram_session.get_response_json(r)
-
+ 
