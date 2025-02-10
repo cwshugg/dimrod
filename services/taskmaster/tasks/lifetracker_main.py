@@ -63,19 +63,9 @@ class TaskJob_LifeTracker_Main(TaskJob_LifeTracker):
             # exists, then it must have expired.
             menu = self.get_metric_entry_menu(entry)
             if menu is None:
-                # examine the selection counts for each of the metric's values.
-                # Were any of them selected at some point by the user? If they
-                # weren't, then the user completely ignored the menu and we
-                # should delete the entry.
-                selection_total = 0
-                for value in metric.values:
-                    field_name = value.get_sqlite3_column_name_selection_count()
-                    selection_total += getattr(entry, field_name)
-
-                # delete the entry if the menu was untouched
-                if selection_total == 0:
-                    self.delete_metric(entry)
-                    success = True
+                # update the entry's status to DEAD and save the entry
+                entry.status = LifeMetricEntryStatus.DEAD
+                tracker.save_metric_entry(entry)
 
                 # continue to the next iteration of the main loop
                 continue

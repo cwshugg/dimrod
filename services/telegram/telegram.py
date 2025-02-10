@@ -533,6 +533,7 @@ class TelegramService(Service):
                     op.select_set(0)
                 else:
                     op.select_set(1)
+                do_menu_update = True
 
                 # iterate through all options and update the corresponding
                 # button on the menu to show which ones have been selected
@@ -544,19 +545,21 @@ class TelegramService(Service):
                 # if the menu only allows a single choice, we need to set the
                 # current option's selection count to 1, and reduce all others
                 # to zero
+                
+                # if the selected option was already selected, we'll reset it
+                # (i.e. 1 --> 0 and 0 --> 1)
+                new_value = 0 if op.selection_count == 1 else 1
+                do_menu_update = True
 
-                # (only update the menu in Telegram if the selected option
-                # wasn't previously selected)
-                do_menu_update = op.selection_count == 0
-
-                # zero out all options and set the seleted one's count to 1
+                # zero out all options and set the seleted option's new value
                 for o in m.options:
                     o.select_set(0)
-                op.select_set(1)
+                op.select_set(new_value)
 
                 # set the select option's title to show that it was the one
-                # chosen value
-                op.title = "%s ✅" % op.title
+                # chosen value, if its new value is 1
+                if new_value == 1:
+                    op.title = "%s ✅" % op.title
             
             # apply any changes made above to the option titles (the text on
             # the buttons) to the Telegram menu

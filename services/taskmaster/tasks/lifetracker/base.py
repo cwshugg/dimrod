@@ -282,7 +282,7 @@ class LifeTracker(Config):
             # first, determine if the table exists. If it doesn't, we can skip
             # this iteration
             if not self.get_table_exists(metric.name):
-                break
+                continue
             
             cmd = "SELECT * FROM %s WHERE status == %d" % \
                   (metric.name, LifeMetricEntryStatus.ALIVE.value)
