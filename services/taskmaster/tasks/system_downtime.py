@@ -20,13 +20,13 @@ class TaskJob_System_Downtime_Config(Config):
         super().__init__()
         self.fields = [
             ConfigField("telegram_chat_ids",    [list],     required=True),
-            ConfigField("downtime_threshold",   [int],      required=False, default=1800),
+            ConfigField("downtime_threshold",   [int],      required=False, default=600),
         ]
 
 
 class TaskJob_System_Downtime(TaskJob):
     def init(self):
-        self.refresh_rate = 300
+        self.refresh_rate = 180
 
         # find the config and parse it
         config_dir = os.path.dirname(os.path.realpath(__file__))
