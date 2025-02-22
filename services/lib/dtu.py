@@ -163,6 +163,35 @@ def diff_in_days(dt1, dt2):
 def diff_in_weeks(dt1, dt2):
     return diff_in_seconds(dt1, dt2) / 604800
 
+# Returns two numbers in an array:
+#   [remaining_diff_in_seconds, diff_in_minutes]
+def diff_in_seconds_minutes(dt1, dt2):
+    mins = int(diff_in_minutes(dt1, dt2))
+    secs = diff_in_seconds(dt1, dt2)
+
+    # if there was at least one minute of difference, subtract out the amount
+    # from the total seconds diff to get the remaining seconds diff
+    if mins > 0:
+        secs -= mins * 60
+    return [secs, mins]
+
+# Returns three numbers in an array:
+#   [
+#       remaining_diff_in_seconds,
+#       remaining_diff_in_minutes,
+#       diff_in_hours
+#   ]
+def diff_in_seconds_minutes_hours(dt1, dt2):
+    hours = int(diff_in_hours(dt1, dt2))
+    [secs, mins] = diff_in_seconds_minutes(dt1, dt2)
+    
+    # if there was at least one hour's worth of time difference, subtract out
+    # those minutes from the total number of minutes
+    if hours > 0:
+        mins -= hours * 60
+
+    return [secs, mins, hours]
+
 # Returns True if the two datetimes share the same year.
 def has_same_year(dt1, dt2):
     return dt1.year == dt2.year
