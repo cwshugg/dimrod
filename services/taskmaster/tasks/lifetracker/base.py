@@ -137,8 +137,18 @@ class LifeMetric(Config):
     
     # Iterates through the metric's values and determines the maximum possible
     # score that could be achieved.
-    def get_score_max(self):
-        return max([v.score_points for v in self.values])
+    #
+    # The `minimum` field can be set to force the value returned from this
+    # function to never drop below `minimum`. This handy, for example, for
+    # ensuring a life metric with *negative* scores never returns a maximum
+    # score less than zero.
+    def get_score_max(self, minimum: int = None):
+        result = max([v.score_points for v in self.values])
+
+        # if a minimum value is set, make sure we aren't below it
+        if minimum is not None:
+            return minimum
+        return result
     
     # Returns a JSON object used to represent a telegram menu containing the
     # metric's title and all of its values.
