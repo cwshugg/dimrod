@@ -44,6 +44,27 @@ def get_days_since_weekday(dt, weekday):
         return 0
     return 7 - get_days_until_weekday(dt, weekday)
 
+def is_sunday(dt):
+    return get_weekday(dt) == Weekday.SUNDAY
+
+def is_monday(dt):
+    return get_weekday(dt) == Weekday.MONDAY
+
+def is_tuesday(dt):
+    return get_weekday(dt) == Weekday.TUESDAY
+
+def is_wednesday(dt):
+    return get_weekday(dt) == Weekday.WEDNESDAY
+
+def is_thursday(dt):
+    return get_weekday(dt) == Weekday.THURSDAY
+
+def is_friday(dt):
+    return get_weekday(dt) == Weekday.FRIDAY
+
+def is_saturday(dt):
+    return get_weekday(dt) == Weekday.SATURDAY
+
 # Returns True if the given day is a Saturday or Sunday.
 def is_weekend(dt):
     return dt.weekday() in [5, 6]
@@ -112,6 +133,11 @@ def is_winter(dt):
 def get_last_day_of_month(dt):
     next_month = dt.replace(day=28) + timedelta(days=4)
     return next_month - timedelta(days=next_month.day)
+
+# Creates and returns a copy of the given datetime with the time set to
+# 12:00am.
+def set_time_beginning_of_day(dt):
+    return dt.replace(hour=0, minute=0, second=0, microsecond=0)
 
 # Creates and returns a copy of the given datetime with the time set to
 # 11:59pm.
@@ -225,6 +251,10 @@ def has_same_year_month_day(dt1, dt2):
     return dt1.year == dt2.year and \
            dt1.month == dt2.month and \
            dt1.day == dt2.day
+
+# Returns a string with the "YYYY-MM-DD" format.
+def format_yyyymmdd(dt):
+    return dt.strftime("%Y-%m-%d")
 
 # Parses a YYYY-MM-DD string and returns the year, month, and day, in an array
 # of three integers [year, month, day]. Returns None if parsing failed.

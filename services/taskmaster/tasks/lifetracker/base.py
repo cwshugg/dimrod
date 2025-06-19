@@ -135,6 +135,14 @@ class LifeMetric(Config):
             ConfigField("telegram_menu_behavior_type", [str],   required=False, default="SINGLE_CHOICE"),
         ]
     
+    # Returns True if any one of the possible options has a non-zero score.
+    # Returns False is *all* options have a score of zero.
+    def has_nonzero_scores(self):
+        for v in self.values:
+            if v.score_points != 0:
+                return True
+        return False
+    
     # Iterates through the metric's values and determines the maximum possible
     # score that could be achieved.
     #
@@ -354,6 +362,58 @@ class LifeTracker(Config):
         
         con.close()
         return entry
+    
+    # Takes in a LifeMetric and two timestamps, and returns a list of all
+    # metric entries that fall between the beginning and ending timestamps.
+    #
+    # If `begin` is left as `None`, all entries leading up to
+    # `end` will be returned.
+    #
+    # If `end` is left as `None`, all entries occurring after
+    # `begin` will be returned.
+    #
+    # If both timestamps are `None`, an error is thrown.
+    def get_metric_entries_by_timestamp(self,
+                                        metric: LifeMetric,
+                                        begin: datetime = None,
+                                        end: datetime = None):
+        assert begin is not None or \
+               end is not None, \
+               "At least one timestamp must be provided"
+
+        # if the metric's table doesn't exist yet, return early
+        if not self.get_table_exists(metric.name):
+            return []
+        
+        # set up a connection to the database
+        con = sqlite3.connect(self.db_path)
+        cur = con.cursor()
+        
+        # build a command to grab all relevant entries
+        table_name = metric.name
+        cmd = "SELECT * FROM %s WHERE " % table_name
+        cmd_conditions = []
+        if begin is not None:
+            cmd_conditions.append("timestamp >= %f" % begin.timestamp())
+        if end is not None:
+            cmd_conditions.append("timestamp < %f" % end.timestamp())
+        cmd += " AND ".join(cmd_conditions)
+        cmd += " ORDER BY timestamp DESC"
+
+        # execute the command and iterate through the results
+        result = cur.execute(cmd)
+        entries = []
+        for data in result:
+            entry = LifeMetricEntry()
+            entry.init_from_metric(metric)
+            entry.parse_sqlite3(
+                data,
+                fields_kept_visible=entry.get_sqlite3_fields_to_keep_visible()
+            )
+            entries.append(entry)
+        
+        con.close()
+        return entries
 
 
 # =============================== Base TaskJob =============================== #
@@ -410,7 +470,7 @@ class TaskJob_LifeTracker(TaskJob):
         # create a payload and send it to Telegram to create the menu
         payload = {
             "chat_id": tracker.telegram_chat_id,
-            "menu": metric.get_telegram_menu(),
+            "menu": metric.get_telegram_menu(title_prefix="❓ "),
         }
         r = telegram_session.post("/bot/send/menu", payload=payload)
 
