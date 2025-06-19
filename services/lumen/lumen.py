@@ -137,8 +137,11 @@ class LumenService(Service):
 
         # set up a Wyze API object
         self.wyze = Wyze(self.config.wyze_config)
-        self.wyze.login()
-        self.log.write("logged into Wyze successfully.")
+        try:
+            self.wyze.login()
+            self.log.write("logged into Wyze successfully.")
+        except Exception as e:
+            self.log.write("failed to log into Wyze API: %s" % e)
 
         # set up a LIFX LAN object
         lifx_config = self.config.lifx_config
