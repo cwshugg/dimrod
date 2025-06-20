@@ -41,6 +41,7 @@ from commands.event import command_event
 from commands.remind import command_remind
 from commands.mode import command_mode
 from commands.calendar import command_calendar
+from commands.budget import command_budget
 from commands.s_reset import command_s_reset
 from commands.s_menu import command_s_menu
 
@@ -81,27 +82,30 @@ class TelegramService(Service):
 
         # define the bot's commands
         self.commands = [
-            TelegramCommand(["help", "commands", "what"],
+            TelegramCommand(["help", "h", "commands", "what"],
                             "Presents this help menu.",
                             command_help),
-            TelegramCommand(["system", "sys", "status", "vitals"],
+            TelegramCommand(["system", "sys", "s"],
                             "Reports system information.",
                             command_system),
-            TelegramCommand(["lights", "light", "lumen"],
+            TelegramCommand(["lights", "light", "lumen", "l"],
                             "Interacts with the home lights.",
                             command_lights),
-            TelegramCommand(["net", "network", "wifi"],
+            TelegramCommand(["net", "network", "n"],
                             "Retrieves home network info.",
                             command_network),
-            TelegramCommand(["remind", "reminder", "rem"],
+            TelegramCommand(["remind", "reminder", "rem", "r"],
                             "Sets reminders.",
                             command_remind),
             TelegramCommand(["mode", "modes", "moder"],
                             "Retrieves and sets the current house mode.",
                             command_mode),
-            TelegramCommand(["calendar", "cal"],
+            TelegramCommand(["calendar", "cal", "c"],
                             "Interacts with Google Calendar.",
                             command_calendar),
+            TelegramCommand(["budget", "bud", "b"],
+                            "Interacts with the Budget.",
+                            command_budget),
             TelegramCommand(["_reset"],
                             "Resets the current chat conversation.",
                             command_s_reset,
@@ -180,6 +184,27 @@ class TelegramService(Service):
                            OracleSession.get_response_message(r))
             return None
         return s
+    
+    # Performs a oneshot LLM call and response.
+    def dialogue_oneshot(self, intro: str, message: str):
+        # attempt to connect to the speaker
+        speaker = self.get_speaker_session()
+        if speaker is None:
+            self.log.write("Failed to connect to the speaker.")
+            return message
+
+        # ping the /oneshot endpoint
+        pyld = {"intro": intro, "message": message}
+        r = speaker.post("/oneshot", payload=pyld)
+        if OracleSession.get_response_success(r):
+            # extract the response and return the reworded message
+            rdata = OracleSession.get_response_json(r)
+            return str(rdata["message"])
+        
+        # if the above didn't work, just return the original message
+        self.log.write("Failed to get a oneshot response from speaker: %s" %
+                       OracleSession.get_response_message(r))
+        return message
     
     # Takes in a string message and attempts to reword it. On failure, it will
     # return the original string.

@@ -269,7 +269,39 @@ class SpeakerOracle(Oracle):
             }
             return self.make_response(payload=rdata)
 
-        # This endpoint is used to have DImROD rephrease a given sentence.
+        # This endpoint is used to complete a single, "oneshot" chat completion.
+        @self.server.route("/oneshot", methods=["POST"])
+        def endpoint_oneshot():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+
+            # look for the message field
+            if "message" not in flask.g.jdata:
+                return self.make_response(msg="Missing message.",
+                                          success=False, rstatus=400)
+            msg = str(flask.g.jdata["message"])
+
+            # look for the intro message field
+            if "intro" not in flask.g.jdata:
+                return self.make_response(msg="Missing intro/system message.",
+                                          success=False, rstatus=400)
+            intro = str(flask.g.jdata["intro"])
+
+            # pass the message and the intro to the dialogue object's
+            # `oneshot()` function
+            answer = None
+            try:
+                answer = self.service.dialogue.oneshot(intro, msg)
+            except Exception as e:
+                self.log.write("Failed to process dialogue oneshot: %s" % e)
+                return self.make_response(msg="Failed to process dialogue oneshot.",
+                                          success=False, rstatus=400)
+
+            # pack the response into a JSON object and send it back
+            rdata = {"message": answer}
+            return self.make_response(payload=rdata)
+
+        # This endpoint is used to have DImROD rephrase a given sentence.
         @self.server.route("/reword", methods=["POST"])
         def endpoint_reword():
             if not flask.g.user:

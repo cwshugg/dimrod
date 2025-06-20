@@ -508,6 +508,30 @@ class DialogueInterface:
         self.save_conversation(c)
         return c
     
+    # Runs a single, "oneshot" prompt with the LLM, given the system `intro`
+    # message, which is used to set the context for the LLM, and the `prompt`
+    # itself.
+    #
+    # The string response is returned.
+    def oneshot(self, intro: str, prompt: str):
+        # create the conversation object, and add the intro system message
+        c = DialogueConversation()
+        a = DialogueAuthor("system", DialogueAuthorType.UNKNOWN)
+        c.add(DialogueMessage(a, intro))
+
+        # next, add the "user"'s message (the prompt)
+        a = DialogueAuthor("user", DialogueAuthorType.USER)
+        c.add(DialogueMessage(a, prompt))
+
+        # ping OpenAI for the result
+        result = dialogue_chat_completion(
+            self.conf.openai_api_key,
+            model=self.conf.openai_chat_model,
+            messages=c.to_openai_json()
+        )
+        result = result.choices[0].message.content
+        return result
+    
     # Takes in a sentence and rewords it such that it appears to have come from
     # the mouth of DImROD. It pings OpenAI's API. It's essentially a way to give
     # some AI-assisted variance to the same message.
