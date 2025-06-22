@@ -11,3 +11,4 @@ google-auth==2.37.0
 google-api-python-client==1.7.12
 wyze-sdk==2.2.0
 lifxlan==1.2.8
+ynab==1.4.0

@@ -27,6 +27,7 @@ from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle, OracleSession, OracleSessionConfig
 from lib.cli import ServiceCLI
 from lib.google.google_calendar import GoogleCalendarConfig
+from lib.ynab import YNABConfig
 
 # Service imports
 from telegram_objects import TelegramChat, TelegramUser
@@ -67,7 +68,8 @@ class TelegramConfig(ServiceConfig):
             ConfigField("speaker",  [OracleSessionConfig],      required=True),
             ConfigField("google_calendar_config",   [GoogleCalendarConfig], required=True),
             ConfigField("google_calendar_id",       [str],      required=True),
-            ConfigField("google_calendar_timezone", [str],      required=False, default="America/New_York")
+            ConfigField("google_calendar_timezone", [str],      required=False, default="America/New_York"),
+            ConfigField("ynab",     [YNABConfig],               required=True),
         ]
 
 

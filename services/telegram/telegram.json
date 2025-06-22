@@ -81,5 +81,10 @@
         "service_account_credentials_path": "/path/to/google/cloud/service_account_creds.json"
     },
     "google_calendar_id": "your_google_calendar_id",
-    "google_calendar_timezone": "America/New_York"
+    "google_calendar_timezone": "America/New_York",
+
+    "ynab":
+    {
+        "access_token": "YNAB_ACCESS_TOKEN"
+    }
 }
