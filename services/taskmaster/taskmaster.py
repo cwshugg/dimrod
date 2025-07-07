@@ -66,8 +66,15 @@ class TaskmasterService(Service):
         for (root, dirs, files) in os.walk(task_directory):
             for f in files:
                 if f.lower().endswith(".py"):
-                    # import the file
-                    mpath = "%s.%s" % (os.path.basename(task_directory), f.replace(".py", ""))
+                    # create a string that python will recognize as an
+                    # importable module path
+                    mpath_full = os.path.join(root, f)
+                    mpath = mpath_full.replace(os.path.realpath(task_directory), "").strip("/")
+                    mpath = mpath.replace(".py", "")
+                    mpath = mpath.replace("/", ".")
+                    mpath = "%s.%s" % (os.path.basename(task_directory), mpath)
+
+                    # import the module
                     mod = importlib.import_module(mpath)
 
                     # inspect the module's members
