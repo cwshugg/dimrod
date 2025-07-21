@@ -19,6 +19,7 @@ class TaskJob_Automotive_Routine_Maintenance(TaskJob_Automotive):
     def init(self):
         self.car_name = None
         self.title = "5000-Mile Car Maintenance"
+        self.trigger_years = []
         self.trigger_months = [1, 6, 7, 12]
         self.trigger_days = range(1, 10)
 
@@ -45,10 +46,12 @@ class TaskJob_Automotive_Routine_Maintenance(TaskJob_Automotive):
         if last_success is not None and dtu.diff_in_days(now, last_success) <= 100:
             return False
     
-        # only update on certain days and certain months
-        if now.day not in self.trigger_days:
+        # only update on certain days, months, years
+        if len(self.trigger_days) > 0 and now.day not in self.trigger_days:
             return False
-        if now.month not in self.trigger_months:
+        if len(self.trigger_months) > 0 and now.month not in self.trigger_months:
+            return False
+        if len(self.trigger_years) > 0 and now.year not in self.trigger_years:
             return False
 
         # retrieve the task (if it exists) and select an appropriate due date
