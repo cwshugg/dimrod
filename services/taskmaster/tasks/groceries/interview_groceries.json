@@ -1,0 +1,37 @@
+{
+    "telegram_chat_id": "55865318",
+    "grocery_items": [
+        {
+            "name": "Paper towels",
+            "question": "Do you need more paper towels?"
+        },
+        {
+            "name": "Toilet paper",
+            "question": "Do you need more toilet paper?"
+        },
+        {
+            "name": "Milk",
+            "question": "Do you need more milk?"
+        },
+        {
+            "name": "Bread",
+            "question": "Do you need more bread?"
+        },
+        {
+            "name": "Oats",
+            "question": "Do you need more oats?"
+        },
+        {
+            "name": "Butter",
+            "question": "Do you need more butter?"
+        },
+        {
+            "name": "Bars of soap",
+            "question": "Do you need more bars of soap?"
+        },
+        {
+            "name": "Cleaning spray",
+            "question": "Do you need more cleaning spray?"
+        }
+    ]
+}

@@ -10,10 +10,10 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 # Service imports
-from task import TaskConfig
-from tasks.base import *
+from task import *
 import lib.dtu as dtu
 from lib.config import Config, ConfigField
+from lib.oracle import OracleSession
 
 class TaskJob_System_Downtime_Config(Config):
     def __init__(self):

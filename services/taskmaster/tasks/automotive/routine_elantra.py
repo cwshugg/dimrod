@@ -39,3 +39,33 @@ class TaskJob_Automotive_Routine_Maintenance_Elantra_20k(TaskJob_Automotive_Rout
         self.trigger_months = [7, 8]
         self.trigger_days = range(1, 11)
 
+class TaskJob_Automotive_Routine_Maintenance_Elantra_30k(TaskJob_Automotive_Routine_Maintenance):
+    def init(self):
+        self.car_name = "Elantra"
+        self.title = "30k-Mile Car Maintenance - %s" % self.car_name
+        content_fname = "%s_30k.md" % __file__.replace(".py", "")
+        self.content = os.path.join(fdir, content_fname)
+        self.trigger_years = list(range(2028, 2199, 2))
+        self.trigger_months = [3, 4]
+        self.trigger_days = range(1, 11)
+
+class TaskJob_Automotive_Routine_Maintenance_Elantra_50k(TaskJob_Automotive_Routine_Maintenance):
+    def init(self):
+        self.car_name = "Elantra"
+        self.title = "50k-Mile Car Maintenance - %s" % self.car_name
+        content_fname = "%s_50k.md" % __file__.replace(".py", "")
+        self.content = os.path.join(fdir, content_fname)
+        self.trigger_years = list(range(2026, 2199, 2))
+        self.trigger_months = [8, 9]
+        self.trigger_days = range(1, 11)
+
+class TaskJob_Automotive_Routine_Maintenance_Elantra_60k(TaskJob_Automotive_Routine_Maintenance):
+    def init(self):
+        self.car_name = "Elantra"
+        self.title = "60k-Mile Car Maintenance - %s" % self.car_name
+        content_fname = "%s_60k.md" % __file__.replace(".py", "")
+        self.content = os.path.join(fdir, content_fname)
+        self.trigger_years = list(range(2027, 2199, 2))
+        self.trigger_months = [2, 3]
+        self.trigger_days = range(1, 11)
+

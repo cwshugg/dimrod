@@ -14,20 +14,8 @@ from task import TaskConfig
 from tasks.automotive.base import *
 import lib.dtu as dtu
 
-# Base class for routine automotive maintenance tasks.
-class TaskJob_Automotive_Routine_Maintenance(TaskJob_Automotive):
-    def init(self):
-        self.car_name = None
-        self.title = "5000-Mile Car Maintenance"
-        self.trigger_years = []
-        self.trigger_months = [1, 6, 7, 12]
-        self.trigger_days = range(1, 10)
-
+class TaskJob_Automotive_Carwash(TaskJob_Automotive):
     def update(self, todoist, gcal):
-        # only proceed if a car name is set (this is done by subclasses)
-        if self.car_name is None:
-            return False
-
         proj = self.get_project(todoist)
         sect = self.get_section_by_name(todoist, proj.id, "Upkeep")
 
@@ -35,29 +23,27 @@ class TaskJob_Automotive_Routine_Maintenance(TaskJob_Automotive):
         content_fname = __file__.replace(".py", ".md")
         t = TaskConfig()
         t.parse_json({
-            "title": self.title,
-            "content": self.content
+            "title": "Wash the car",
+            "content": os.path.join(fdir, content_fname)
         })
 
-        # if this task succeeded recently (within the past few months), don't
+        # if this task succeeded recently (within the past month), don't
         # proceed any further
         last_success = self.get_last_success_datetime()
         now = datetime.now()
-        if last_success is not None and dtu.diff_in_days(now, last_success) <= 100:
+        if last_success is not None and dtu.diff_in_days(now, last_success) <= 30:
             return False
     
-        # only update on certain days, months, years
-        if len(self.trigger_days) > 0 and now.day not in self.trigger_days:
+        # only update on certain days
+        if now.day not in range(10, 15):
             return False
-        if len(self.trigger_months) > 0 and now.month not in self.trigger_months:
+        # add the task on the odd months
+        if now.month not in [1, 3, 5, 7, 9, 11]:
             return False
-        if len(self.trigger_years) > 0 and now.year not in self.trigger_years:
-            return False
-
+        
         # retrieve the task (if it exists) and select an appropriate due date
         task = todoist.get_task_by_title(t.title, project_id=proj.id, section_id=sect.id)
-        due = dtu.add_days(dtu.get_last_day_of_month(now), 15)
-        due = dtu.set_time_end_of_day(due)
+        due = dtu.set_time_end_of_day(dtu.get_last_day_of_month(now))
 
         # if the task doesn't exist, create it
         if task is None:

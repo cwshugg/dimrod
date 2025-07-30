@@ -1,0 +1,892 @@
+{
+    "db_path": "/home/provolone/chs/services/taskmaster/tasks/.cwshugg_lifetracker.db",
+    "telegram_chat_id": "55865318",
+    "metrics":
+    [
+        {
+            "name": "daily_exercise",
+            "title": "Did you exercise today? What kind of exercise? (Select all that apply)",
+            "telegram_menu_behavior_type": "MULTI_CHOICE",
+            "values":
+            [
+                {
+                    "name": "bike",
+                    "title": "🚲 Bike",
+                    "score_points": 75
+                },
+                {
+                    "name": "gym",
+                    "title": "🏋️ Gym",
+                    "score_points": 50
+                },
+                {
+                    "name": "run",
+                    "title": "🏃 Run",
+                    "score_points": 35
+                },
+                {
+                    "name": "hike",
+                    "title": "🥾 Hike",
+                    "score_points": 30
+                },
+                {
+                    "name": "walk",
+                    "title": "🚶 Walk",
+                    "score_points": 15
+                },
+                {
+                    "name": "other",
+                    "title": "Other",
+                    "score_points": 10
+                }
+            ],
+            "trigger":
+            {
+                "hours": [21],
+                "minutes": [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+            }
+        },
+        {
+            "name": "daily_multi_vitamin",
+            "title": "Did you take a multivitamin today?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "yes",
+                    "title": "Yes",
+                    "score_points": 25
+                },
+                {
+                    "name": "no",
+                    "title": "No",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [20],
+                "minutes": [17, 18, 19, 20, 21, 22, 23, 24, 25, 26]
+            }
+        },
+        {
+            "name": "daily_book_reading",
+            "title": "Did you read a book today?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "yes",
+                    "title": "Yes",
+                    "score_points": 20
+                },
+                {
+                    "name": "no",
+                    "title": "No",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [20],
+                "minutes": [40, 41, 42, 43, 44, 45, 46, 47, 48, 49]
+            }
+        },
+        {
+            "name": "daily_friend_time",
+            "title": "Did you spend intentional time with your friends today?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "yes",
+                    "title": "Yes",
+                    "score_points": 45
+                },
+                {
+                    "name": "no",
+                    "title": "No",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [21],
+                "minutes": [35, 36, 37, 38, 39, 40, 41, 42, 43, 44]
+            }
+        },
+        {
+            "name": "daily_family_time",
+            "title": "Did you spend intentional time with your family today?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "yes",
+                    "title": "Yes",
+                    "score_points": 45
+                },
+                {
+                    "name": "no",
+                    "title": "No",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [21],
+                "minutes": [35, 36, 37, 38, 39, 40, 41, 42, 43, 44]
+            }
+        },
+        {
+            "name": "daily_outside_time",
+            "title": "Did you spend intentional time outdoors today?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "yes",
+                    "title": "Yes",
+                    "score_points": 30
+                },
+                {
+                    "name": "no",
+                    "title": "No",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [21],
+                "minutes": [45, 46, 47, 48, 49, 50, 51, 52, 53, 54]
+            }
+        },
+        {
+            "name": "daily_leave_home",
+            "title": "Did you leave home at all today?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "yes",
+                    "title": "Yes",
+                    "score_points": 20
+                },
+                {
+                    "name": "no",
+                    "title": "No",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [21],
+                "minutes": [45, 46, 47, 48, 49, 50, 51, 52, 53, 54]
+            }
+        },
+        {
+            "name": "daily_gaming_time",
+            "title": "Did you spend time playing video games or board games today?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "yes",
+                    "title": "Yes",
+                    "score_points": 25
+                },
+                {
+                    "name": "no",
+                    "title": "No",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [22],
+                "minutes": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+            }
+        },
+        {
+            "name": "daily_personal_project_time",
+            "title": "Did you spent time working on a personal project today?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "yes",
+                    "title": "Yes",
+                    "score_points": 25
+                },
+                {
+                    "name": "no",
+                    "title": "No",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [22],
+                "minutes": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+            }
+        },
+        {
+            "name": "daily_politics",
+            "title": "Did you read/watch/talk about politics today?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "yes",
+                    "title": "Yes",
+                    "score_points": 0
+                },
+                {
+                    "name": "no",
+                    "title": "No",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [21],
+                "minutes": [27, 28, 29, 30, 31, 32, 33, 34, 35, 36]
+            }
+        },
+        {
+            "name": "daily_work_office_location",
+            "title": "Where did you work from today?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "office",
+                    "title": "The office",
+                    "score_points": 0
+                },
+                {
+                    "name": "home",
+                    "title": "Home",
+                    "score_points": 0
+                },
+                {
+                    "name": "other",
+                    "title": "Somewhere else",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [17],
+                "minutes": [25, 26, 27, 28, 29, 30, 31, 32, 33, 34],
+                "weekdays": [1, 2, 3, 4, 5]
+            }
+        },
+        {
+            "name": "daily_work_feeling_2",
+            "title": "How did you feel during work today? (Select all that apply)",
+            "telegram_menu_behavior_type": "MULTI_CHOICE",
+            "values":
+            [
+                {
+                    "name": "motivated",
+                    "title": "😀 Motivated",
+                    "score_points": 0
+                },
+                {
+                    "name": "accomplished",
+                    "title": "😁 Accomplished",
+                    "score_points": 0
+                },
+                {
+                    "name": "excited",
+                    "title": "😄 Excited",
+                    "score_points": 0
+                },
+                {
+                    "name": "confident",
+                    "title": "😏 Confident",
+                    "score_points": 0
+                },
+                {
+                    "name": "bored",
+                    "title": "😑 Bored",
+                    "score_points": 0
+                },
+                {
+                    "name": "confused",
+                    "title": "🤔 Confused",
+                    "score_points": 0
+                },
+                {
+                    "name": "stressed",
+                    "title": "😟 Stressed",
+                    "score_points": 0
+                },
+                {
+                    "name": "frustrated",
+                    "title": "😠 Frustrated",
+                    "score_points": 0
+                },
+                {
+                    "name": "unmotivated",
+                    "title": "😒 Unmotivated",
+                    "score_points": 0
+                },
+                {
+                    "name": "fatigued",
+                    "title": "😔 Fatigued",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [17],
+                "minutes": [27, 28, 29, 30, 31, 32, 33, 34, 35, 36],
+                "weekdays": [1, 2, 3, 4, 5]
+            }
+        },
+        {
+            "name": "daily_sleep_morning",
+            "title": "How did you sleep last night?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "sleep_0_great",
+                    "title": "🟦 Great - I feel well rested",
+                    "score_points": 0
+                },
+                {
+                    "name": "sleep_1_decent",
+                    "title": "🟩 Decent - rested, but could have slept a little better",
+                    "score_points": 0
+                },
+                {
+                    "name": "sleep_2_okay",
+                    "title": "🟨 Okay - I'm a little tired, but I'll be fine today",
+                    "score_points": 0
+                },
+                {
+                    "name": "sleep_3_bad",
+                    "title": "🟧 Poorly - I'm tired. I could have slept much better.",
+                    "score_points": 0
+                },
+                {
+                    "name": "sleep_4_awful",
+                    "title": "🟥 Awful - I'm very tired. Last night was rough.",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [6],
+                "minutes": [30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+            }
+        },
+        {
+            "name": "daily_sleep_stuffiness_2",
+            "title": "How much did your nose stuffiness (if any) negatively affect your sleep last night?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "stuffiness_0_great",
+                    "title": "🟦 Not at all.",
+                    "score_points": 0
+                },
+                {
+                    "name": "stuffiness_1_good",
+                    "title": "🟩 Barely at all.",
+                    "score_points": 0
+                },
+                {
+                    "name": "stuffiness_2_okay",
+                    "title": "🟨 A little bit.",
+                    "score_points": 0
+                },
+                {
+                    "name": "stuffiness_3_bad",
+                    "title": "🟧 Enough to lose sleep.",
+                    "score_points": 0
+                },
+                {
+                    "name": "stuffiness_4_awful",
+                    "title": "🟥 A lot.",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [6],
+                "minutes": [30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+            }
+        },
+        {
+            "name": "daily_sleep_assistance",
+            "title": "Did you use anything to help you sleep last night? (Select all that apply)",
+            "telegram_menu_behavior_type": "MULTI_CHOICE",
+            "values":
+            [
+                {
+                    "name": "noise",
+                    "title": "White or ambient noise",
+                    "score_points": 0
+                },
+                {
+                    "name": "sinus_rinse",
+                    "title": "Sinus rinse before bed",
+                    "score_points": 0
+                },
+                {
+                    "name": "air_humidifier",
+                    "title": "Air humidifier",
+                    "score_points": 0
+                },
+                {
+                    "name": "air_purifier",
+                    "title": "Air purifier",
+                    "score_points": 0
+                },
+                {
+                    "name": "melatonin",
+                    "title": "Melatonin",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [6],
+                "minutes": [30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+            }
+        },
+        {
+            "name": "daily_sleep_screentime",
+            "title": "How soon before bed did you use your computer or a gaming device?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "hours_1",
+                    "title": "1 hour or less",
+                    "score_points": 0
+                },
+                {
+                    "name": "hours_2",
+                    "title": "2 hours",
+                    "score_points": 5
+                },
+                {
+                    "name": "hours_3",
+                    "title": "3 hours",
+                    "score_points": 10
+                },
+                {
+                    "name": "hours_4plus",
+                    "title": "4+ hours",
+                    "score_points": 15
+                }
+            ],
+            "trigger":
+            {
+                "hours": [22],
+                "minutes": [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+            }
+        },
+        {
+            "name": "daily_sleep_eating",
+            "title": "How soon before bed did you eat or drink something?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "hours_1",
+                    "title": "1 hour or less",
+                    "score_points": 0
+                },
+                {
+                    "name": "hours_2",
+                    "title": "2 hours",
+                    "score_points": 5
+                },
+                {
+                    "name": "hours_3",
+                    "title": "3 hours",
+                    "score_points": 10
+                },
+                {
+                    "name": "hours_4plus",
+                    "title": "4+ hours",
+                    "score_points": 15
+                }
+            ],
+            "trigger":
+            {
+                "hours": [22],
+                "minutes": [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+            }
+        },
+        {
+            "name": "daily_stretch",
+            "title": "Did you stretch last night before bed?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "yes",
+                    "title": "Yes",
+                    "score_points": 20
+                },
+                {
+                    "name": "no",
+                    "title": "No",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [6],
+                "minutes": [33, 34, 35, 36, 37, 38, 39, 40, 41, 42]
+            }
+        },
+        {
+            "name": "daily_sick_check",
+            "title": "Are you sick or feeling under the weather?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "yes",
+                    "title": "Yes",
+                    "score_points": 0
+                },
+                {
+                    "name": "no",
+                    "title": "No",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [7],
+                "minutes": [30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+            }
+        },
+        {
+            "name": "daily_eyes_contact_lenses",
+            "title": "Did you wear your contact lenses today?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "yes",
+                    "title": "Yes",
+                    "score_points": 0
+                },
+                {
+                    "name": "no",
+                    "title": "No",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [20],
+                "minutes": [12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
+            }
+        },
+        {
+            "name": "daily_eyes_feeling_2",
+            "title": "How do your eyes feel today? Consider dryness, pain, redness, etc.",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "eyes_5_best",
+                    "title": "🟦 5 - Great",
+                    "score_points": 0
+                },
+                {
+                    "name": "eyes_4_better",
+                    "title": "🟩 4 - Good",
+                    "score_points": 0
+                },
+                {
+                    "name": "eyes_3_okay",
+                    "title": "🟨 3 - Okay",
+                    "score_points": 0
+                },
+                {
+                    "name": "eyes_2_bad",
+                    "title": "🟧 2 - Poor",
+                    "score_points": 0
+                },
+                {
+                    "name": "eyes_1_worst",
+                    "title": "🟥 1 - Awful",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [16],
+                "minutes": [15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+            }
+        },
+        {
+            "name": "daily_drinks",
+            "title": "What did you drink today? Press each button until the number is correct.",
+            "telegram_menu_behavior_type": "ACCUMULATE",
+            "values":
+            [
+                {
+                    "name": "drinks_count_sugary_caffeine",
+                    "title": "🧋 Sugary caffeinated drink",
+                    "score_points": -7
+                },
+                {
+                    "name": "drinks_count_sugary",
+                    "title": "🥤 Sugary non-caffeinated drink",
+                    "score_points": -5
+                },
+                {
+                    "name": "drinks_count_caffeine",
+                    "title": "🫖 Non-sugary caffeinated drink",
+                    "score_points": -2
+                },
+                {
+                    "name": "drinks_count_sugary_alcohol",
+                    "title": "🍹 Sugary alcoholic drink",
+                    "score_points": -11
+                },
+                {
+                    "name": "drinks_count_alcohol",
+                    "title": "🍺 Non-sugary alcoholic drink",
+                    "score_points": -9
+                }
+            ],
+            "trigger":
+            {
+                "hours": [21],
+                "minutes": [27, 28, 29, 30, 31, 32, 33, 34, 35, 36]
+            }
+        },
+        {
+            "name": "daily_eating_sweets_2",
+            "title": "How many sweets did you eat today? Select each that apply (multiple times, if needed).",
+            "telegram_menu_behavior_type": "ACCUMULATE",
+            "values":
+            [
+                {
+                    "name": "sweets_small",
+                    "title": "Something small (candy, chocolate, etc.)",
+                    "score_points": -2
+                },
+                {
+                    "name": "sweets_normal",
+                    "title": "A standard dessert (cookie, ice cream, etc.)",
+                    "score_points": -5
+                },
+                {
+                    "name": "sweets_big",
+                    "title": "A big dessert (cake, pie, big cookie, etc.)",
+                    "score_points": -7
+                }
+            ],
+            "trigger":
+            {
+                "hours": [21],
+                "minutes": [32, 33, 34, 35, 36, 37, 38, 39, 40, 41]
+            }
+        },
+        {
+            "name": "daily_eating_groups",
+            "title": "What food groups did you eat today? (Select all that apply)",
+            "telegram_menu_behavior_type": "MULTI_CHOICE",
+            "values":
+            [
+                {
+                    "name": "fruit",
+                    "title": "🍎 Fruit",
+                    "score_points": 10
+                },
+                {
+                    "name": "vegetables",
+                    "title": "🥕 Vegetables",
+                    "score_points": 20
+                },
+                {
+                    "name": "protein",
+                    "title": "🍖 Protein (meat, tofu, etc.)",
+                    "score_points": 20
+                },
+                {
+                    "name": "greens",
+                    "title": "🌿 Greens (spinach, lettuce, etc.)",
+                    "score_points": 20
+                },
+                {
+                    "name": "dairy",
+                    "title": "🧀 Dairy (milk, cheese, etc.)",
+                    "score_points": 0
+                },
+                {
+                    "name": "grains",
+                    "title": "🍞 Grains (bread, pasta, crackers, etc.)",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [21],
+                "minutes": [32, 33, 34, 35, 36, 37, 38, 39, 40, 41]
+            }
+        },
+        {
+            "name": "daily_drinking_water",
+            "title": "Do you feel you drank enough water today?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "yes",
+                    "title": "Yes",
+                    "score_points": 20
+                },
+                {
+                    "name": "no",
+                    "title": "No",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [21],
+                "minutes": [37, 38, 39, 40, 41, 42, 43, 44, 45, 46]
+            }
+        },
+        {
+            "name": "daily_mood_morning",
+            "title": "Rate how good of a mood you're in this morning.",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "mood_5_best",
+                    "title": "🟦 5",
+                    "score_points": 0
+                },
+                {
+                    "name": "mood_4_better",
+                    "title": "🟩 4",
+                    "score_points": 0
+                },
+                {
+                    "name": "mood_3_okay",
+                    "title": "🟨 3",
+                    "score_points": 0
+                },
+                {
+                    "name": "mood_2_bad",
+                    "title": "🟧 2",
+                    "score_points": 0
+                },
+                {
+                    "name": "mood_1_worst",
+                    "title": "🟥 1",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [10],
+                "minutes": [33, 34, 35, 36, 37, 38, 39, 40, 41, 42]
+            }
+        },
+        {
+            "name": "daily_mood_evening",
+            "title": "Rate how good of a mood you're in this evening.",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "mood_5_best",
+                    "title": "🟦 5",
+                    "score_points": 0
+                },
+                {
+                    "name": "mood_4_better",
+                    "title": "🟩 4",
+                    "score_points": 0
+                },
+                {
+                    "name": "mood_3_okay",
+                    "title": "🟨 3",
+                    "score_points": 0
+                },
+                {
+                    "name": "mood_2_bad",
+                    "title": "🟧 2",
+                    "score_points": 0
+                },
+                {
+                    "name": "mood_1_worst",
+                    "title": "🟥 1",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [18],
+                "minutes": [33, 34, 35, 36, 37, 38, 39, 40, 41, 42]
+            }
+        },
+        {
+            "name": "monthly_date_night",
+            "title": "Did you and Reagan have a date night this month?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "yes",
+                    "title": "Yes",
+                    "score_points": 85
+                },
+                {
+                    "name": "no",
+                    "title": "No",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "days": [28],
+                "hours": [21],
+                "minutes": [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+            }
+        },
+        {
+            "name": "daily_youtube_watching",
+            "title": "Did you mindlessly watch random YouTube videos at some point today?",
+            "telegram_menu_behavior_type": "SINGLE_CHOICE",
+            "values":
+            [
+                {
+                    "name": "yes",
+                    "title": "Yes",
+                    "score_points": -15
+                },
+                {
+                    "name": "no",
+                    "title": "No",
+                    "score_points": 0
+                }
+            ],
+            "trigger":
+            {
+                "hours": [21],
+                "minutes": [32, 33, 34, 35, 36, 37, 38, 39, 40, 41]
+            }
+        }
+    ]
+}
