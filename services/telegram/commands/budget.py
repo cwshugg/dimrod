@@ -167,21 +167,6 @@ def command_budget(service, message, args: list):
     text = "Transaction price: $%.2f\n\n %s" % (currency_amount, text)
     
     ynab = YNAB(service.config.ynab)
-    # ---------- TODO TODO TODO TODO ---------- #
-    print(ynab.get_budgets())
-    print(ynab.get_budget_by_id("yo"))
-    budget_id = "9a09fdac-357d-44b8-a85a-96e87e3cce4d"
-    print(ynab.get_budget_by_id(budget_id))
-    print("---------- ACCOUNTS ----------\n%s", ynab.get_accounts(budget_id))
-    print(ynab.get_account_by_id(budget_id, "108c2c84-11cd-484c-acf0-d85ea8eb75dc"))
-    print(ynab.get_account_by_id(budget_id, "yo"))
-    print("---------- CATEGORIES ----------\n%s", ynab.get_categories(budget_id))
-    print(ynab.get_category_by_id(budget_id, "113f1d24-e325-48db-8f16-4cc2ee318fb5"))
-    print(ynab.get_category_by_id(budget_id, "yo"))
-    print("---------- ENTITIES ----------\n%s", ynab.get_entities(budget_id))
-    print(ynab.get_entity_by_id(budget_id, "b205179e-b316-4d05-8067-854ee93db294"))
-    print(ynab.get_entity_by_id(budget_id, "yo"))
-    # ---------- TODO TODO TODO TODO ---------- #
 
     # determine a list of categories for the LLM to choose from
     categories = [

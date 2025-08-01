@@ -16,6 +16,7 @@ import ynab
 
 # Local imports
 from lib.config import Config, ConfigField
+import lib.dtu as dtu
 
 # An object representing configured inputs for a GoogleCalendar object.
 class YNABConfig(Config):
@@ -56,6 +57,10 @@ class YNAB:
     # Returns a YNAB category-specific API object.
     def api_categories(self):
         return ynab.CategoriesApi(self.api())
+    
+    # Returns a YNAB transaction-specific API object.
+    def api_transactions(self):
+        return ynab.TransactionsApi(self.api())
     
     # Returns a YNAB entity-specific API object. (YNAB refers to these as
     # "payees")
@@ -165,4 +170,49 @@ class YNAB:
             return r.data.payee
         except:
             return None
+    
+    # Returns all transactions occurring after the `since_date` field for a
+    # budget. If `since_date` is `None`, then *all* transactions are retrieved.
+    def get_transactions(self,
+                         budget_id: str,
+                         since_date: datetime = None,
+                         transaction_type: str = None):
+        api = self.api_transactions()
+    
+        # format the `since_date` in YYYY-MM-DD format
+        since_date_str = None
+        if since_date is not None:
+            since_date_str = dtu.format_yyyymmdd(since_date)
+        
+        # poll the API and return the list of transactions
+        r = api.get_transactions(budget_id,
+                                 since_date=since_date_str,
+                                 type=transaction_type)
+        transactions = r.data.transactions
+
+        # iterate through the transactions and save only the ones that aren't
+        # marked as deleted
+        result = []
+        for t in transactions:
+            if t.deleted:
+                continue
+            result.append(t)
+
+        return result
+
+    # Returns all unapproved transactions for a budget.
+    def get_transactions_unapproved(self,
+                                    budget_id: str,
+                                    since_date: datetime = None):
+        return self.get_transactions(budget_id,
+                                     since_date=since_date,
+                                     transaction_type="unapproved")
+
+    # Returns all uncategorized transactions for a budget.
+    def get_transactions_uncategorized(self,
+                                       budget_id: str,
+                                       since_date: datetime = None):
+        return self.get_transactions(budget_id,
+                                     since_date=since_date,
+                                     transaction_type="uncategorized")
 

@@ -14,7 +14,7 @@ from task import TaskConfig
 from tasks.finance.base import *
 import lib.dtu as dtu
 
-class TaskJob_Finance_Budget(TaskJob_Finance):
+class TaskJob_Finance_Budget_EndOfMonthSavings(TaskJob_Finance):
     def update(self, todoist, gcal):
         proj = self.get_project(todoist)
         sect = self.get_section_by_name(todoist, proj.id, "Budgeting")
