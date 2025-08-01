@@ -1,2 +1,3 @@
-# Ignore all markdown files in any subdirectories here
+# Ignore all markdown and JSON files in any subdirectories here
 **/*.md
+**/*.json
