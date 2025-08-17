@@ -45,6 +45,7 @@ class TaskmasterConfig(ServiceConfig):
             ConfigField("taskmaster_refresh_rate",      [int], required=False, default=300),
             ConfigField("lumen",        [OracleSessionConfig], required=True),
             ConfigField("telegram",     [OracleSessionConfig], required=True),
+            ConfigField("speaker",      [OracleSessionConfig], required=True),
             ConfigField("dialogue",     [DialogueConfig],      required=True),
         ]
 
@@ -96,6 +97,38 @@ class TaskmasterService(Service):
         ls = OracleSession(self.config.lumen)
         ls.login()
         return ls
+
+    # Creates and returns a new OracleSession with the speaker.
+    # If authentication fails, None is returned.
+    def get_speaker_session(self):
+        s = OracleSession(self.config.speaker)
+        r = s.login()
+        if not OracleSession.get_response_success(r):
+            self.log.write("Failed to authenticate with speaker: %s" %
+                           OracleSession.get_response_message(r))
+            return None
+        return s
+    
+    # Performs a oneshot LLM call and response.
+    def dialogue_oneshot(self, intro: str, message: str):
+        # attempt to connect to the speaker
+        speaker = self.get_speaker_session()
+        if speaker is None:
+            self.log.write("Failed to connect to the speaker.")
+            return message
+
+        # ping the /oneshot endpoint
+        pyld = {"intro": intro, "message": message}
+        r = speaker.post("/oneshot", payload=pyld)
+        if OracleSession.get_response_success(r):
+            # extract the response and return the reworded message
+            rdata = OracleSession.get_response_json(r)
+            return str(rdata["message"])
+        
+        # if the above didn't work, just return the original message
+        self.log.write("Failed to get a oneshot response from speaker: %s" %
+                       OracleSession.get_response_message(r))
+        return message
 
     # Overridden abstract class implementation for the service thread.
     def run(self):

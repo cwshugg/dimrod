@@ -15,9 +15,15 @@ class Weekday(Enum):
     FRIDAY = 5
     SATURDAY = 6
 
+# Returns the weekday, as an enum.
 def get_weekday(dt):
     value = int((dt.weekday() + 1) % 7)
     return Weekday(value)
+
+# Returns the weekday, as a string.
+def get_weekday_str(dt):
+    # Use `title()` to uppercase only the first letter
+    return get_weekday(dt).name.title()
 
 # Takes in a weekday and returns the number of days 'dt' is away from the
 # specified weekday. This looks FORWARDS for the next occurrence of the
@@ -255,6 +261,14 @@ def has_same_year_month_day(dt1, dt2):
 # Returns a string with the "YYYY-MM-DD" format.
 def format_yyyymmdd(dt):
     return dt.strftime("%Y-%m-%d")
+
+# Returns a string with the "YYYY-MM-DD HH:MM:SS" (24 hour) format.
+def format_yyyymmdd_hhmmss_24h(dt):
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+# Returns a string with the "YYYY-MM-DD HH:MM:SS AM/PM" (12 hour) format.
+def format_yyyymmdd_hhmmss_12h(dt):
+    return dt.strftime("%Y-%m-%d %I:%M:%S %p")
 
 # Parses a YYYY-MM-DD string and returns the year, month, and day, in an array
 # of three integers [year, month, day]. Returns None if parsing failed.

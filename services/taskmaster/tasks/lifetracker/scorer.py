@@ -29,7 +29,7 @@ class TaskJob_LifeTracker_Scorer(TaskJob_LifeTracker):
     # Overridden initialization function.
     def init(self):
         super().init()
-        self.config_name = "lifetracker_main.json"
+        self.config_name = "main.json"
         self.refresh_rate = 520000 # about 6 days
 
     def update(self, todoist, gcal):
