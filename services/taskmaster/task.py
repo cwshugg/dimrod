@@ -55,7 +55,7 @@ class TaskJob:
     # made.
     def init(self):
         pass
-
+    
     # Function that uses the provided API objects to update any tasks, events,
     # etc. This must be implemented by subclasses.
     # Must return True if the update succeeded (some sort of update was made).
@@ -120,6 +120,10 @@ class TaskJob:
     def get_name(self):
         return self.__class__.__name__.lower().replace("taskjob_", "")
     
+    # Returns a unique identifier for this object
+    def get_id(self):
+        return "%s_%s" % (self.get_name(), id(self))
+
     # Creates and returns the project with the given name.
     def get_project_by_name(self, todoist, name: str,
                             color="grey", parent_id=None,

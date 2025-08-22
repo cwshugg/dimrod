@@ -15,13 +15,17 @@ if pdir not in sys.path:
 from task import TaskConfig
 from tasks.finance.base import *
 import lib.dtu as dtu
-from lib.ynab import YNABConfig, YNAB
+from lib.ynab import YNABConfig, YNAB, YNABTransactionUpdate
+
+# YNAB imports
+from ynab.exceptions import ApiException
 
 class BudgetRegexConfig(Config):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("category_group_title_exclude",   [list],     required=False, default=[])
+            ConfigField("category_group_title_exclude",   [list],     required=False, default=[]),
+            ConfigField("budget_name_exclude",            [list],     required=False, default=[])
         ]
 
     # Takes in a list of YNAB categories and returns the resulting list, using
@@ -41,9 +45,25 @@ class BudgetRegexConfig(Config):
             # if `do_not_include` is set, skip it
             if do_not_include:
                 continue
-
-            # include the category in the end result
             result.append(c)
+
+        return result
+
+    def filter_budgets(self, budgets: list):
+        result = []
+        for b in budgets:
+            do_not_include = False
+
+            # compare the budget name against regexes
+            for r in self.budget_name_exclude:
+                if re.search(r, b.name):
+                    do_not_include = True
+                    break
+
+            # if `do_not_include` is set, skip it
+            if do_not_include:
+                continue
+            result.append(b)
 
         return result
 
@@ -53,8 +73,7 @@ class TaskJob_Finance_Budget_AutoCategorize_Config(Config):
         self.fields = [
             ConfigField("ynab",             [YNABConfig],           required=True),
             ConfigField("dialogue_retries", [int],                  required=False, default=5),
-            ConfigField("regexes",          [BudgetRegexConfig],    required=False, default=None),
-            ConfigField("ynab_flag_color",  [str],                  required=False, default="blue")
+            ConfigField("regexes",          [BudgetRegexConfig],    required=False, default=None)
         ]
 
 # This taskjob's purpose is to scan through transactions in YNAB and look for
@@ -63,7 +82,23 @@ class TaskJob_Finance_Budget_AutoCategorize_Config(Config):
 class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
     def init(self):
         # this task should run every few hours
-        self.refresh_rate = 3600 * 5
+        self.refresh_rate_default = 3600 * 5
+        self.refresh_rate = self.refresh_rate_default
+
+        # however, YNAB imposes rate limits that might affect us. This refresh
+        # rate will be used if we encounter rate limiting errors.
+        #
+        # see YNAB's API rate limit documentation here:
+        # https://api.ynab.com/#rate-limiting
+        #
+        # YNAB seems to allow up to 200 requests per hour. Once that limit is
+        # hit, the "sliding window" of an hour is used to only allow new
+        # requests once the total number of requests in the past hour is below
+        # a threshold.
+        #
+        # so, if we are getting rate limited by YNAB, we'll use this refresh
+        # rate to try again in an hour and a half
+        self.refresh_rate_api_rate_limit = int(3600 * 1.5)
 
         # find the config and parse it
         config_dir = os.path.dirname(os.path.realpath(__file__))
@@ -73,27 +108,73 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
         self.config.parse_file(config_path)
 
     def update(self, todoist, gcal):
+        # update the refresh rate to the the default value. It's possible the
+        # last invocation of this taskjob ended in a YNAB API rate limit, which
+        # caused us to shorten the refresh rate. This ensures that it is
+        # returned to its normal value
+        self.refresh_rate = self.refresh_rate_default
+        
         # spin up a YNAB API object
         ynab = YNAB(self.config.ynab)
         
-        # get all budgets on this account, and process them individually
-        budgets = ynab.get_budgets()
-        success = False
-        for budget in budgets:
-            results = self.process_budget(ynab, budget)
-            
-            # divide the results into two groups:
-            # 1. transactions that had categories assigned to them
-            # 2. transactions that did *not* have categories assigned to them
-            results_nocat = []
-            results_cat = []
-            for r in results:
-                if r["category"] is None:
-                    results_nocat.append(r)
-                else:
-                    results_cat.append(r)
+        try:
+            # get all budgets on this account, and process them individually
+            budgets = self.config.regexes.filter_budgets(ynab.get_budgets())
+            success = False
+            for budget in budgets:
+                # if the budget name matches one of the exclude regexes, skip it
+                # entirely
+    
+                updates = self.process_budget(ynab, budget)
+                updates_len = len(updates)
+                updates_fresh_len = len([u.has_updates() for u in updates])
+                success = success or len(updates) > 0
+                
+                # if there were no new updates, but there were transactions to
+                # process, put together a message saying that nothing could be
+                # auto-processed
+                if updates_len > 0 and updates_fresh_len == 0:
+                    report = "There are %d pending transactions. " \
+                             "None of them could be auto-processed. " \
+                             "Please manually update them through the YNAB app."
+                    report_title = "Pending Transactions in \"%s\"" % budget.name
+                    self.service.msghub.post(report, title=report_title)
+                # if there was at least one new update, put together a report
+                elif updates_fresh_len > 0:
+                    report = self.create_msghub_report(updates)
+                    report_title = "Autocategorization of \"%s\"" % budget.name
+                    self.service.msghub.post(report, title=report_title)
 
-        return result
+        # catch any YNAB API exceptions that occur
+        except ApiException as e:
+            # if we're being rate limited by YNAB...
+            if e.status == 429:
+                self.log("Received rate-limiting response from YNAB API "
+                         "(%s - \"%s\"). "
+                         "Dropping down to refresh rate of %d seconds." % (
+                    e.status,
+                    e.reason,
+                    self.refresh_rate_api_rate_limit
+                ))
+
+                # use the rate-limit-specific refresh rate, which will allow
+                # this taskjob to be run sooner than normal, around the time
+                # after which all rate limiting issues should be gone
+                self.refresh_rate = self.refresh_rate_api_rate_limit
+
+                # return `True` to indicate that the taskjob succeeded (even
+                # though it failed due to rate limiting). This will force the
+                # taskmaster system to hold off on invoking it again until its
+                # next refresh rate (which we just updated)
+                return True
+
+            # if some other exception occurred, we want to raise it
+            raise e
+
+        # TODO - send notification for transactions that *were* categorized
+        # TODO - send Telegram poll/question to manually categorize those that were *not* categorized
+
+        return success
     
     # Processes a single budget.
     # Returns `True` if changes were made.
@@ -106,19 +187,30 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
 
         # get all transactions that are "unapproved" (i.e. haven't been reviewed
         # by a human)
-        transactions = ynab.get_transactions_unapproved(budget.id,
-                                                        since_date=last_update)
+        transactions = ynab.get_transactions_unapproved_uncategorized(
+            budget.id,
+            since_date=last_update
+        )
+        transactions_len = len(transactions)
+
+        # log the number of transactions retreived
+        if transactions_len > 0:
+            self.log("Retrieved %d new transactions for budget \"%s\"." % (
+                transactions_len,
+                budget.name
+            ))
         
         # build a system/intro promopt for the LLM
         prompt_intro = self.create_prompt_intro(ynab, budget, categories)
+        print("PROMPT:\n%s" % prompt_intro) # TODO REMOVE
 
         # get a session to the speaker
         speaker_session = self.service.get_speaker_session()
 
         # iterate through each transaction and process it
-        results = []
+        updates = []
         for t in transactions:
-            r = self.process_transaction(
+            u = self.create_transaction_update(
                 ynab,
                 budget,
                 categories,
@@ -128,23 +220,37 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
             )
 
             # if something failed, we will have received `None`. Skip if so
-            if r is None:
-                self.log("Failed to process transaction: [%s]." % YNAB.transaction_to_str(t))
+            if u is None:
                 continue
             
             # append the result to the output array
-            results.append(r)
+            updates.append(u)
+        
+        # if updates were created, submit them now
+        updates_len = len(updates)
+        if updates_len > 0:
+            r = ynab.update_transactions(
+                budget.id,
+                updates
+            )
 
-        # return all results
-        return results
+            # TODO - do something with response (?)
+            
+            # log the updates
+            self.log("Successfully updated %d transactions." % updates_len)
 
-    def process_transaction(self,
-                            ynab: YNAB,
-                            budget,
-                            categories,
-                            transaction,
-                            prompt_intro,
-                            speaker_session):
+        # return all update objects
+        return updates
+    
+    # Generates a `YNABTransactionUpdate` object given, which will be used
+    # later to update each YNAB transaction remotely.
+    def create_transaction_update(self,
+                                  ynab: YNAB,
+                                  budget,
+                                  categories,
+                                  transaction,
+                                  prompt_intro,
+                                  speaker_session):
         prompt_main = self.create_prompt_main(ynab, budget, categories, transaction)
         
         # send the prompts to the speaker for processing; do this multiple
@@ -156,10 +262,12 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
                 # result as a JSON object
                 r = self.service.dialogue_oneshot(prompt_intro, prompt_main)
                 jdata = json.loads(r)
-                rdata = {
-                    "transaction": transaction,
-                    "category": None
-                }
+
+                # create an update object
+                update = YNABTransactionUpdate()
+                update.init_defaults()
+                update.parse_json({"id": transaction.get_id()})
+                update.transaction = transaction
 
                 # make sure the category name was provided
                 cname_field = "category_name"
@@ -174,44 +282,26 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
                         # if the category names match, set the category in the
                         # result object and return
                         if c.name.lower().strip() == cname:
-                            rdata["category"] = c
+                            update.update_category_id = c.id
+                            update.update_approved = True
+                            update.category = c
                             break
 
                 # on success, set the result and break
-                result = rdata
+                result = update
                 break
             except Exception as e:
                 # on failure, continue to the next loop iteration
                 continue
         
         # if the above failed, and we didn't get a result, return early
-        if result is None:
-            return None
-
-        # if a category was chosen, submit the update to YNAB:
-        #
-        # 1. update the category
-        # 2. mark the transaction with a flag (to indicate it was
-        #    processed programatically)
-        # 3. mark the transaction as approved
-        category = result["category"]
-        if category is not None:
-            ynab.update_transaction(
-                budget.id,
-                transaction.id,
-                transaction_category_id=category.id,
-                transaction_flag_color=self.config.ynab_flag_color,
-                transaction_approved=True
-            )
-
-            # log the update
-            self.log("Categorized transaction:          [%s] --> \"%s\"." % (
-                YNAB.transaction_to_str(transaction),
-                category.name
-            ))
-        else:
-            self.log("Could not categorize transaction: [%s]." %
-                     YNAB.transaction_to_str(transaction))
+        if result is None or not result.has_updates():
+            self.log("No new updates for transaction:     [%s]" % transaction)
+            return None 
+        self.log("Determined updates for transaction: [%s] --> %s" % (
+            transaction,
+            result
+        ))
 
         return result
 
@@ -219,7 +309,7 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
     def create_prompt_intro(self, ynab: YNAB, budget, categories):
         now = datetime.now()
 
-        p = "You are a assistant designed to automatically process transactions in a budget.\n"
+        p = "You are an assistant designed to automatically process transactions in a budget.\n"
 
         # give the current day and time
         p += "The current date/time is: %s, %s.\n" % (
@@ -235,43 +325,6 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
         if self.config.regexes is not None:
             fcategories = self.config.regexes.filter_categories(categories)
 
-        # go through all categories in this budget and build up a set of JSON
-        # objects to describe them.
-        fcategories_data = []
-        for c in fcategories:
-            cdata = {"category_name": c.name}
-            if c.note is not None and len(c.note) != 0:
-                cdata["category_description"] = c.note
-
-                # get all transactions for this category
-                ctrans = ynab.get_transactions_by_category(budget.id, c.id)
-                if len(ctrans) > 0:
-                    cdata["category_transactions"] = []
-                    # build a list of transactions that have unique payees
-                    entries = {}
-                    for t in ctrans:
-                        # grab one of the payee names; doesn't matter which,
-                        # but we want to consider all kinds
-                        payee_name = self.transaction_get_payee_name(t)
-                        if payee_name is not None and payee_name not in entries:
-                            entries[payee_name] = t
-                            
-                            # construct a JSON object to describe the transaction
-                            jdata = self.transaction_to_json(t)
-                            cdata["category_transactions"].append(jdata)
-
-            # add the dictionary to the main JSON object
-            fcategories_data.append(cdata)
-        fcategories_str = json.dumps(fcategories_data, indent=4)
-        
-        # explain the categories
-        p += "The JSON object below describes all possible categories. " \
-             "Please read the category names and descriptions to determine what category the transaction should belong to. " \
-             "Especially consider the descriptions; they may contain special instructions that you must follow. " \
-             "Additionally, any existing transactions belonging to these categories are included. " \
-             "Use these as additional context to understand where to assign this new transaction.\n"
-        p += "```json\n%s\n```\n" % fcategories_str
-
         # explain output format
         p += "You must produce a single, syntactically-correct JSON object in the following format:\n" \
              "{\n" \
@@ -282,13 +335,15 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
              "If you do not have enough information to determine the category, you *must* instead set the `category_name` field to `null`. " \
              "You must choose a category name from one of these specific, exact strings:\n"
 
-        # list the category names again
+        # list the category names and descriptions
         for c in fcategories:
-            p += " - \"%s\"\n" % c.name
+            line = " - \"%s\"" % c.name
+            if c.note is not None and len(c.note) > 0:
+                line += " - %s" % c.note
+            p += "%s\n" % line
         
-        p += "Do NOT just guess at what category to pick. Instead, find evidence, such as:\n" \
-             "1. A keyword in the transaction matches a keyword in the category name (such as \"groceries\"), or in a category's existing details.\n" \
-             "2. A category's description has explicit instructions regarding the transactions, the current date and time, and more, that align with the transaction you are processing.\n" \
+        p += "Do NOT just guess at what category to pick. " \
+             "Instead, use the category descriptions as guidance for what to choose. " \
              "If there is no clear evidence, do NOT assign it category; mark it as `null`.\n"
         p += "Please do NOT produce any other output besides the JSON object.\n"
 
@@ -297,30 +352,62 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
     # Creates the main prompt that occurs after the introductory ("system")
     # prompt for the LLM.
     def create_prompt_main(self, ynab: YNAB, budget, categories, transaction):
-        jdata = self.transaction_to_json(transaction)
+        jdata = self.transaction_to_prompt_json(transaction)
         return json.dumps(jdata, indent=4)
 
-    def transaction_to_json(self, transaction):
+    def transaction_to_prompt_json(self, transaction):
         jdata = {
             "transaction_datetime": "%s, %s" % (
-                dtu.get_weekday_str(transaction.var_date),
-                dtu.format_yyyymmdd(transaction.var_date)
+                dtu.get_weekday_str(transaction.get_date()),
+                dtu.format_yyyymmdd(transaction.get_date())
             ),
-            "transaction_price": YNAB.get_transaction_amount(transaction),
-            "transaction_payee": self.transaction_get_payee_name(transaction),
+            "transaction_price": transaction.get_amount(),
+            "transaction_payee": transaction.get_payee_name()
         }
-        if transaction.memo is not None:
-            jdata["transaction_description"] = transaction.memo
-        if transaction.account_name is not None:
-            jdata["transaction_account"] = transaction.account_name
+        if transaction.get_description() is not None:
+            jdata["transaction_description"] = transaction.get_description()
+        if transaction.get_account_name() is not None:
+            jdata["transaction_account"] = transaction.get_account_name()
         return jdata
 
-    def transaction_get_payee_name(self, transaction):
-        if transaction.payee_name is not None:
-            return transaction.payee_name
-        if transaction.import_payee_name is not None:
-            return transaction.import_payee_name
-        if transaction.import_payee_name_original is not None:
-            return transaction.import_payee_name_original
-        return None
+    def create_msghub_report(self, updates: list):
+        # iterate through all updates and build a message that we'll
+        # send out via the taskmaster's msghub
+        new_category = []
+        no_change = []
+        for u in updates:
+            t = u.transaction
+            
+            # list all transactions that got NO updates and thus need
+            # to be manually sorted in the YNAB app
+            if not u.has_updates():
+                no_change.append("• <s - %s$%.2f at \"%s\"" % (
+                    dtu.format_yyyymmdd(t.get_date()),
+                    "-" if t.get_amount() < 0 else "",
+                    abs(t.get_amount()),
+                    t.get_payee_name()
+                ))
+            # list all transactions that were given a new category
+            elif u.update_category_id is not None:
+                new_category.append("• <s - %s$%.2f at \"%s\" - \"%s\"" % (
+                    dtu.format_yyyymmdd(t.get_date()),
+                    "-" if t.get_amount() < 0 else "",
+                    abs(t.get_amount()),
+                    t.get_payee_name(),
+                    u.category.name
+                ))
+
+        new_category_len = len(new_category)
+        no_change_len = len(no_change)
+
+        msg = ""
+        if new_category_len > 0:
+            msg += "Categorized %d transactions.\n\n" % new_category_len
+            msg += "%s\n\n" % "\n".join(new_category)
+        if no_change_len > 0:
+            msg += "Couldn't update %d transactions.\n\n" % no_change_len
+            msg += "%s\n\n" % "\n".join(no_change)
+            msg += "Please manually update the transactions that could not be updated automatically.\n"
+        
+        return msg
 

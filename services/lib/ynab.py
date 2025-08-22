@@ -5,6 +5,7 @@
 import os
 import sys
 from datetime import datetime
+import json
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -15,12 +16,167 @@ if pdir not in sys.path:
 import ynab
 from ynab.models.transaction_cleared_status import TransactionClearedStatus
 from ynab.models.transaction_flag_color import TransactionFlagColor
-from ynab.models.existing_transaction import ExistingTransaction
-from ynab.models.put_transaction_wrapper import PutTransactionWrapper
+from ynab.models.save_transaction_with_id_or_import_id import SaveTransactionWithIdOrImportId
+from ynab.models.patch_transactions_wrapper import PatchTransactionsWrapper
 
 # Local imports
 from lib.config import Config, ConfigField
 import lib.dtu as dtu
+
+# An object used for updating an existing YNAB transaction.
+class YNABTransactionUpdate(Config):
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            ConfigField("id",                      [str],      required=True),
+            ConfigField("update_account_id",       [str],      required=False, default=None),
+            ConfigField("update_entity_id",        [str],      required=False, default=None),
+            ConfigField("update_amount",           [float],    required=False, default=None),
+            ConfigField("update_date",             [datetime], required=False, default=None),
+            ConfigField("update_category_id",      [str],      required=False, default=None),
+            ConfigField("update_description",      [str],      required=False, default=None),
+            ConfigField("update_cleared_status",   [str],      required=False, default=None),
+            ConfigField("update_approved",         [bool],     required=False, default=None),
+            ConfigField("update_flag_color",       [str],      required=False, default=None),
+            
+            # Fields that are *not* used for updating, but strictly used for
+            # temporarily storing information in the object:
+            ConfigField("transaction",             [any],      required=False, default=None),
+            ConfigField("account",                 [any],      required=False, default=None),
+            ConfigField("category",                [any],      required=False, default=None),
+        ]
+
+    def __str__(self):
+        return json.dumps(self.to_update_dict())
+    
+    def has_updates(self):
+        return self.update_account_id is not None or \
+               self.update_entity_id is not None or \
+               self.update_amount is not None or \
+               self.update_date is not None or \
+               self.update_category_id is not None or \
+               self.update_description is not None or \
+               self.update_cleared_status is not None or \
+               self.update_approved is not None or \
+               self.update_approved is not None
+    
+    # Returns a dictionary containing all YNAB-friendly update fields.
+    def to_update_dict(self):
+        tdata = {}
+
+        # conditionally add fields
+        if self.update_account_id is not None:
+            tdata["account_id"] = self.update_account_id.lower().strip()
+        if self.update_entity_id is not None:
+            tdata["payee_id"] = self.update_entity_id.lower().strip()
+        if self.update_amount is not None:
+            tdata["amount"] = int(self.update_amount * 1000.0)
+        if self.update_date is not None:
+            tdata["var_date"] = dtu.format_yyyymmdd(self.update_date)
+        if self.update_category_id is not None:
+            tdata["category_id"] = self.update_category_id.lower().strip()
+        if self.update_description is not None:
+            tdata["memo"] = self.update_description
+        if self.update_cleared_status is not None:
+            tcs = self.update_cleared_status.lower().strip()
+            values = {
+                "cleared": TransactionClearedStatus.CLEARED,
+                "uncleared": TransactionClearedStatus.UNCLEARED,
+                "reconciled": TransactionClearedStatus.RECONCILED
+            }
+            if tcs not in values:
+                raise Exception("Invalid transaction clear status: \"%s\"" % tcs)
+            tdata["cleared"] = values[tcs]
+        if self.update_approved is not None:
+            tdata["approved"] = self.update_approved
+        if self.update_flag_color is not None:
+            fc = self.update_flag_color.lower().strip()
+            values = {
+                "red": TransactionFlagColor.RED,
+                "orange": TransactionFlagColor.ORANGE,
+                "yellow": TransactionFlagColor.YELLOW,
+                "green": TransactionFlagColor.GREEN,
+                "blue": TransactionFlagColor.BLUE,
+                "purple": TransactionFlagColor.PURPLE,
+            }
+            if fc not in values:
+                raise Exception("Invalid transaction clear status: \"%s\"" % fc)
+            tdata["flag_color"] = values[fc]
+
+        # if no updates are being made, there is no point building the object
+        if len(tdata) == 0:
+            return None
+        return tdata
+
+    # Returns a YNAB API object with which a transaction can be updated.
+    # If no updates are actually being made, `None` is returned
+    def to_update_ynab_obj(self):
+        d = self.to_update_dict()
+        if d is None:
+            return None
+                
+        # create the YNAB object and return
+        d.update({"id": self.id})
+        return SaveTransactionWithIdOrImportId.from_dict(d)
+
+# A wrapper class for a YNAB transaction object to make working with its data
+# easier.
+class YNABTransactionInfo:
+    def __init__(self, transaction):
+        self.transaction = transaction
+
+    def get_id(self):
+        return self.transaction.id
+
+    def get_account_id(self):
+        return self.transaction.account_id
+
+    def get_account_name(self):
+        return self.transaction.account_name
+
+    def get_payee_id(self):
+        return self.transaction.payee_id
+
+    def get_payee_name(self):
+        if self.transaction.payee_name is not None:
+            return self.transaction.payee_name
+        if self.transaction.import_payee_name is not None:
+            return self.transaction.import_payee_name
+        if self.transaction.import_payee_name_original is not None:
+            return self.transaction.import_payee_name_original
+        return None
+
+    def get_category_id(self):
+        return self.transaction.category_id
+
+    def get_date(self):
+        return self.transaction.var_date
+    
+    def get_amount(self):
+        return float(self.transaction.amount) / 1000.0
+    
+    def get_description(self):
+        if self.transaction.memo is None or \
+           len(self.transaction.memo) == 0:
+            return None
+        return self.transaction.memo
+    
+    def get_approved(self):
+        return self.transaction.approved
+
+    def get_cleared_status(self):
+        return self.transaction.cleared
+
+    def get_flag_color(self):
+        return self.transaction.flag_color
+    
+    def __str__(self):
+        r = "Date=\"%s\" " % dtu.format_yyyymmdd(self.get_date())
+        r += "Amount=\"%.2f\" " % self.get_amount()
+        r += "Entity=\"%s\"" % self.get_payee_name()
+        if self.get_description() is not None:
+            r += " Description=\"%s\"" % self.get_description()
+        return r
 
 # An object representing configured inputs for a GoogleCalendar object.
 class YNABConfig(Config):
@@ -200,7 +356,7 @@ class YNAB:
         for t in transactions:
             if t.deleted:
                 continue
-            result.append(t)
+            result.append(YNABTransactionInfo(t))
 
         return result
 
@@ -219,6 +375,26 @@ class YNAB:
         return self.get_transactions(budget_id,
                                      since_date=since_date,
                                      transaction_type="uncategorized")
+    
+    # Retrieves both unapproved and uncategorized transactions.
+    def get_transactions_unapproved_uncategorized(self,
+                                                  budget_id: str,
+                                                  since_date: datetime = None):
+        uats = self.get_transactions_unapproved(budget_id, since_date=since_date)
+        ucts = self.get_transactions_uncategorized(budget_id, since_date=since_date)
+        transactions = {}
+
+        # iterate through ALL transactions and build a combined dictionary,
+        # such that there are no duplicates
+        for t in uats:
+            if str(t.get_id()) not in transactions:
+                transactions[str(t.get_id())] = t
+        for t in ucts:
+            if str(t.get_id()) not in transactions:
+                transactions[str(t.get_id())] = t
+
+        # return the list of transactions
+        return transactions.values()
     
     # Retrieves all transactions belonging to a specific category.
     def get_transactions_by_category(self,
@@ -246,90 +422,40 @@ class YNAB:
         for t in transactions:
             if t.deleted:
                 continue
-            result.append(t)
+            result.append(YNABTransactionInfo(t))
 
         return result
     
-    # Returns the converted transaction amount.
-    @staticmethod
-    def get_transaction_amount(transaction):
-        return float(transaction.amount) / 1000.0
-    
-    @staticmethod
-    def transaction_to_str(transaction):
-        r = "Date=\"%s\" " % dtu.format_yyyymmdd(transaction.var_date)
-        r += "Amount=\"%.2f\" " % YNAB.get_transaction_amount(transaction)
-        r += "Entity=\"%s\" " % transaction.payee_name
-        if transaction.memo is not None:
-            r += "Description=\"%s\"" % transaction.memo
-        return r
-    
-    # Updates a transaction with the provided transaction ID. One or more of
-    # the optional fields must be specified in order for the update to be sent
-    # to YNAB.
-    def update_transaction(self,
-                           budget_id: str,
-                           transaction_id: str,
-                           transaction_account_id: str = None,
-                           transaction_date: datetime = None,
-                           transaction_amount: float = None,
-                           transaction_entity_id: str = None,
-                           transaction_category_id: str = None,
-                           transaction_description: str = None,
-                           transaction_clear_status: str = None,
-                           transaction_approved: bool = None,
-                           transaction_flag_color: str = None):
-        # build a dictionary to house all the updates
-        tdata = {}
-        if transaction_account_id is not None:
-            tdata["account_id"] = transaction_account_id.lower().strip()
-        if transaction_date is not None:
-            tdata["var_date"] = dtu.format_yyyymmdd(transaction_date)
-        if transaction_amount is not None:
-            tdata["amount"] = int(transaction_amount * 1000.0)
-        if transaction_entity_id is not None:
-            tdata["payee_id"] = transaction_entity_id.lower().strip()
-        if transaction_category_id is not None:
-            tdata["category_id"] = transaction_category_id.lower().strip()
-        if transaction_description is not None:
-            tdata["memo"] = transaction_description
-        if transaction_clear_status is not None:
-            tcs = transaction_clear_status.lower().strip()
-            values = {
-                "cleared": TransactionClearedStatus.CLEARED,
-                "uncleared": TransactionClearedStatus.UNCLEARED,
-                "reconciled": TransactionClearedStatus.RECONCILED
-            }
-            if tcs not in values:
-                raise Exception("Invalid transaction clear status: \"%s\"" % tcs)
-            tdata["cleared"] = values[tcs]
-        if transaction_approved is not None:
-            tdata["approved"] = transaction_approved
-        if transaction_flag_color is not None:
-            fc = transaction_flag_color.lower().strip()
-            values = {
-                "red": TransactionFlagColor.RED,
-                "orange": TransactionFlagColor.ORANGE,
-                "yellow": TransactionFlagColor.YELLOW,
-                "green": TransactionFlagColor.GREEN,
-                "blue": TransactionFlagColor.BLUE,
-                "purple": TransactionFlagColor.PURPLE,
-            }
-            if fc not in values:
-                raise Exception("Invalid transaction clear status: \"%s\"" % fc)
-            tdata["flag_color"] = values[fc]
+    # Accepts a list of `YNABTransactionUpdate` objects and attempts to submit
+    # updates to the YNAB API for all of them.
+    def update_transactions(self,
+                            budget_id: str,
+                            updates: list):
+        # iterate through the updates and build a list of YNAB update objects
+        objs = []
+        for update in updates:
+            obj = update.to_update_ynab_obj()
+            if obj is None:
+                continue
+            objs.append(obj)
 
-        # if no updates were made, return early
-        if len(tdata) == 0:
+        # if none of the updates made actually contained new changes, return
+        # early
+        if len(objs) == 0:
             return None
 
-        # otherwise, create a YNAB object to make the update
-        et = ExistingTransaction.from_dict(tdata)
-        ptw = PutTransactionWrapper.from_dict({
-            "transaction": et
+        # otherwise, create a wrapper object
+        wrapper = PatchTransactionsWrapper.from_dict({
+            "transactions": objs
         })
 
-        # send the update to YNAB
+        # attempt to send the updates to YNAB
         api = self.api_transactions()
-        return api.update_transaction(budget_id, transaction_id, ptw)
+        return api.update_transactions(budget_id, wrapper)
+
+    # Updates a single YNAB transaction.
+    def update_transaction(self,
+                           budget_id: str,
+                           update: YNABTransactionUpdate):
+        return self.update_transactions(budget_id, [update])
 

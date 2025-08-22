@@ -37,8 +37,13 @@ def ntfy_send(topic: str, message: str, title=None, tags=[], priority=3):
         tagstrs = [str(t) for t in tags]
         jdata["tags"] = tagstrs
 
+    # enable markdown parsing
+    headers = {
+        "Markdown": "yes"
+    }
+
     # post the request, with the message as the HTTP request body
-    return s.post(url, json=jdata)
+    return s.post(url, json=jdata, headers=headers)
 
 # Represents an individual ntfy.sh topic.
 class NtfyChannel:
