@@ -26,7 +26,7 @@ class TaskJob_System_Downtime_Config(Config):
 
 class TaskJob_System_Downtime(TaskJob):
     def init(self):
-        self.refresh_rate = 180
+        self.refresh_rate = 60
 
         # find the config and parse it
         config_dir = os.path.dirname(os.path.realpath(__file__))
