@@ -320,7 +320,7 @@ class TaskmasterService(Service):
             # above, default to some time)
             if closest_update_time_seconds is None:
                 closest_update_time_seconds = self.config.refresh_rate
-            time.sleep(closest_update_time_seconds)
+            time.sleep(max(0, closest_update_time_seconds))
 
 # ============================== Service Oracle ============================== #
 class TaskmasterOracle(Oracle):

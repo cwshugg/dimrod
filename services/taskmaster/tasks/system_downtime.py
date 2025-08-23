@@ -37,35 +37,32 @@ class TaskJob_System_Downtime(TaskJob):
 
     def update(self, todoist, gcal):
         now = datetime.now()
-        last_success = self.get_last_success_datetime()
+        last_update = self.get_last_update_datetime()
 
         # This TaskJob aims to detect when the system goes down. It does this
-        # by returning `True` (success) constantly, indicating that the code
-        # was able to be run (meaning we have power). This updates the
-        # taskjob's "last-succeeded" time, which we'll refer to each time to
-        # determine how long it's been since we last succeeded.
+        # by examining the "last-updated" time and ensuring the time difference
+        # between then and now doesn't exceed a threshold
         #
-        # If it's been long enough between the last success and now, we'll
-        # consider it to be a downtime.
+        # It returns `True` when a downtime was detected
 
         # if there isn't a previous timestamp for this taskjob, then it may
         # have never run before. Return early in order to indicate success and
         # have a timestamp saved
-        if last_success is None:
-            return True
+        if last_update is None:
+            return False
         
         # the the last success within the threshold? If so, we don't consider
         # this to be a downtime
-        secs = dtu.diff_in_seconds(now, last_success)
+        secs = dtu.diff_in_seconds(now, last_update)
         if secs < self.config.downtime_threshold:
-            return True
+            return False
 
         # otherwise, the last time this taskjob ran was longer than the
         # threshold we've set. There must have been some sort of downtime.
         self.log("Downtime threshold of %d seconds exceeded." % self.config.downtime_threshold)
         
         # compute the difference in hours/mins/secs, and build a string
-        [diff_secs, diff_mins, diff_hours] = dtu.diff_in_seconds_minutes_hours(now, last_success)
+        [diff_secs, diff_mins, diff_hours] = dtu.diff_in_seconds_minutes_hours(now, last_update)
         date_str = ""
         if diff_hours > 0:
             date_str += "%dh " % diff_hours

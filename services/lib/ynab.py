@@ -30,7 +30,7 @@ class YNABTransactionUpdate(Config):
         self.fields = [
             ConfigField("id",                      [str],      required=True),
             ConfigField("update_account_id",       [str],      required=False, default=None),
-            ConfigField("update_entity_id",        [str],      required=False, default=None),
+            ConfigField("update_payee_id",         [str],      required=False, default=None),
             ConfigField("update_amount",           [float],    required=False, default=None),
             ConfigField("update_date",             [datetime], required=False, default=None),
             ConfigField("update_category_id",      [str],      required=False, default=None),
@@ -51,7 +51,7 @@ class YNABTransactionUpdate(Config):
     
     def has_updates(self):
         return self.update_account_id is not None or \
-               self.update_entity_id is not None or \
+               self.update_payee_id is not None or \
                self.update_amount is not None or \
                self.update_date is not None or \
                self.update_category_id is not None or \
@@ -67,8 +67,8 @@ class YNABTransactionUpdate(Config):
         # conditionally add fields
         if self.update_account_id is not None:
             tdata["account_id"] = self.update_account_id.lower().strip()
-        if self.update_entity_id is not None:
-            tdata["payee_id"] = self.update_entity_id.lower().strip()
+        if self.update_payee_id is not None:
+            tdata["payee_id"] = self.update_payee_id.lower().strip()
         if self.update_amount is not None:
             tdata["amount"] = int(self.update_amount * 1000.0)
         if self.update_date is not None:
@@ -222,7 +222,7 @@ class YNAB:
     def api_transactions(self):
         return ynab.TransactionsApi(self.api())
     
-    # Returns a YNAB entity-specific API object. (YNAB refers to these as
+    # Returns a YNAB payee-specific API object. (YNAB refers to these as
     # "payees")
     def api_entities(self):
         return ynab.PayeesApi(self.api())
@@ -321,12 +321,12 @@ class YNAB:
 
         return result
     
-    # Returns an entity (payee) based on its ID.
+    # Returns an payee based on its ID.
     # Returns `None` if the ID does not exist.
-    def get_entity_by_id(self, budget_id: str, entity_id: str):
+    def get_payee_by_id(self, budget_id: str, payee_id: str):
         api = self.api_entities()
         try:
-            r = api.get_payee_by_id(budget_id, entity_id)
+            r = api.get_payee_by_id(budget_id, payee_id)
             return r.data.payee
         except:
             return None

@@ -16,9 +16,21 @@ from task import TaskConfig
 from tasks.finance.base import *
 import lib.dtu as dtu
 from lib.ynab import YNABConfig, YNAB, YNABTransactionUpdate
+import lib.ntfy as ntfy
 
 # YNAB imports
 from ynab.exceptions import ApiException
+
+class BudgetMsghubRegexConfig(Config):
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            ConfigField("budget_name",   [str],     required=False, default=[]),
+            ConfigField("msghub_names",  [list],    required=False, default=[])
+        ]
+
+    def does_budget_match(self, budget_name: str):
+        return re.search(self.budget_name, budget_name)
 
 class BudgetRegexConfig(Config):
     def __init__(self):
@@ -73,7 +85,8 @@ class TaskJob_Finance_Budget_AutoCategorize_Config(Config):
         self.fields = [
             ConfigField("ynab",             [YNABConfig],           required=True),
             ConfigField("dialogue_retries", [int],                  required=False, default=5),
-            ConfigField("regexes",          [BudgetRegexConfig],    required=False, default=None)
+            ConfigField("regexes",          [BudgetRegexConfig],    required=False, default=None),
+            ConfigField("msghub_regexes",   [BudgetMsghubRegexConfig], required=False, default=None)
         ]
 
 # This taskjob's purpose is to scan through transactions in YNAB and look for
@@ -81,8 +94,7 @@ class TaskJob_Finance_Budget_AutoCategorize_Config(Config):
 # categorize it using... ~AI~.
 class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
     def init(self):
-        # this task should run every few hours
-        self.refresh_rate_default = 3600 * 5
+        self.refresh_rate_default = 3600 * 4
         self.refresh_rate = self.refresh_rate_default
 
         # however, YNAB imposes rate limits that might affect us. This refresh
@@ -113,6 +125,14 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
         # caused us to shorten the refresh rate. This ensures that it is
         # returned to its normal value
         self.refresh_rate = self.refresh_rate_default
+
+        # check the current datetime; is it Sunday? We only want to run this on
+        # Sundays, as long as we haven't already run it within the last 24
+        # hours
+        now = datetime.now()
+        last_success = self.get_last_success_datetime()
+        if not now.is_sunday() or dtu.diff_hours(now, last_success) < 24:
+            return False
         
         # spin up a YNAB API object
         ynab = YNAB(self.config.ynab)
@@ -127,23 +147,24 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
     
                 updates = self.process_budget(ynab, budget)
                 updates_len = len(updates)
-                updates_fresh_len = len([u.has_updates() for u in updates])
-                success = success or len(updates) > 0
+                success = success or updates_len > 0
+
+                # are there any msghub names that match the configured regexes?
+                msghubs = []
+                for r in self.config.msghub_regexes:
+                    if r.does_budget_match(budget.name):
+                        for msghub_name in r.msghub_names:
+                            msghubs.append(ntfy.NtfyChannel(msghub_name))
                 
-                # if there were no new updates, but there were transactions to
-                # process, put together a message saying that nothing could be
-                # auto-processed
-                if updates_len > 0 and updates_fresh_len == 0:
-                    report = "There are %d pending transactions. " \
-                             "None of them could be auto-processed. " \
-                             "Please manually update them through the YNAB app."
-                    report_title = "Pending Transactions in \"%s\"" % budget.name
-                    self.service.msghub.post(report, title=report_title)
                 # if there was at least one new update, put together a report
-                elif updates_fresh_len > 0:
+                if updates_len > 0:
                     report = self.create_msghub_report(updates)
                     report_title = "Autocategorization of \"%s\"" % budget.name
-                    self.service.msghub.post(report, title=report_title)
+                
+                    # send the report to all matching msghubs, if a report was
+                    # generated
+                    for msghub in msghubs:
+                        msghub.post(report, title=report_title)
 
         # catch any YNAB API exceptions that occur
         except ApiException as e:
@@ -199,10 +220,13 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
                 transactions_len,
                 budget.name
             ))
+        # if there are no new transactions, exit early
+        else:
+            self.log("No new transactions for budget \"%s\"." % budget.name)
+            return []
         
         # build a system/intro promopt for the LLM
         prompt_intro = self.create_prompt_intro(ynab, budget, categories)
-        print("PROMPT:\n%s" % prompt_intro) # TODO REMOVE
 
         # get a session to the speaker
         speaker_session = self.service.get_speaker_session()
@@ -268,6 +292,15 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
                 update.init_defaults()
                 update.parse_json({"id": transaction.get_id()})
                 update.transaction = transaction
+
+                # always update the payee ID; for some reason, YNAB wipes this
+                # away if it is not explicity set when updating a transaction
+                update.update_payee_id = transaction.get_payee_id()
+
+                # by default, set the transaction as *not* approved. We'll set
+                # it to be approved later in the code if we're able to
+                # categorize it
+                update.update_approved = False
 
                 # make sure the category name was provided
                 cname_field = "category_name"
@@ -374,40 +407,47 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
         # iterate through all updates and build a message that we'll
         # send out via the taskmaster's msghub
         new_category = []
-        no_change = []
+        no_category = []
         for u in updates:
             t = u.transaction
-            
             # list all transactions that got NO updates and thus need
             # to be manually sorted in the YNAB app
-            if not u.has_updates():
-                no_change.append("• <s - %s$%.2f at \"%s\"" % (
+            if u.update_category_id is None:
+                no_category.append("• %s: 💲%s%.2f at \"%s\"" % (
                     dtu.format_yyyymmdd(t.get_date()),
-                    "-" if t.get_amount() < 0 else "",
+                    "-" if t.get_amount() < 0 else "+",
                     abs(t.get_amount()),
                     t.get_payee_name()
                 ))
             # list all transactions that were given a new category
             elif u.update_category_id is not None:
-                new_category.append("• <s - %s$%.2f at \"%s\" - \"%s\"" % (
+                new_category.append("• %s: 💲%s%.2f at \"%s\" - \"%s\"" % (
                     dtu.format_yyyymmdd(t.get_date()),
-                    "-" if t.get_amount() < 0 else "",
+                    "-" if t.get_amount() < 0 else "+",
                     abs(t.get_amount()),
                     t.get_payee_name(),
                     u.category.name
                 ))
 
         new_category_len = len(new_category)
-        no_change_len = len(no_change)
+        no_category_len = len(no_category)
 
         msg = ""
         if new_category_len > 0:
-            msg += "Categorized %d transactions.\n\n" % new_category_len
+            msg += "Categorized %d transaction%s.\n\n" % (
+                new_category_len,
+                "" if new_category_len == 1 else "s"
+            )
             msg += "%s\n\n" % "\n".join(new_category)
-        if no_change_len > 0:
-            msg += "Couldn't update %d transactions.\n\n" % no_change_len
-            msg += "%s\n\n" % "\n".join(no_change)
-            msg += "Please manually update the transactions that could not be updated automatically.\n"
+        if no_category_len > 0:
+            msg += "Couldn't categorize %d transaction%s.\n\n" % (
+                no_category_len,
+                "" if no_category_len == 1 else "s"
+            )
+            msg += "%s\n\n" % "\n".join(no_category)
+            msg += "Please manually update %s.\n" % (
+                "this transaction" if no_category_len == 1 else "these transactions"
+            )
         
         return msg
 
