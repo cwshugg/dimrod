@@ -36,8 +36,9 @@ class BudgetRegexConfig(Config):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("category_group_title_exclude",   [list],     required=False, default=[]),
-            ConfigField("budget_name_exclude",            [list],     required=False, default=[])
+            ConfigField("category_group_title_exclude",   [list],   required=False, default=[]),
+            ConfigField("budget_name_exclude",            [list],   required=False, default=[]),
+            ConfigField("extra_context",                  [list],   required=False, default=[])
         ]
 
     # Takes in a list of YNAB categories and returns the resulting list, using
@@ -125,13 +126,15 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
         # caused us to shorten the refresh rate. This ensures that it is
         # returned to its normal value
         self.refresh_rate = self.refresh_rate_default
+        
+        # determine the last time this taskjob succeeded
+        now = datetime.now()
+        last_success = self.get_last_success_datetime()
 
         # check the current datetime; is it Sunday? We only want to run this on
         # Sundays, as long as we haven't already run it within the last 24
         # hours
-        now = datetime.now()
-        last_success = self.get_last_success_datetime()
-        if not now.is_sunday() or dtu.diff_hours(now, last_success) < 24:
+        if not dtu.is_sunday(now) or dtu.diff_in_hours(now, last_success) < 24:
             return False
         
         # spin up a YNAB API object
@@ -200,17 +203,21 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
     # Processes a single budget.
     # Returns `True` if changes were made.
     def process_budget(self, ynab: YNAB, budget):
-        # get the last time this taskjob ran
-        last_update = self.get_last_update_datetime()
-
         # get all categories for this budget
         categories = ynab.get_categories(budget.id)
+
+        # if there *is* a last success time, walk it back a few days. YNAB
+        # imports transactions a few days after the actually occur, which means
+        # we don't want to miss any during that transitioning period
+        last_success = self.get_last_success_datetime()
+        if last_success is not None:
+            last_success = dtu.add_days(last_success, -3)
 
         # get all transactions that are "unapproved" (i.e. haven't been reviewed
         # by a human)
         transactions = ynab.get_transactions_unapproved_uncategorized(
             budget.id,
-            since_date=last_update
+            since_date=last_success
         )
         transactions_len = len(transactions)
 
@@ -378,6 +385,13 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
         p += "Do NOT just guess at what category to pick. " \
              "Instead, use the category descriptions as guidance for what to choose. " \
              "If there is no clear evidence, do NOT assign it category; mark it as `null`.\n"
+
+        # add extra context, if it was specified in the config file
+        if len(self.config.extra_context) > 0:
+            p += "Additionally, please use this extra context to decide:\n"
+            for ec in self.config.extra_context:
+                p += " - %s\n" % ec
+
         p += "Please do NOT produce any other output besides the JSON object.\n"
 
         return p
