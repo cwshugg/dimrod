@@ -26,7 +26,7 @@ class NewsAPIConfig(Config):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("api_key",      [str],  required=True),
+            ConfigField("api_key",          [str],  required=True),
         ]
 
 # Used to construct a query for news articles.
@@ -40,7 +40,8 @@ class NewsAPIQueryArticles(Config):
             ConfigField("sources",          [list], required=False, default=None),
             ConfigField("timerange_start",  [datetime], required=False, default=None),
             ConfigField("timerange_end",    [datetime], required=False, default=None),
-            ConfigField("sort_by",          [str],  required=False, default="publishedAt"),
+            ConfigField("sort_by",          [str],  required=False, default="relevancy"),
+            ConfigField("max_articles",     [int],  required=False, default=100),
         ]
 
     def sources_to_str(self):
@@ -105,6 +106,12 @@ class NewsAPI:
         total_amount = None
         page = 1
         while True:
+            # if we've collected the configured maximum amount, break out of
+            # the loop
+            all_articles_len = len(all_articles)
+            if all_articles_len >= query.max_articles:
+                break
+
             result = api.get_everything(**args, page=page)
             
             # if the query failed, throw an exception
@@ -120,15 +127,17 @@ class NewsAPI:
             if total_amount is None:
                 total_amount = result["totalResults"]
 
-            # append each article to the `all_articles` array
+            # append each article to the `all_articles` array, capping it off
+            # at the configured maximum
             articles = result["articles"]
             articles_len = len(articles)
-            all_articles += articles
+            remaining_room = query.max_articles - all_articles_len
+            all_articles += articles[0:remaining_room]
 
             # if NO articles were returned, then we're done
             if articles_len == 0:
                 break
-
+            
             # are there more articles to retrieve on the next "page"? If so,
             # update `page` to point to the next page number
             if articles_len < total_amount:

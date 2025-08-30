@@ -745,8 +745,13 @@ class TelegramOracle(Oracle):
                 return self.make_response(success=False,
                                           msg="No chat or user provided.")
 
+            # parse the parse mode (optional)
+            pmode = "HTML"
+            if "parse_mode" in flask.g.jdata:
+                pmode = str(flask.g.jdata["parse_mode"])
+
             # send the message and respond
-            self.service.send_message(chat_id, flask.g.jdata["text"], parse_mode="HTML")
+            self.service.send_message(chat_id, flask.g.jdata["text"], parse_mode=pmode)
             return self.make_response(msg="Message sent successfully.")
 
         # Endpoint used to instruct the bot to update a message.
