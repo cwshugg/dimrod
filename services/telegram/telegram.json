@@ -86,5 +86,25 @@
     "ynab":
     {
         "access_token": "YNAB_ACCESS_TOKEN"
-    }
+    },
+
+    "news":
+    {
+        "api_key": "f2b0643fc26c40ae92a82b609948d5ce"
+    },
+    "news_default_queries":
+    [
+        {
+            "query_name": "Political Headlines",
+            "sources": ["abc-news", "cbs-news", "cnn", "fox-news", "google-news", "the-hill", "the-huffington-post", "usa-today"]
+        },
+        {
+            "query_name": "Business Headlines",
+            "sources": ["bloomberg", "business-insider", "fortune", "the-wall-street-journal"]
+        },
+        {
+            "query_name": "Tech Headlines",
+            "sources": ["engadget", "hacker-news", "ign", "mashable", "techcrunch", "techradar", "the-verge"]
+        }
+    ]
 }

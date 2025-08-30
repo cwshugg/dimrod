@@ -28,6 +28,7 @@ from lib.oracle import Oracle, OracleSession, OracleSessionConfig
 from lib.cli import ServiceCLI
 from lib.google.google_calendar import GoogleCalendarConfig
 from lib.ynab import YNABConfig
+from lib.news import NewsAPIConfig, NewsAPIQueryArticles
 
 # Service imports
 from telegram_objects import TelegramChat, TelegramUser
@@ -43,6 +44,7 @@ from commands.remind import command_remind
 from commands.mode import command_mode
 from commands.calendar import command_calendar
 from commands.budget import command_budget
+from commands.news import command_news
 from commands.s_reset import command_s_reset
 from commands.s_menu import command_s_menu
 
@@ -70,6 +72,8 @@ class TelegramConfig(ServiceConfig):
             ConfigField("google_calendar_id",       [str],      required=True),
             ConfigField("google_calendar_timezone", [str],      required=False, default="America/New_York"),
             ConfigField("ynab",     [YNABConfig],               required=True),
+            ConfigField("news",     [NewsAPIConfig],            required=True),
+            ConfigField("news_default_queries", [NewsAPIQueryArticles], required=True)
         ]
 
 
@@ -108,6 +112,9 @@ class TelegramService(Service):
             TelegramCommand(["budget", "bud", "b"],
                             "Interacts with the Budget.",
                             command_budget),
+            TelegramCommand(["news", "articles", "headlines"],
+                            "Retrieves news articles to read.",
+                            command_news),
             TelegramCommand(["_reset"],
                             "Resets the current chat conversation.",
                             command_s_reset,
