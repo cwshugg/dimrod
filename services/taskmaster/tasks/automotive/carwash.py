@@ -15,6 +15,12 @@ from tasks.automotive.base import *
 import lib.dtu as dtu
 
 class TaskJob_Automotive_Carwash(TaskJob_Automotive):
+    def init(self):
+        self.car_name = None
+        self.title = "Wash the Car"
+        self.trigger_months = [3, 6, 9, 12]
+        self.trigger_days = range(1, 10)
+
     def update(self, todoist, gcal):
         proj = self.get_project(todoist)
         sect = self.get_section_by_name(todoist, proj.id, "Upkeep")
@@ -23,7 +29,7 @@ class TaskJob_Automotive_Carwash(TaskJob_Automotive):
         content_fname = __file__.replace(".py", ".md")
         t = TaskConfig()
         t.parse_json({
-            "title": "Wash the car",
+            "title": self.title,
             "content": os.path.join(fdir, content_fname)
         })
 
@@ -34,11 +40,10 @@ class TaskJob_Automotive_Carwash(TaskJob_Automotive):
         if last_success is not None and dtu.diff_in_days(now, last_success) <= 30:
             return False
     
-        # only update on certain days
-        if now.day not in range(10, 15):
+        # only update on certain days and months
+        if now.day not in self.trigger_days:
             return False
-        # add the task on the odd months
-        if now.month not in [1, 3, 5, 7, 9, 11]:
+        if now.month not in self.trigger_months:
             return False
         
         # retrieve the task (if it exists) and select an appropriate due date
