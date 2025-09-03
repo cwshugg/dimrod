@@ -10,13 +10,23 @@ pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 if pdir not in sys.path:
     sys.path.append(pdir)
 
+from lib.config import Config, ConfigField
+
 # Todoist imports
 from todoist_api_python.api import TodoistAPI
 
+class TodoistConfig(Config):
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            ConfigField("api_key",              [str], required=True),
+        ]
+
 class Todoist:
     # Constructor. Takes in a Todoist API key.
-    def __init__(self, api_key: str):
-        self.api_key = api_key
+    def __init__(self, config: TodoistConfig):
+        self.config = config
+        self.api_key = config.api_key
         self.api_obj = None
 
         # these fields determine when to use the cached list of projects and

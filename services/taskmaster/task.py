@@ -6,6 +6,8 @@ import os
 import sys
 import pickle
 from datetime import datetime
+import requests
+import time
 
 # Enable import from the parent directory
 fdir = os.path.dirname(os.path.realpath(__file__))
@@ -26,7 +28,7 @@ class TaskConfig(Config):
             ConfigField("priority",     [int],  required=False, default=1),
             ConfigField("labels",       [list], required=False, default=[]),
             ConfigField("project_name", [str],  required=False, default=None),
-            ConfigField("section_name", [str],  required=False, default=None)
+            ConfigField("section_name", [str],  required=False, default=None),
         ]
     
     # Returns the task's content. The content will either be the string
@@ -44,6 +46,7 @@ class TaskJob:
     def __init__(self, service):
         self.service = service
         self.refresh_rate = 43200
+        self.todoist_rate_limit_timeout = 30
         self.last_update_fpath = os.path.join(fdir, ".%s_last_update.pkl" %
                                               self.__class__.__name__.lower())
         self.last_success_fpath = os.path.join(fdir, ".%s_last_success.pkl" %
@@ -128,17 +131,32 @@ class TaskJob:
     def get_project_by_name(self, todoist, name: str,
                             color="grey", parent_id=None,
                             is_favorite=False, view_style="list"):
-        proj = todoist.get_project_by_name(name)
-        if proj is None:
-            proj = todoist.add_project(name, color=color, parent_id=None)
-        return proj
+        while True:
+            try:
+                proj = todoist.get_project_by_name(name)
+                if proj is None:
+                    proj = todoist.add_project(name, color=color, parent_id=None)
+                return proj
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 429:
+                    self.log("Getting rate-limited by Todoist. Sleeping...")
+                    time.sleep(self.todoist_rate_limit_timeout)
+                else:
+                    raise e
 
     # Creates and returns the section with the given name.
     def get_section_by_name(self, todoist, project_id: str, name: str,
                             order=None):
-        sect = todoist.get_section_by_name(name)
-        if sect is None:
-            sect = todoist.add_section(name, project_id, order=None)
-        return sect
-
+        while True:
+            try:
+                sect = todoist.get_section_by_name(name)
+                if sect is None:
+                    sect = todoist.add_section(name, project_id, order=None)
+                return sect
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 429:
+                    self.log("Getting rate-limited by Todoist. Sleeping...")
+                    time.sleep(self.todoist_rate_limit_timeout)
+                else:
+                    raise e
 

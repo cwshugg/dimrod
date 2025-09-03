@@ -17,6 +17,7 @@ class TaskJob_Automotive_Routine_Maintenance_Focus_5k(TaskJob_Automotive_Routine
         self.title = "5k-Mile Car Maintenance - %s" % self.car_name
         content_fname = "%s_5k.md" % __file__.replace(".py", "")
         self.content = os.path.join(fdir, content_fname)
+        self.trigger_years = []
         self.trigger_months = [3, 4, 9, 10]
         self.trigger_days = range(1, 11)
 
@@ -26,6 +27,7 @@ class TaskJob_Automotive_Routine_Maintenance_Focus_10k(TaskJob_Automotive_Routin
         self.title = "10k-Mile Car Maintenance - %s" % self.car_name
         content_fname = "%s_10k.md" % __file__.replace(".py", "")
         self.content = os.path.join(fdir, content_fname)
+        self.trigger_years = []
         self.trigger_months = [9, 10]
         self.trigger_days = range(1, 11)
 

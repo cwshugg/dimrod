@@ -25,7 +25,7 @@ from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
 from lib.cli import ServiceCLI
-from lib.todoist import Todoist
+from lib.todoist import Todoist, TodoistConfig
 from lib.google.google_calendar import GoogleCalendar, GoogleCalendarConfig
 from lib.oracle import OracleSession, OracleSessionConfig
 from lib.dialogue.dialogue import DialogueConfig
@@ -147,8 +147,8 @@ class TaskmasterConfig(ServiceConfig):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("taskmaster_todoist_api_key",   [str], required=True),
-            ConfigField("google_calendar",              [GoogleCalendarConfig], required=True),
+            ConfigField("todoist",          [TodoistConfig], required=True),
+            ConfigField("google_calendar",  [GoogleCalendarConfig], required=True),
             ConfigField("refresh_rate",     [int], required=False, default=300),
             ConfigField("worker_threads",   [int], required=False, default=8),
             ConfigField("lumen",            [OracleSessionConfig], required=True),
@@ -246,7 +246,7 @@ class TaskmasterService(Service):
     
     # Returns a Todoist API object.
     def get_todoist(self):
-        return Todoist(self.config.taskmaster_todoist_api_key)
+        return Todoist(self.config.todoist)
     
     # Returns a Google Calendar API object.
     def get_gcal(self):

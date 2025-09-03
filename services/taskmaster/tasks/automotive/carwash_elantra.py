@@ -13,6 +13,9 @@ from tasks.automotive.carwash import *
 
 class TaskJob_Automotive_Carwash_Elantra(TaskJob_Automotive_Carwash):
     def init(self):
+        super().init()
         self.car_name = "Elantra"
         self.title = "Wash the Car - %s" % self.car_name
+        content_fname = __file__.replace(".py", ".md")
+        self.content = os.path.join(fdir, content_fname)
 

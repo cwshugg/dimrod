@@ -18,6 +18,7 @@ class TaskJob_Automotive_Routine_Maintenance_Elantra_5k(TaskJob_Automotive_Routi
         content_fname = "%s_5k.md" % __file__.replace(".py", "")
         self.content = os.path.join(fdir, content_fname)
         self.trigger_months = [1, 2, 7, 8]
+        self.trigger_years = []
         self.trigger_days = range(1, 11)
 
 class TaskJob_Automotive_Routine_Maintenance_Elantra_10k(TaskJob_Automotive_Routine_Maintenance):
@@ -27,6 +28,7 @@ class TaskJob_Automotive_Routine_Maintenance_Elantra_10k(TaskJob_Automotive_Rout
         content_fname = "%s_10k.md" % __file__.replace(".py", "")
         self.content = os.path.join(fdir, content_fname)
         self.trigger_months = [1, 2]
+        self.trigger_years = []
         self.trigger_days = range(1, 11)
 
 class TaskJob_Automotive_Routine_Maintenance_Elantra_20k(TaskJob_Automotive_Routine_Maintenance):
