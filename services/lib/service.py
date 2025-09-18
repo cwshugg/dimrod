@@ -53,9 +53,9 @@ class Service(threading.Thread):
 
         # initialize the ntfy.sh topic class
         self.msghub = lib.ntfy.NtfyChannel(self.config.msghub_name)
-    
+
     # The service's main thread. This function must is where all the service's
     # actual work will occur, and thus must be extended by subclasses.
     def run(self):
-        self.log.write("running main thread.")
-    
+        self.log.write("Running main thread.")
+

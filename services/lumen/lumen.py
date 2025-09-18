@@ -20,6 +20,7 @@ if pdir not in sys.path:
 from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
+from lib.nla import NLAEndpoint, NLAEndpointHandlerFunction
 from lib.ifttt import WebhookConfig, Webhook
 from lib.cli import ServiceCLI
 from lib.wyze import WyzeConfig, Wyze
@@ -57,7 +58,7 @@ class LumenThreadQueueAction:
         self.lid = lid
         self.color = color
         self.brightness = brightness
-    
+
 # Represents a queue used to submit actions to lumen threads.
 class LumenThreadQueue:
     # Constructor.
@@ -72,7 +73,7 @@ class LumenThreadQueue:
         self.queue.append(action)
         self.cond.notify()
         self.lock.release()
-    
+
     # Pops from the queue, blocking if the queue is empty.
     def pop(self):
         self.lock.acquire()
@@ -91,12 +92,12 @@ class LumenThread(threading.Thread):
         super().__init__(target=self.run)
         self.service = service
         self.queue = queue
-    
+
     # Writes a log message using the lumen service's log object.
     def log(self, msg: str):
         ct = threading.current_thread()
         self.service.log.write("[Action Thread %d] %s" % (ct.native_id, msg))
-    
+
     # The thread's main function.
     def run(self):
         self.log("Spawned.")
@@ -129,7 +130,7 @@ class LumenService(Service):
         super().__init__(config_path)
         self.config = LumenConfig()
         self.config.parse_file(config_path)
-        
+
         # set up IFTTT webhook object
         webhook_conf = WebhookConfig()
         webhook_conf.parse_file(config_path)
@@ -139,9 +140,9 @@ class LumenService(Service):
         self.wyze = Wyze(self.config.wyze_config)
         try:
             self.wyze.login()
-            self.log.write("logged into Wyze successfully.")
+            self.log.write("Logged into Wyze successfully.")
         except Exception as e:
-            self.log.write("failed to log into Wyze API: %s" % e)
+            self.log.write("Failed to log into Wyze API: %s" % e)
 
         # set up a LIFX LAN object
         lifx_config = self.config.lifx_config
@@ -165,7 +166,7 @@ class LumenService(Service):
             # list of lights
             light = Light(lconfig)
             self.lights.append(light)
-            self.log.write("loaded light: %s" % light)
+            self.log.write("Loaded light: %s" % light)
 
         # set up a queue and threads for asynchronous lumen processing (make
         # sure at least one processing thread is specified)
@@ -191,7 +192,7 @@ class LumenService(Service):
     def power_on(self, lid, color=None, brightness=None):
         light = self.search(lid)
         self.check(light, "unknown light specified: \"%s\"" % lid)
-        
+
         # acquire the light's lock, in case another thread is trying to access
         # the same light
         light.lock()
@@ -221,13 +222,13 @@ class LumenService(Service):
         light.set_power(True)
         light.unlock() # release the light's lock
         return r
-    
+
     # Adds a power_on action to the thread queue for asynchronous processing.
     def queue_power_on(self, lid, color=None, brightness=None):
         a = LumenThreadQueueAction("on", lid, color=color, brightness=brightness)
         self.log.write("Queueing ON action for %s." % lid)
         self.queue.push(a)
-    
+
     # Takes in a light ID and turns off the corresponding light.
     def power_off(self, lid):
         light = self.search(lid)
@@ -236,7 +237,7 @@ class LumenService(Service):
         # acquire the light's lock, in case another thread is trying to access
         # the same light
         light.lock()
-        
+
         # build a JSON object and send the request
         r = None
         if light.match_tags("wyze"):
@@ -248,19 +249,19 @@ class LumenService(Service):
         light.unlock() # release the light's lock
         light.set_power(False)
         return r
-    
+
     # Adds a power_off action to the thread queue for asynchronous processing.
     def queue_power_off(self, lid):
         a = LumenThreadQueueAction("off", lid)
         self.log.write("Queueing OFF action for %s." % lid)
         self.queue.push(a)
-    
+
     # ------------------------------- Helpers -------------------------------- #
     # Uses IFTTT webhooks to toggle a light.
     def toggle_webhook(self, light: Light, action: str, color=None, brightness=None):
         action = action.strip().lower()
         assert action in ["on", "off"]
-        
+
         # build a payload to send to IFTTT
         jdata = {"id": light.lid, "action": action}
         if color is not None:
@@ -272,7 +273,7 @@ class LumenService(Service):
         # request to IFTTT
         light.set_power(True if action == "on" else False)
         return self.webhooker.send(self.config.webhook_event, jdata)
-    
+
     # Uses the Wyze API to toggle a light.
     def toggle_wyze(self, light: Light, action: str, color=None, brightness=None):
         action = action.strip().lower()
@@ -282,12 +283,12 @@ class LumenService(Service):
         if device is None:
             self.log.write("Could not find Wyze device with name \"%s\"." % light.lid)
             return
-        
+
         # currently, only wyze plugs are supported
         if not light.match_tags("wyze-plug"):
             self.log.write("Wyze device \"%s\" is not a Wyze plug (not supported)." % light.lid)
             return
-       
+
         power_on = True if action == "on" else False
         self.log.write("Toggling Wyze device \"%s\" to \"%s\"." % (light.lid, action))
         return self.wyze.toggle_plug(device.mac, power_on)
@@ -296,7 +297,7 @@ class LumenService(Service):
     def toggle_lifx(self, light: Light, action: str, color=None, brightness=None):
         action = action.strip().lower()
         assert action in ["on", "off"]
-        
+
         # retrieve the device from the LIFX object
         l = self.lifx.get_light_by_name(light.lid)
         if l is None:
@@ -315,7 +316,7 @@ class LumenService(Service):
         if brightness is not None:
             # TODO
             pass
-    
+
     # Searches for a Wyze device with the given ID string and returns it (or
     # None).
     def search_wyze(self, lid: str):
@@ -333,7 +334,7 @@ class LumenService(Service):
             if light.lid == lid:
                 return light
         return None
-    
+
     # Custom assertion function.
     def check(self, condition, msg):
         if not condition:
@@ -345,7 +346,7 @@ class LumenOracle(Oracle):
     # Endpoint definition function.
     def endpoints(self):
         super().endpoints()
-        
+
         # Endpoint that retrieves information about which lights are available
         # for pinging.
         @self.server.route("/lights")
@@ -360,7 +361,7 @@ class LumenOracle(Oracle):
                 lights.append(light.to_json())
             # send back the list
             return self.make_response(success=True, payload=lights)
-        
+
         # Endpoint used to toggle a single light.
         @self.server.route("/toggle", methods=["POST"])
         def endpoint_toggle():
@@ -385,7 +386,7 @@ class LumenOracle(Oracle):
             action = jdata["action"].lower()
             color = None
             brightness = None
-            
+
             # look for the optional 'color' field. It must come as a string of
             # three RGB integers, separated by commas. (ex: "125,13,0")
             if "color" in jdata:
@@ -397,7 +398,7 @@ class LumenOracle(Oracle):
                 except:
                     return self.make_response(msg="Invalid color format",
                                               success=False, rstatus=400)
-            
+
             # look for the optional 'brightness' field. It must come as a float
             # between 0.0 and 1.0
             if "brightness" in jdata:
@@ -419,13 +420,42 @@ class LumenOracle(Oracle):
                 else:
                     return self.make_response(msg="Invalid action.",
                                               success=False, rstatus=400)
-                
+
                 # because we asynchronously queued the action, we can't wait for
                 # it to finish and retrieve the response (otherwise that would
                 # defeat the purpose). So, simply return a success message
                 return self.make_response(success=True, msg="Action queued successfully.")
             except Exception as e:
                 return self.make_response(msg=str(e), success=False)
+
+    def init_nla(self):
+        super().init_nla()
+        self.nla_endpoints += [
+            NLAEndpoint.from_json({
+                    "name": "get_devices",
+                    "description": "Retrieve information about the devices that Lumen can control."
+                }).set_handler(nla_get),
+            NLAEndpoint.from_json({
+                    "name": "toggle_device",
+                    "description": "Toggle a device on or off."
+                }).set_handler(nla_toggle),
+        ]
+
+
+# =============================== NLA Handlers =============================== #
+def nla_get(oracle: LumenOracle, jdata: dict):
+    # TODO
+    return NLAResult.from_json({
+        "success": False,
+        "message": "TODO - /get_devices",
+    })
+
+def nla_toggle(oracle: LumenOracle, jdata: dict):
+    # TODO
+    return NLAResult.from_json({
+        "success": False,
+        "message": "TODO - /toggle_device",
+    })
 
 
 # =============================== Runner Code ================================ #

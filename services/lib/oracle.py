@@ -78,39 +78,47 @@ class Oracle(threading.Thread):
                    "the https_cert could not be accessed"
             assert os.path.isfile(self.config.https_key), \
                    "the https_key could not be accessed"
-        
+
         # examine the config for a log stream
         log_file = sys.stdout
         if self.config.log:
             log_file = self.config.log
         log_name = self.service.config.service_name + "-oracle"
         self.log = lib.log.Log(log_name, stream=log_file)
-        
+
+    # Initialize the Oracle's NLA endpoints list.
+    # This should be overridden by subclasses.
+    def init_nla(self):
+        # initialize an empty list of NLA endpoints; subclasses should add to
+        # this class field
+        self.nla_endpoints = []
+
     # Thread main function. Configures the flask server to invoke the class'
     # various handler functions, then launches it.
     def run(self):
-        self.log.write("establishing endpoints...")
+        self.log.write("Establishing endpoints...")
         # PRE-PROCESSING
         @self.server.before_request
         def pre_process():
             return self.pre_process()
-        
+
         # POST-PROCESSING
         @self.server.after_request
         def post_process(response):
             return self.post_process(response)
-        
+
         # POST-REQUEST CLEANUP
         @self.server.teardown_request
         def post_process_cleanup(error=None):
             return self.post_process_cleanup(error=error)
 
         # ENDPOINT REGISTRATION
+        self.init_nla()
         self.endpoints()
 
         # with all endpoints and handlers set up, run the server under a WSGI
         # production server (unless debug is enabled)
-        self.log.write("launching flask...")
+        self.log.write("Launching flask...")
         addr = self.config.addr
         port = self.config.port
         if self.config.debug:
@@ -124,7 +132,7 @@ class Oracle(threading.Thread):
             else:
                 serv = WSGIServer((addr, port), self.server, log=None)
             serv.serve_forever()
-        
+
     # ------------------- Server Processing and Endpoints -------------------- #
     # Function that defines a number of endpoints for the oracle. This is
     # invoked when the oracle is started, before the flask server is launched.
@@ -134,13 +142,13 @@ class Oracle(threading.Thread):
         def endpoint_root():
             message = "I am the oracle for %s." % self.service.config.service_name
             return self.make_response(msg=message)
-        
+
         # An identification route that all service oracles have. This is used
         # to identify services by name.
         @self.server.route("/id")
         def endpoint_id():
             return self.make_response(msg=self.service.config.name)
-        
+
         # An authentication endpoint used to log in and receive a JWT.
         @self.server.route("/auth/login", methods=["POST"])
         def endpoint_auth_login():
@@ -148,7 +156,7 @@ class Oracle(threading.Thread):
                 return self.make_response(success=False,
                                           msg="Missing credentials.",
                                           rstatus=400)
-            
+
             # attempt to match-up the username and password
             user = self.auth_check_login(flask.g.jdata)
             if not user:
@@ -162,7 +170,7 @@ class Oracle(threading.Thread):
             cookie_str = "%s=%s; Path=/; Max-Age=%d" % (self.config.auth_cookie, cookie, cookie_age)
             return self.make_response(msg="Authentication successful. Hello, %s." % user.config.username,
                                  rheaders={"Set-Cookie": cookie_str})
-        
+
         # An authentication endpoint used to check the current log-in status.
         @self.server.route("/auth/check", methods=["GET"])
         def endpoint_auth_check():
@@ -171,7 +179,7 @@ class Oracle(threading.Thread):
             if flask.g.user:
                 return self.make_response(msg="You are authenticated as %s." % flask.g.user.config.username)
             return self.make_response(msg="You are not authenticated.", success=False)
-        
+
         # Takes in message parameters and posts a message to the service's
         # message hub.
         @self.server.route("/msghub/post", methods=["POST"])
@@ -199,10 +207,42 @@ class Oracle(threading.Thread):
             priority = 3
             if "priority" in jdata and type(jdata["priority"]) in [int, float]:
                 priority = int(jdata["priority"])
-            
+
             # send the message
             self.service.msghub.post(msg, title=title, tags=tags, priority=priority)
             return self.make_response(msg="Messaged posted successfully.")
+
+        # Returns a list of supported NLA endpoints.
+        @self.server.route("/nla/get", methods=["GET"])
+        def endpoint_nla_get():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+
+            # build an array of JSON objects to return to the sender
+            jdata = []
+            for nla_ep in self.service.nla_endpoints:
+                jdata.append(nla_ep.config.to_json())
+
+            return self.make_respose(payload=jdata)
+
+        # define all NLA endpoints
+        for ep in self.nla_endpoints:
+            ep_name = "endpoint_nla_%s" % ep.name
+            @self.server.route(ep.get_url(), endpoint=ep_name, methods=["POST"])
+            def endpoint_nla(nla_ep=ep):
+                if not flask.g.user:
+                    return self.make_response(rstatus=404)
+                if not flask.g.jdata:
+                    return self.make_response(msg="Missing input parameters.",
+                                              success=False, rstatus=400)
+
+                # invoke the handler function for this endpoint
+                try:
+                    nla_result = nla_ep.handler(self, flask.g.jdata)
+                    return self.make_response(**nla_result)
+                except Exception as e:
+                    return self.make_response(msg="Error processing NLA endpoint: %s" % str(e),
+                                              success=False, rstatus=400)
 
     # Invoked directly before a request's main handler is invoked.
     def pre_process(self):
@@ -211,10 +251,10 @@ class Oracle(threading.Thread):
             flask.g.jdata = self.get_request_json(flask.request)
         except:
             flask.g.jdata = None
-        
+
         # attempt to decode the JWT (if present)
         flask.g.user = self.auth_check_cookie(flask.request.headers.get("Cookie"))
-    
+
     # Invoked directly after a request's main handler is invoked.
     def post_process(self, response):
         # get the origin URL from the request headers to use for the
@@ -232,7 +272,7 @@ class Oracle(threading.Thread):
     def post_process_cleanup(self, error=None):
         pass
 
-    
+
     # ---------------------------- Authentication ---------------------------- #
     # Takes in a JSON object from an incoming request and attempts to verify a
     # login attempt. Returns the matching user object on a successful login and
@@ -250,14 +290,14 @@ class Oracle(threading.Thread):
                password == u.config.password:
                 return u
         return None
-    
+
     # Takes in a cookie from a request and attempts to verify the cookie's
     # validity. Returns None if the cookie isn't valid, or the user object
     # that corresponds to the cookie if the cookie *is* valid.
     def auth_check_cookie(self, cookie):
         if cookie == None:
             return None
-        
+
         # split into individual cookies
         cookies = cookie.split(";")
         result = None
@@ -274,7 +314,7 @@ class Oracle(threading.Thread):
         # if we never found the cookie, return
         if result == None:
             return None
-        
+
         # attempt to decode the cookie (don't verify the expiration time in the
         # function call - we'll do this ourself)
         try:
@@ -284,7 +324,7 @@ class Oracle(threading.Thread):
                                 options={"verify_exp": False})
         except:
             return None
-    
+
         # check for the correct fields in the decoded JWT
         if "iat" not in result or "exp" not in result or "sub" not in result:
             return None
@@ -301,15 +341,15 @@ class Oracle(threading.Thread):
                 break
         if user == None:
             return None
-    
+
         # check the expiration time for the token, but only if the user doesn't
         # have special privileges
         if user.config.privilege > 0 and result["exp"] <= now:
             return None
-       
+
         # if we passed all the above checks, they must be authenticated
         return user
-    
+
     # Takes in a user and generates a fresh JWT token as proof of
     # authentication.
     def auth_make_cookie(self, user):
@@ -330,7 +370,7 @@ class Oracle(threading.Thread):
         if len(raw) == 0:
             return {}
         return json.loads(raw.decode())
-    
+
     # Used to construct a JSON object to be sent in a response message.
     def make_response(self, success=True, msg=None, payload={}, rstatus=200, rheaders={}):
         # update the message if necessary
@@ -341,20 +381,20 @@ class Oracle(threading.Thread):
             elif rstatus == 400:
                 success = False
                 msg = "Bad request."
-    
+
         # construct the response JSON object
         rdata = {"success": success}
         if msg != None and msg != "":
             rdata["message"] = msg
         if len(payload) > 0 or payload == []:
             rdata["payload"] = payload
-    
+
         # create the response object and set all headers
         resp = flask.Response(response=json.dumps(rdata), status=rstatus)
         resp.headers["Content-Type"] = "application/json"
         for key in rheaders:
             resp.headers[key] = rheaders[key]
-    
+
         # return the response object
         return resp
 
@@ -378,7 +418,7 @@ class User:
     def __init__(self, jdata):
         self.config = UserConfig()
         self.config.parse_json(jdata)
-    
+
     # Returns a string representation of the object.
     def __str__(self):
         return self.config.username
@@ -405,7 +445,7 @@ class OracleSession:
         self.config = config
         self.url_base = "http://%s:%d" % (self.config.addr, self.config.port)
         self.session = requests.Session()
-    
+
     # Logs into the service, using the username/password provided in
     # `self.config`.
     def login(self):
@@ -415,7 +455,7 @@ class OracleSession:
             "password": self.config.auth_password
         }
         return self.session.post(url, json=login_data)
-    
+
     # Sends a POST request.
     def post(self, endpoint: str, payload=None):
         url = self.url_base + "/" + endpoint
@@ -432,18 +472,18 @@ class OracleSession:
     def get_response_json(response):
         jdata = response.json()
         return jdata["payload"] if "payload" in jdata else jdata
-    
+
     # Retrieves the 'success' field from the response's JSON data and returns
     # its value.
     @staticmethod
     def get_response_success(response):
         jdata = response.json()
         return jdata["success"]
-    
+
     # Retrieves the 'message' field from the response's JSON data and returns
     # its value.
     @staticmethod
     def get_response_message(response):
         jdata = response.json()
         return jdata["message"]
-    
+

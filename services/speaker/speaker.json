@@ -20,19 +20,4 @@
     },
 
     "openai_api_key": "YOUR_OPENAI_KEY_HERE",
-
-    "speaker_actions":
-    [
-        {
-            "class_name": "DialogueAction_Lights",
-            "confidence_threshold": 0.6,    
-            "lumen":
-            {
-                "addr": "0.0.0.0",
-                "port": 2350,
-                "auth_username": "ABC",
-                "auth_password": "XYZ"
-            }
-        }
-    ]
 }

@@ -39,12 +39,12 @@ class Config:
     def __init__(self):
         self.fields = []
         self.fpath = None
-    
+
     # Creates and returns a string representation of the config object.
     def __str__(self):
         jdata = self.to_json()
         return json.dumps(jdata, indent=4, default=str)
-    
+
     # Initializes the object with all fields that are not required. Once this
     # function is complete, all non-required fields will be present and be set
     # to their default values.
@@ -61,7 +61,21 @@ class Config:
             if name == f.name:
                 return f
         return None
-            
+
+    # Statically initializes a new Config object, given a file path.
+    @classmethod
+    def from_file(cls, fpath: str):
+        c = cls()
+        c.parse_file(fpath)
+        return c
+
+    # Statically initializes a new Config object, given a JSON dictionary.
+    @classmethod
+    def from_json(cls, jdata: dict):
+        c = cls()
+        c.parse_json(jdata)
+        return c
+
     # Takes in a file path, opens it for reading, and attempts to parse all
     # fields defined in the class' 'fields' property.
     def parse_file(self, fpath: str):
@@ -124,14 +138,14 @@ class Config:
                               "representing enum \"%s\"" % \
                               (self.fpath if self.fpath else "json", key, cls.__name__)
                         self.check(False, msg)
-                
+
                 # if the expected type is a datetime, assume that the value
                 # provided is a string in the ISO date format
                 if val is None and types[0] == datetime:
                     msg = "%s entry \"%s\" must be a datetime value represented as an ISO string" % \
                           (self.fpath if self.fpath else "json", key)
                     self.check(type(jdata[key]) == str, msg)
-                    
+
                     # parse as an ISO string
                     val = datetime.fromisoformat(jdata[key])
 
@@ -139,7 +153,7 @@ class Config:
                 # a simple type of object
                 if val is None:
                     val = jdata[key]
-                    
+
                     # if the value isn't required, `None` is allowed
                     if required:
                         msg = "%s entry \"%s\" is required: it cannot be None" % \
@@ -151,7 +165,7 @@ class Config:
                         msg = "%s entry \"%s\" must be of type: %s" % \
                               (self.fpath if self.fpath else "json", key, types)
                         self.check(f.type_match(val), msg)
-                
+
                 # set the class's attribute and move onto the next field
                 setattr(self, key, val)
                 continue
@@ -176,7 +190,7 @@ class Config:
             if key not in field_names:
                 self.extra_fields[key] = jdata[key]
                 setattr(self, key, jdata[key])
-    
+
     # A custom assertion function for the config class.
     def check(self, condition, msg):
         if not condition:
@@ -194,7 +208,7 @@ class Config:
             # if it's an enum, convert it into a plain integer
             if issubclass(obj.__class__, Enum):
                 return obj.value
-            
+
             # if the object is a datetime, convert it to an ISO string
             if type(obj) == datetime:
                 return obj.isoformat()
@@ -222,16 +236,16 @@ class Config:
                 result[e] = to_json_helper(getattr(self, e))
 
         return result
-    
+
     # Converts the object to JSON, then encodes it into a `bytes` object.
     def to_bytes(self):
         return json.dumps(self.to_json()).encode("utf-8")
-    
+
     # Takes in a `bytes` object and uses it to decode and parse the JSON string
     # within.
     def parse_bytes(self, b: bytes):
         return self.parse_json(json.loads(b.decode("utf-8")))
-    
+
     # Converts the object to an encoded hex string.
     def to_hex(self):
         return self.to_bytes().hex()
@@ -239,7 +253,7 @@ class Config:
     # Takes in a hex string and uses it to decode and parse the JSON contents.
     def parse_hex(self, hstr: str):
         return self.parse_bytes(bytes.fromhex(hstr))
-    
+
     # Converts the object into a tuple for use in a SQLite3 database. By
     # default, the object is converted to a JSON string, then encoded and
     # represented as a single hex string (a tuple of length 1).
@@ -274,7 +288,7 @@ class Config:
             # if the value is an enum, convert it to an integer
             if issubclass(val.__class__, Enum):
                 val = val.value
-            
+
             # make sure the value is a primitive type
             assert type(val) in [int, float, str, bool, datetime], \
                    "only primitive types can be placed into a SQLite3 tuple for a %s object " \
@@ -284,7 +298,7 @@ class Config:
             # convert datetimes to ISO strings
             if type(val) == datetime:
                 val = val.timestamp()
-            
+
             # convert booleans to integers
             if type(val) == bool:
                 val = int(val)
@@ -292,7 +306,7 @@ class Config:
             result += (val,)
 
         return result
-    
+
     # Creates a SQLite `CREATE TABLE` statement used to store this type of
     # object, bearing in mind the same `fields_to_keep_visible` as described
     # above in `to_sqlite3()`.
@@ -338,7 +352,7 @@ class Config:
                 sqlite3_type = "INTEGER"
             else:
                 raise Exception("unsupported type for SQLite3 tuple: %s" % str(type(val)))
-            
+
             # add the name and type definition
             result += "%s %s" % (name, sqlite3_type)
 
@@ -353,7 +367,7 @@ class Config:
 
         result += ")"
         return result
-    
+
     # Takes in an object and parses the given SQLite3 tuple.
     # If any fields names are specified in the `field_kept_visible` array,
     # their values are retrieved from the extra tuple entries and used to
@@ -393,7 +407,7 @@ class Config:
             assert type(value) in field.types, \
                    "value %s has type %s, but type(s) %s was expected for field %s" % \
                    (str(value), type(value), str(field.types), field.name)
-            
+
             # set the object's field to the value and increment
             setattr(self, field.name, value)
             tuple_idx += 1

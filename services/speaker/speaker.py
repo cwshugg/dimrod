@@ -28,9 +28,6 @@ from lib.dialogue.dialogue import DialogueConfig, DialogueInterface, \
                                   DialogueAuthor, DialogueAuthorType, \
                                   DialogueConversation, DialogueMessage
 
-# Speaker imports
-from action import *
-
 
 # =============================== Config Class =============================== #
 class SpeakerConfig(ServiceConfig):
@@ -64,7 +61,7 @@ class SpeakerService(Service):
     # Overridden main function implementation.
     def run(self):
         super().run()
-        
+
         self.remood()
         while True:
             # periodically, choose a new mood for DImROD's dialogue library to use
@@ -72,92 +69,41 @@ class SpeakerService(Service):
             now = datetime.now()
             if now.timestamp() - self.mood_timestamp.timestamp() >= self.config.speaker_mood_timeout:
                 self.remood()
-            
+
             # sleep before re-looping
             time.sleep(self.config.speaker_tick_rate)
-    
+
     # Sets a new mood in the Dialogue library.
     def remood(self, new_mood=None):
         mood = self.dialogue.remood(new_mood=new_mood)
         self.mood_timestamp = datetime.now()
         self.log.write("Setting dialogue mood to: \"%s\"" % mood.name)
 
-    # ------------------------------- Actions -------------------------------- #
-    # Imports all available action classes and reads from the config to build
-    # and return a list of SpeakerAction classes.
-    def actions_load(self):
-        # only do this once per execution of the speaker
-        if self.actions is not None:
-            return self.actions
+    # Takes in a message and attempts to find (and invoke) one or more NLA
+    # endpoints across the various configured services.
+    # Returns a list of NLAResults for each action that was executed.
+    def nla_process(self, message: str):
+        results = []
 
-        # make sure the actions directory exists
-        actions_dir = os.path.join(os.path.dirname(__file__), "actions")
-        assert os.path.isdir(actions_dir), "missing actions directory: %s" % actions_dir
+        self.log.write("TODO - NLA ENDPOINTS")
 
-        # search the actions directory for python files
-        self.action_classes = {}
-        for (root, dirs, files) in os.walk(actions_dir):
-            for f in files:
-                if f.lower().endswith(".py"):
-                    # import the file
-                    mpath = "actions.%s" % f.replace(".py", "")
-                    mod = importlib.import_module(mpath)
+        # ping all configured services to see if they have any NLA endpoints
+        # TODO
 
-                    # inspect the module's members
-                    for (name, cls) in inspect.getmembers(mod, inspect.isclass):
-                        # ignore the base class - append everything else that's
-                        # a child of the "base" class
-                        if issubclass(cls, SpeakerAction):
-                            self.action_classes[name] = cls
-        
-        # with the classes loaded in, examine the config field and use the data
-        # to build a list of dialogue action objects (which is what we'll use
-        # for action intent parsing)
-        self.actions = []
-        for entry in self.config.speaker_actions:
-            # search for the appropriate class to build. If it isn't known, skip
-            # this entry
-            cname = entry["class_name"]
-            if cname not in self.action_classes:
-                self.log.write("Unrecognized action class name: \"%s\". Skipping." % cname)
-                continue
+        # for each endpoint, determine if the message should be sent to that
+        # NLA endpoint
+        # TODO
+        endpoints = []
 
-            # take the class and construct an object, then build its parsing
-            # engine
-            aclass = self.action_classes[cname]
-            a = aclass(entry)
-            a.engine_init()
-            self.actions.append(a)
-            self.log.write("Loaded action class: \"%s\"" % cname)
+        # for each endpoint that should be invoked, invoke it and collect the
+        # result
+        for ep in endpoints:
+            self.log.write("Invoking NLA endpoint: %s" % ep.get_url()) # TODO - also print service name that is being invoked
+            # TODO
+            pass
 
-        # return the list of actions
-        return self.actions
-    
-    # Takes in a message and attempts to parse it via one of the configured
-    # actions. Returns depending on if an action was carried out or not.
-    def actions_process(self, message: str):
-        acts = self.actions_load()
+        return results
 
-        # for each action, attempt to parse intent (each may produce a response
-        # message)
-        responses = []
-        for a in acts:
-            result = a.engine_process(message)
-            if result is not None:
-                self.log.write("Found intent within message to fire %s." % type(a).__name__)
-            # append each response in the result (the return value could be
-            # a single message or a list of messages)
-            if type(result) == str:
-                responses.append(result)
-            elif type(result) == list:
-                for msg in result:
-                    responses.append(msg)
-            elif result is not None:
-                responses.append("I executed the %s routine." % type(a).__name__)
-
-        # if responses were generated, return them (otherwise return None)
-        return None if len(responses) == 0 else responses
-    
 
 # ============================== Service Oracle ============================== #
 class SpeakerOracle(Oracle):
@@ -222,7 +168,7 @@ class SpeakerOracle(Oracle):
             # text as a call to action. If successful, an array of messages will
             # be returned.
             # ---------- TODO - IMPLEMENT NEW AI-BASED ACTIONS ---------- #
-            #responses = self.service.actions_process(msg)
+            responses = self.service.nla_process(msg)
             responses = None
             # ---------- TODO - IMPLEMENT NEW AI-BASED ACTIONS ---------- #
             if responses is not None:
@@ -326,7 +272,7 @@ class SpeakerOracle(Oracle):
             rdata = {"message": rewording}
             return self.make_response(payload=rdata)
 
-        
+
 # =============================== Runner Code ================================ #
 cli = ServiceCLI(config=SpeakerConfig, service=SpeakerService, oracle=SpeakerOracle)
 cli.run()
