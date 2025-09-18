@@ -35,9 +35,9 @@ class SpeakerConfig(ServiceConfig):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("speaker_tick_rate",        [int],      required=False,     default=30),
-            ConfigField("speaker_mood_timeout",     [int],      required=False,     default=1200),
-            ConfigField("speaker_actions",          [list],     required=False,     default=[])
+            ConfigField("tick_rate",        [int],      required=False,     default=30),
+            ConfigField("mood_timeout",     [int],      required=False,     default=1200),
+            ConfigField("nla_services",     [list],     required=False,     default=[])
         ]
 
 

@@ -20,4 +20,6 @@
     },
 
     "openai_api_key": "YOUR_OPENAI_KEY_HERE",
+
+    "nla_services": []
 }
