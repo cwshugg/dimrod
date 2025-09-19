@@ -220,10 +220,10 @@ class Oracle(threading.Thread):
 
             # build an array of JSON objects to return to the sender
             jdata = []
-            for nla_ep in self.service.nla_endpoints:
-                jdata.append(nla_ep.config.to_json())
+            for nla_ep in self.nla_endpoints:
+                jdata.append(nla_ep.to_json())
 
-            return self.make_respose(payload=jdata)
+            return self.make_response(payload=jdata)
 
         # define all NLA endpoints
         for ep in self.nla_endpoints:
@@ -467,6 +467,11 @@ class OracleSession:
         return self.session.get(url)
 
     # --------------------------- Response Parsing --------------------------- #
+    # Retrieves and returns the HTTP status code from the response.
+    @staticmethod
+    def get_response_status(response):
+        return response.status_code
+
     # Retrieves and returns the JSON data from the response.
     @staticmethod
     def get_response_json(response):

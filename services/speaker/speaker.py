@@ -22,11 +22,12 @@ if pdir not in sys.path:
 # Local imports
 from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
-from lib.oracle import Oracle
+from lib.oracle import Oracle, OracleSession
 from lib.cli import ServiceCLI
 from lib.dialogue.dialogue import DialogueConfig, DialogueInterface, \
                                   DialogueAuthor, DialogueAuthorType, \
                                   DialogueConversation, DialogueMessage
+from lib.nla import NLAService, NLAEndpoint, NLAResult
 
 
 # =============================== Config Class =============================== #
@@ -37,7 +38,7 @@ class SpeakerConfig(ServiceConfig):
         self.fields += [
             ConfigField("tick_rate",        [int],      required=False,     default=30),
             ConfigField("mood_timeout",     [int],      required=False,     default=1200),
-            ConfigField("nla_services",     [list],     required=False,     default=[])
+            ConfigField("nla_services",     [NLAService], required=False,   default=[])
         ]
 
 
@@ -67,11 +68,11 @@ class SpeakerService(Service):
             # periodically, choose a new mood for DImROD's dialogue library to use
             # for building responses
             now = datetime.now()
-            if now.timestamp() - self.mood_timestamp.timestamp() >= self.config.speaker_mood_timeout:
+            if now.timestamp() - self.mood_timestamp.timestamp() >= self.config.mood_timeout:
                 self.remood()
 
             # sleep before re-looping
-            time.sleep(self.config.speaker_tick_rate)
+            time.sleep(self.config.tick_rate)
 
     # Sets a new mood in the Dialogue library.
     def remood(self, new_mood=None):
@@ -85,21 +86,71 @@ class SpeakerService(Service):
     def nla_process(self, message: str):
         results = []
 
-        self.log.write("TODO - NLA ENDPOINTS")
+        # the loop below will construct a dictionary of endpoints to search
+        # through. Each endpoint will have a unique ID string to use as the key
+        endpoints = {}
 
         # ping all configured services to see if they have any NLA endpoints
-        # TODO
+        for nla_service in self.config.nla_services:
+            session = OracleSession(nla_service.oracle)
+
+            # log into the service; if it fails, skip this one
+            try:
+                lr = session.login()
+                if OracleSession.get_response_status(lr) != 200:
+                    self.log.write("Failed to log into service \"%s\": %s" % (nla_service.name, str(lr)))
+                    continue
+            except Exception as e:
+                    self.log.write("Failed to log into service \"%s\": %s" % (nla_service.name, str(e)))
+                    continue
+
+            # retrieve NLA endpoints from the service; skip if it fails
+            r = session.get("/nla/get")
+            if OracleSession.get_response_status(r) != 200:
+                self.log.write("Failed to get NLA endpoints from service \"%s\": %s" % (nla_service.name, str(r)))
+                continue
+
+            # reconstruct the NLAEndpoint objects from the response
+            rdata = OracleSession.get_response_json(r)
+            service_id = nla_service.name.lower().replace(" ", "_")
+            for entry in rdata:
+                try:
+                    ep = NLAEndpoint.from_json(entry)
+                    ep_id = "%s%s" % (service_id, ep.get_url())
+
+                    # there should be no overlaps in endpoint IDs; if there is,
+                    # log an error and skip this one
+                    if ep_id in endpoints:
+                        self.log.write("Duplicate NLA endpoint ID detected: %s" % ep_id)
+                        continue
+
+                    # otherwise, add the endpoint, using its ID as the key, to
+                    # the endpoint dictionary
+                    ep_data = {
+                        "service": nla_service,
+                        "endpoint": ep
+                    }
+                    endpoints[ep_id] = ep_data
+                except Exception as e:
+                    self.log.write("Failed to parse NLA endpoint (from service \"%s\") from JSON: \"%s\" - %s" %
+                                   (nla_service.name, str(entry), e))
+                    continue
+
+            self.log.write("[DEBUG] NLA Endpoints:\n%s" % str(endpoints))
 
         # for each endpoint, determine if the message should be sent to that
         # NLA endpoint
         # TODO
         endpoints = []
 
+        # TODO - invoke LLM to decide which endpoints to call
+        endpoints_to_invoke = []
+
         # for each endpoint that should be invoked, invoke it and collect the
         # result
-        for ep in endpoints:
+        for ep in endpoints_to_invoke:
             self.log.write("Invoking NLA endpoint: %s" % ep.get_url()) # TODO - also print service name that is being invoked
-            # TODO
+            # TODO - invoke each endpoints
             pass
 
         return results

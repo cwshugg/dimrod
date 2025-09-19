@@ -17,11 +17,21 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.config import Config, ConfigField
-from lib.oracle import Oracle
+from lib.oracle import Oracle, OracleSessionConfig
 
 # A specific function definition that represents the handler function
 # for a single NLA endpoint.
 NLAEndpointHandlerFunction = Callable[[Oracle, dict], dict]
+
+# Defines an object used to represent a single service that supports one or
+# more NLA endpoints.
+class NLAService(Config):
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            ConfigField("name",         [str],      required=True),
+            ConfigField("oracle", [OracleSessionConfig], required=True),
+        ]
 
 # Defines information regarding a specific NLA HTTP endpoint.
 class NLAEndpoint(Config):

@@ -134,7 +134,7 @@ class TelegramService(Service):
             tu = TelegramUser()
             tu.parse_json(udata)
             self.users.append(tu)
-        
+
         # store converstaion IDs and timestamps in a dictionary, indexed by
         # telegram chat ID
         self.chat_conversations = {}
@@ -150,7 +150,7 @@ class TelegramService(Service):
         # set up a menu thread to manage the database asynchronously
         self.menu_thread = TelegramService_MenuThread(self)
         self.menu_thread.start()
-    
+
     # ------------------------------- Helpers -------------------------------- #
     # Sets up a new TeleBot instance.
     def refresh(self):
@@ -182,7 +182,7 @@ class TelegramService(Service):
         if not user_is_valid:
             self.log.write("Message from unrecognized user: %s" % user_id)
         return user_is_valid
-    
+
     # Creates and returns a new OracleSession with the speaker.
     # If authentication fails, None is returned.
     def get_speaker_session(self):
@@ -193,7 +193,7 @@ class TelegramService(Service):
                            OracleSession.get_response_message(r))
             return None
         return s
-    
+
     # Performs a oneshot LLM call and response.
     def dialogue_oneshot(self, intro: str, message: str):
         # attempt to connect to the speaker
@@ -209,12 +209,12 @@ class TelegramService(Service):
             # extract the response and return the reworded message
             rdata = OracleSession.get_response_json(r)
             return str(rdata["message"])
-        
+
         # if the above didn't work, just return the original message
         self.log.write("Failed to get a oneshot response from speaker: %s" %
                        OracleSession.get_response_message(r))
         return message
-    
+
     # Takes in a string message and attempts to reword it. On failure, it will
     # return the original string.
     def dialogue_reword(self, message: str):
@@ -231,12 +231,12 @@ class TelegramService(Service):
             # extract the response and return the reworded message
             rdata = OracleSession.get_response_json(r)
             return str(rdata["message"])
-        
+
         # if the above didn't work, just return the original message
         self.log.write("Failed to get a reword from speaker: %s" %
                        OracleSession.get_response_message(r))
         return message
-    
+
     # Takes in a message and communicates with DImROD's dialogue system to
     # converse with the telegram user.
     def dialogue_talk(self, message: str, conversation_id=None):
@@ -250,7 +250,7 @@ class TelegramService(Service):
         pyld = {"message": message}
         if conversation_id is not None:
             pyld["conversation_id"] = conversation_id
-        
+
         # ping the /talk endpoint
         r = speaker.post("/talk", payload=pyld)
         if OracleSession.get_response_success(r):
@@ -258,12 +258,12 @@ class TelegramService(Service):
             rdata = OracleSession.get_response_json(r)
             convo_id = None if "conversation_id" not in rdata else str(rdata["conversation_id"])
             return (convo_id, str(rdata["response"]))
-        
+
         # if the above didn't work, just return the original message
         self.log.write("Failed to get conversation from speaker: %s" %
                        OracleSession.get_response_message(r))
         return (None, None)
-    
+
     # ------------------------------ Messaging ------------------------------- #
     # Helper function for properly formatting and sanitizing text to be used in
     # a Telegram message.
@@ -291,7 +291,7 @@ class TelegramService(Service):
                      parse_mode=None,
                      reply_markup=None):
         text = self.sanitize_message_text(text, parse_mode=parse_mode)
-        
+
         # try sending the message a finite number of times
         for i in range(self.config.bot_error_retry_attempts):
             try:
@@ -334,7 +334,7 @@ class TelegramService(Service):
                 self.refresh()
                 time.sleep(self.config.bot_error_retry_delay)
         self.log.write("Failed to update message. Giving up.")
-    
+
     # Wrapper for deleting an existing message.
     def delete_message(self, chat_id, message_id):
         for i in range(self.config.bot_error_retry_attempts):
@@ -360,7 +360,7 @@ class TelegramService(Service):
         msg = self.send_message(chat_id, m.title,
                                 parse_mode=parse_mode,
                                 reply_markup=markup)
-        
+
         # perform a few sanity checks
         assert msg.reply_markup is not None
         assert type(msg.reply_markup) == InlineKeyboardMarkup
@@ -373,7 +373,7 @@ class TelegramService(Service):
         self.log.write("Add menu to database (ID: %s)" % m.get_id())
 
         return m
-    
+
     # Updates the menu for an existing message.
     def update_menu(self, chat_id, message_id, m: Menu = None):
        # try updating the message's menu a finite number of times
@@ -403,11 +403,11 @@ class TelegramService(Service):
                 self.refresh()
                 time.sleep(self.config.bot_error_retry_delay)
         self.log.write("Failed to update menu. Giving up.")
-    
+
     # Removes a menu from a message.
     def remove_menu(self, chat_id, message_id):
         return self.update_menu(chat_id, message_id, m=None)
-    
+
     # Adds a reaction to a message.
     def react_to_message(self, chat_id, message_id, emoji="👍", is_big=False):
         for i in range(self.config.bot_error_retry_attempts):
@@ -430,7 +430,7 @@ class TelegramService(Service):
                 self.refresh()
                 time.sleep(self.config.bot_error_retry_delay)
         self.log.write("Failed to react to message. Giving up.")
-    
+
     # Removes reactions from a message.
     def remove_message_reactions(self, chat_id, message_id):
         for i in range(self.config.bot_error_retry_attempts):
@@ -452,7 +452,7 @@ class TelegramService(Service):
                 self.refresh()
                 time.sleep(self.config.bot_error_retry_delay)
         self.log.write("Failed to remove message reactions. Giving up.")
-    
+
     # ----------------------------- Bot Behavior ----------------------------- #
     # Main runner function.
     def run(self):
@@ -479,7 +479,7 @@ class TelegramService(Service):
                                   "Sorry, that's not a valid command.\n"
                                   "Try /help.")
                 return
-            
+
             # if a matching command wasn't found, we'll interpret it as a chat
             # message to dimrod. First, look for an existing conversation object
             # for this specific chat. If one exists, AND it hasn't been too long
@@ -506,12 +506,17 @@ class TelegramService(Service):
                         "conversation_id": convo_id,
                         "timestamp": datetime.now()
                     }
-                
+
                 # send the message
                 self.send_message(message.chat.id, response)
             except Exception as e:
-                self.send_message(message.chat.id,
-                                  "I'm not sure what you mean. Try /help.")
+                # dump the exception stack trace into the message, for easier
+                # debugging through Telegram
+                tb = traceback.format_exc()
+                msg = "Something went wrong.\n\n<code>%s</code>" % tb
+                self.send_message(message.chat.id, msg)
+
+                # raise the exception
                 raise e
 
 
@@ -579,7 +584,7 @@ class TelegramService(Service):
                 # if the menu only allows a single choice, we need to set the
                 # current option's selection count to 1, and reduce all others
                 # to zero
-                
+
                 # if the selected option was already selected, we'll reset it
                 # (i.e. 1 --> 0 and 0 --> 1)
                 new_value = 0 if op.selection_count == 1 else 1
@@ -594,7 +599,7 @@ class TelegramService(Service):
                 # chosen value, if its new value is 1
                 if new_value == 1:
                     op.title = "%s ✅" % op.title
-            
+
             # apply any changes made above to the option titles (the text on
             # the buttons) to the Telegram menu
             if do_menu_update:
@@ -615,7 +620,7 @@ class TelegramService(Service):
             self.log.write("Menu option (ID: %s) from Menu (ID %s) "
                            "was selected. (count: %d)" %
                            (op.get_id(), m.get_id(), op.selection_count))
-            
+
             # write the updated menu back out to the database (first, reset the
             # option titles to reflect the original versions, before we updated
             # the Telegram menu, so the database retains the original,
@@ -644,7 +649,7 @@ class TelegramService_MenuThread(threading.Thread):
     def __init__(self, service: TelegramService):
         threading.Thread.__init__(self, target=self.run)
         self.service = service
-    
+
     # Main runner function for the thread.
     def run(self):
         while True:
@@ -700,7 +705,7 @@ class TelegramOracle(Oracle):
 
     def endpoints(self):
         super().endpoints()
-        
+
         # Endpoint used to retrieve a list of whitelisted chats for the bot.
         @self.server.route("/bot/chats", methods=["GET"])
         def endpoint_bot_chats():
@@ -738,7 +743,7 @@ class TelegramOracle(Oracle):
             if "text" not in flask.g.jdata:
                 return self.make_response(success=False,
                                           msg="No message text provided.")
-            
+
             # make sure we have a chat ID to work with
             chat_id = self.resolve_chat_id(flask.g.jdata)
             if chat_id is None:
@@ -773,12 +778,12 @@ class TelegramOracle(Oracle):
             if "message_id" not in flask.g.jdata:
                 return self.make_response(success=False,
                                           msg="No message ID provided.")
-            
+
             # look for a "text" field in the JSON data
             if "text" not in flask.g.jdata:
                 return self.make_response(success=False,
                                           msg="No message text provided.")
-            
+
             # send the message and respond
             self.service.update_message(chat_id,
                                         flask.g.jdata["message_id"],
@@ -815,14 +820,14 @@ class TelegramOracle(Oracle):
             is_big_reaction = False
             if "is_big" in flask.g.jdata:
                 is_big_reaction = bool(flask.g.jdata["is_big"])
-            
+
             # set the message's reaction
             self.service.react_to_message(chat_id,
                                           flask.g.jdata["message_id"],
                                           emoji="👍",
                                           is_big=is_big_reaction)
             return self.make_response(msg="Message reaction set successfully.")
-        
+
         # Endpoint used to instruct the bot to delete a message.
         @self.server.route("/bot/delete/message", methods=["POST"])
         def endpoint_bot_delete_message():
@@ -842,7 +847,7 @@ class TelegramOracle(Oracle):
             if "message_id" not in flask.g.jdata:
                 return self.make_response(success=False,
                                           msg="No message ID provided.")
-            
+
             # send the message and respond
             self.service.delete_message(chat_id,
                                         flask.g.jdata["message_id"])
@@ -867,7 +872,7 @@ class TelegramOracle(Oracle):
             if "message_id" not in flask.g.jdata:
                 return self.make_response(success=False,
                                           msg="No message ID provided.")
-            
+
             # remove reactions from the message
             self.service.remove_message_reactions(chat_id,
                                                   flask.g.jdata["message_id"])
@@ -901,12 +906,12 @@ class TelegramOracle(Oracle):
             except:
                 return self.make_response(success=False,
                                           msg="Invalid menu data.")
-            
+
             # send the menu and respond (return the menu object)
             self.service.send_menu(chat_id, menu, parse_mode="HTML")
             return self.make_response(msg="Menu sent successfully.",
                                       payload=menu.to_json())
-        
+
         # Endpoint used to instruct the bot to update a menu.
         @self.server.route("/bot/update/menu", methods=["POST"])
         def endpoint_bot_update_menu():
@@ -926,7 +931,7 @@ class TelegramOracle(Oracle):
             if "message_id" not in flask.g.jdata:
                 return self.make_response(success=False,
                                           msg="No message ID provided.")
-            
+
             # look for a "menu" field in the JSON data
             if "menu" not in flask.g.jdata:
                 return self.make_response(success=False,
@@ -939,14 +944,14 @@ class TelegramOracle(Oracle):
             except:
                 return self.make_response(success=False,
                                           msg="Invalid menu data.")
-            
+
             # send the menu and respond (return the menu object)
             self.service.update_menu(chat_id,
                                      flask.g.jdata["message_id"],
                                      menu)
             return self.make_response(msg="Menu updated successfully.",
                                       payload=menu.to_json())
-        
+
         # Endpoint that removes a menu from a message.
         @self.server.route("/bot/remove/menu", methods=["POST"])
         def endpoint_bot_remove_menu():
@@ -966,12 +971,12 @@ class TelegramOracle(Oracle):
             if "message_id" not in flask.g.jdata:
                 return self.make_response(success=False,
                                           msg="No message ID provided.")
-            
+
             # send the menu and respond (return the menu object)
             self.service.remove_menu(chat_id,
                                      flask.g.jdata["message_id"])
             return self.make_response(msg="Menu removed successfully.")
-        
+
         # Endpoint used to retrieve information about an existing menu.
         @self.server.route("/bot/get/menu", methods=["POST"])
         def endpoint_bot_get_menu():
@@ -986,7 +991,7 @@ class TelegramOracle(Oracle):
                 return self.make_response(success=False,
                                           msg="No menu ID provided.")
             menu_id = str(flask.g.jdata["menu_id"])
-            
+
             # search for the menu in the database; return early if it can't be
             # found
             m = self.service.menu_db.search_menu(menu_id)

@@ -21,5 +21,17 @@
 
     "openai_api_key": "YOUR_OPENAI_KEY_HERE",
 
-    "nla_services": []
+    "nla_services":
+    [
+        {
+            "name": "Lumen",
+            "oracle":
+            {
+                "addr": "0.0.0.0",
+                "port": 999,
+                "auth_username": "YOUR_USERNAME",
+                "auth_password": "YOUR_PASSWORD"
+            }
+        }
+    ]
 }
