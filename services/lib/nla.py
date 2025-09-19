@@ -58,7 +58,7 @@ class NLAResult(Config):
         super().__init__()
         self.fields = [
             ConfigField("success",      [bool],     required=True),
-            ConfigField("message",      [str],      required=False),
-            ConfigField("payload",      [dict],     required=False),
+            ConfigField("message",      [str],      required=False, default=None),
+            ConfigField("payload",      [dict],     required=False, default=None),
         ]
 

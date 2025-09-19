@@ -13,6 +13,7 @@ import hashlib
 from datetime import datetime
 import inspect
 import importlib.util
+import json
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -38,7 +39,8 @@ class SpeakerConfig(ServiceConfig):
         self.fields += [
             ConfigField("tick_rate",        [int],      required=False,     default=30),
             ConfigField("mood_timeout",     [int],      required=False,     default=1200),
-            ConfigField("nla_services",     [NLAService], required=False,   default=[])
+            ConfigField("nla_services",     [NLAService], required=False,   default=[]),
+            ConfigField("nla_dialogue_retry_count", [int], required=False,  default=5),
         ]
 
 
@@ -116,7 +118,7 @@ class SpeakerService(Service):
             for entry in rdata:
                 try:
                     ep = NLAEndpoint.from_json(entry)
-                    ep_id = "%s%s" % (service_id, ep.get_url())
+                    ep_id = "%s::%s" % (service_id, ep.get_url())
 
                     # there should be no overlaps in endpoint IDs; if there is,
                     # log an error and skip this one
@@ -127,6 +129,7 @@ class SpeakerService(Service):
                     # otherwise, add the endpoint, using its ID as the key, to
                     # the endpoint dictionary
                     ep_data = {
+                        "id": ep_id,
                         "service": nla_service,
                         "endpoint": ep
                     }
@@ -136,24 +139,156 @@ class SpeakerService(Service):
                                    (nla_service.name, str(entry), e))
                     continue
 
-            self.log.write("[DEBUG] NLA Endpoints:\n%s" % str(endpoints))
+        # build a prompt that we'll use to ask an LLM which API endpoints
+        # should be invoked
+        prompt_intro = "You are an AI assistant that processes messages written by the user, " \
+                        "and determines if a specific API endpoint should be invoked.\n" \
+                        "Below is a list of the API endpoints in question:\n\n"
+        for ep_id in endpoints:
+            ep = endpoints[ep_id]["endpoint"]
+            prompt_intro += "* \"%s\": %s\n" % (ep_id, ep.description)
+        prompt_intro += "\nFor each endpoint, you must determine if the endpoint should be invoked, " \
+                        "based on the description of the endpoint and the message provided by the user.\n" \
+                        "You must respond with a JSON object in this format:\n\n" \
+                        "[\n" \
+                        "    \"ID_OF_ENDPOINT_TO_INVOKE_1\",\n" \
+                        "    \"ID_OF_ENDPOINT_TO_INVOKE_2\",\n" \
+                        "    \"ID_OF_ENDPOINT_TO_INVOKE_3\"\n" \
+                        "]\n" \
+                        "The list should contain every API endpoint that should be invoked.\n" \
+                        "If no endpoints should be invoked, respond with an empty list: []\n" \
+                        "Do not include any other text in your response; only respond with the JSON list."
+        prompt_content = "%s" % message
 
-        # for each endpoint, determine if the message should be sent to that
-        # NLA endpoint
-        # TODO
-        endpoints = []
-
-        # TODO - invoke LLM to decide which endpoints to call
+        # attempt to use the LLM to determine which endpoints should be
+        # invoked. Parse the response as JSON
+        fail_count = 0
         endpoints_to_invoke = []
+        for attempt in range(self.config.nla_dialogue_retry_count):
+            try:
+                r = self.dialogue.oneshot(prompt_intro, prompt_content)
+
+                # attempt to parse and verify the contents of the JSON;
+                # retry on failure
+                endpoint_id_list = json.loads(r)
+
+                # make sure the response is a list
+                if not isinstance(endpoint_id_list, list):
+                    raise Exception("LLM's response did not contain a list.")
+
+                # iterate through the list and match each string to an endpoint ID
+                for entry in endpoint_id_list:
+                    entry_str = str(entry).lower().strip()
+                    if entry_str in endpoints:
+                        endpoints_to_invoke.append(endpoints[entry_str])
+
+                # break out of the loop on the first success
+                break
+            except Exception as e:
+                msg = "Failed to process NLA prompt: %s." % e
+                if attempt < self.config.nla_dialogue_retry_count - 1:
+                    msg += " Retrying..."
+                self.log.write(msg)
+                fail_count += 1
+                continue
+
+        # if all attempts failed, return early
+        if fail_count >= self.config.nla_dialogue_retry_count:
+            self.log.write("Failed to assign NLA endpoints to user message after %d attempts." %
+                           self.config.nla_dialogue_retry_count)
+            return results
+
+        # log the endpoints that were selected
+        endpoints_to_invoke_len = len(endpoints_to_invoke)
+        if endpoints_to_invoke_len > 0:
+            self.log.write("Received user message that was assigned NLA endpoints: \"%s\"" % message)
+            ep_id_str = ", ".join([ep["id"] for ep in endpoints_to_invoke])
+            self.log.write("NLA Endpoints to invoke based on user message: %s" % ep_id_str)
 
         # for each endpoint that should be invoked, invoke it and collect the
         # result
-        for ep in endpoints_to_invoke:
-            self.log.write("Invoking NLA endpoint: %s" % ep.get_url()) # TODO - also print service name that is being invoked
-            # TODO - invoke each endpoints
-            pass
+        for ep_info in endpoints_to_invoke:
+            ep_id = ep_info["id"]
+            ep = ep_info["endpoint"]
+            service = ep_info["service"]
+            self.log.write("Invoking NLA endpoint: %s" % ep_id)
+
+            # open a session to the service that owns this endpoint, and
+            # attempt to log in
+            session = OracleSession(service.oracle)
+            try:
+                lr = session.login()
+                if OracleSession.get_response_status(lr) != 200:
+                    self.log.write("Failed to log into service \"%s\". "
+                                   "Skipping this endpoint. (%s)" %
+                                   (service.name, str(lr)))
+                    continue
+            except Exception as e:
+                    self.log.write("Failed to log into service \"%s\". "
+                                   "Skipping this endpoint. (%s)" %
+                                   (service.name, str(e)))
+                    continue
+
+            # post to the endpoint's URL; provide the message as the payload
+            ep_input_data = {
+                "message": message
+            }
+            try:
+                r = session.post(ep.get_url(), payload=ep_input_data)
+
+                # upon a successful call to the NLA endpoint, save the endpoint
+                # information, as well as the result, to an object, and add it
+                # to the result list
+                ep_info["result"] = NLAResult.from_json(OracleSession.get_response_json(r))
+                results.append(ep_info)
+            except Exception as e:
+                self.log.write("Failed to invoke NLA endpoint \"%s\": %s" %
+                               (ep_id, str(e)))
+                continue
 
         return results
+
+    # Takes a list of dictionary objects (returned by `nla_process()`) and
+    # builds a nicely-formatted message that can be sent back to the user.
+    def nla_compose_message(self, nla_results: list):
+        raw_combined_msg = ""
+        nla_results_len = len(nla_results)
+        for (i, result_info) in enumerate(nla_results):
+            # skip if there is no message
+            result = result_info["result"]
+            if result.message is None:
+                continue
+            msg = result.message.strip()
+            if len(msg) == 0:
+                continue
+
+            # otherwise, append the result's message into a combined message
+            raw_combined_msg += msg
+            if i < nla_results_len - 1:
+                raw_combined_msg += "\n\n"
+
+        # if the combined message is empty (meaning no NLA endpoints returned a
+        # message string), return None
+        if len(raw_combined_msg) == 0:
+            return None
+
+        # create a prompt to tell the LLM how to reword the message
+        reword_context = "This message contains a list of actions performed, or information retrieved, " \
+                         "by a home assistant.\n" \
+                         "Reword the message such that the sentences and information flow together naturally.\n"
+
+        # next, invoke the again to reword the message into something more well
+        # formatted and human-like
+        if len(raw_combined_msg) > 0:
+            try:
+                reworded_msg = self.dialogue.reword(raw_combined_msg,
+                                                    extra_context=reword_context)
+                return reworded_msg
+            except Exception as e:
+                self.log.write("Failed to reword NLA response message: %s" % e)
+                return raw_combined_msg
+
+        return raw_combined_msg
 
 
 # ============================== Service Oracle ============================== #
@@ -218,35 +353,27 @@ class SpeakerOracle(Oracle):
             # before passing anything to the dialogue library, try to parse the
             # text as a call to action. If successful, an array of messages will
             # be returned.
-            # ---------- TODO - IMPLEMENT NEW AI-BASED ACTIONS ---------- #
-            responses = self.service.nla_process(msg)
-            responses = None
-            # ---------- TODO - IMPLEMENT NEW AI-BASED ACTIONS ---------- #
-            if responses is not None:
-                # build a comprehensive response message to send back,
-                # containing all the reported response messages from the
-                # individual actions carried out
-                resp = "I executed some routines."
-                if len(responses) == 1:
-                    resp = responses[0]
-                elif len(responses) > 1:
-                    resp = "I executed some routines:\n"
-                    for response in responses:
-                        resp += "%s\n" % response
+            nla_results = self.service.nla_process(msg)
+            nla_results_len = len(nla_results)
+            # if at least one result was returned, build a response message
+            # containing all the nla_results, send it, and return
+            if nla_results_len > 0:
+                # process all the results and convert them into a
+                # nicely-formatted response message
+                nla_response_msg = self.service.nla_compose_message(nla_results)
 
-                # attempt to have the dialogue service reword the message
-                # to add some variance. On failure, send the original
-                # message
-                try:
-                    resp = self.service.dialogue.reword(resp)
-                except Exception as e:
-                    self.log.write("Failed to reword action responses: %s" % e)
+                if nla_response_msg is None:
+                    return self.make_response(success=True)
 
-                # send the response message back to the caller
-                self.log.write("Completed actions and sent back %d responses." % len(responses))
-                return self.make_response(payload={"response": resp})
+                # build a payload to respond with, containing the message
+                rdata = {
+                    "response": nla_response_msg
+                }
+                return self.make_response(payload=rdata)
 
-            # send the message to the dialogue interface
+            # otherwise, if no NLA endpoints were processed above, send the
+            # message to the dialogue interface for a standard chat-bot
+            # experience
             try:
                 convo = self.service.dialogue.talk(msg, conversation=convo, author=author)
             except Exception as e:

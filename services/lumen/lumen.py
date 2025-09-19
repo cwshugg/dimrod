@@ -20,7 +20,7 @@ if pdir not in sys.path:
 from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
-from lib.nla import NLAEndpoint, NLAEndpointHandlerFunction
+from lib.nla import NLAEndpoint, NLAEndpointHandlerFunction, NLAResult
 from lib.ifttt import WebhookConfig, Webhook
 from lib.cli import ServiceCLI
 from lib.wyze import WyzeConfig, Wyze

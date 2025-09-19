@@ -236,11 +236,19 @@ class Oracle(threading.Thread):
                     return self.make_response(msg="Missing input parameters.",
                                               success=False, rstatus=400)
 
+                # make sure the provided data contains a message
+                if "message" not in flask.g.jdata:
+                    return self.make_response(msg="Missing input parameters.",
+                                              success=False, rstatus=400)
+
                 # invoke the handler function for this endpoint
                 try:
                     nla_result = nla_ep.handler(self, flask.g.jdata)
-                    return self.make_response(**nla_result)
+                    return self.make_response(success=nla_result.success,
+                                              msg=nla_result.message,
+                                              payload=nla_result.payload)
                 except Exception as e:
+                    raise e
                     return self.make_response(msg="Error processing NLA endpoint: %s" % str(e),
                                               success=False, rstatus=400)
 
@@ -386,7 +394,7 @@ class Oracle(threading.Thread):
         rdata = {"success": success}
         if msg != None and msg != "":
             rdata["message"] = msg
-        if len(payload) > 0 or payload == []:
+        if payload is not None and (len(payload) > 0 or payload == []):
             rdata["payload"] = payload
 
         # create the response object and set all headers

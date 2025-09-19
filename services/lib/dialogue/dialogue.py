@@ -55,20 +55,6 @@ openai_behavior_rules = (
     "Do not introduce yourself or explain your understanding of these requirements each time somebody greets you.\n"
     "Do not ask if somebody requires additional assistance in every response; do it sparingly.\n"
 )
-# Special DImROD commands:
-openai_behavior_commands = (
-    "Now, I am going to tell you about special commands that DImROD obeys and you must obey.\n"
-    "If you receive a message beginning with \"!\", you MUST interpret it as one of these commands and respond accordingly. "
-    "Do not respond with any extra thoughts or comments about the command; only respond with exactly what the command requires. "
-    "These are the commands you must obey as DImROD:\n"
-    # COMMAND 1: !reword
-    "1. The \"!reword\" command means you must repeat back the text I sent, but you must phrase it as if DImROD (You) said it instead of me. "
-    "Do not put any quotes, narration, or extra punctuation around rephrased text. Only respond with the rephrased text."
-    "\n"
-    
-    "Those are all the commands. If you see a message beginning with \"!\" that does not match one of the commands I just described, you must tell the user that they sent an invalid command.\n"
-    "If I ask you \"what are your commands?\", you must list these commands and describe them to me.\n"
-)
 # DImROD mood:
 openai_behavior_mood = (
     "DImROD has several moods. The mood DImROD is in must be reflected in your responses.\n"
@@ -97,7 +83,7 @@ class DialogueMood(lib.config.Config):
             lib.config.ConfigField("description",   [str],      required=True),
             lib.config.ConfigField("chance",        [float],    required=True)
         ]
-    
+
     # Uses RNG and the configured chance value to determine if this mood should
     # be chosen for activation.
     def should_activate(self):
@@ -201,7 +187,7 @@ class DialogueAuthor:
     def __str__(self):
         return "DialogueAuthor: [%d-%s] %s" % \
                (self.atype.value, self.atype.name, self.name)
-    
+
     # Returns the author's unique ID. If one hasn't been created yet for this
     # instance, one is generated here.
     def get_id(self):
@@ -210,12 +196,12 @@ class DialogueAuthor:
             data = data.encode("utf-8")
             self.aid = hashlib.sha256(data).hexdigest()
         return self.aid
-    
+
     # Returns, based on the author's type, if it's a system author.
     def is_system(self):
         return self.atype.value >= DialogueAuthorType.SYSTEM.value and \
                self.atype.value < DialogueAuthorType.USER.value
-    
+
     # Returns, based on the author's type, if it's a user author.
     def is_user(self):
         return self.atype.value >= DialogueAuthorType.USER.value
@@ -225,7 +211,7 @@ class DialogueAuthor:
     def to_sqlite3(self):
         result = (self.get_id(), self.atype.value, self.name)
         return result
-    
+
     # Takes in a SQLite3 tuple and creates a DialogueAuthor object.
     @staticmethod
     def from_sqlite3(tdata: tuple):
@@ -247,7 +233,7 @@ class DialogueMessage:
     def __str__(self):
         return "DialogueMessage: %s [author: %s] \"%s\"" % \
                (self.get_id(), self.author.get_id(), self.content)
-    
+
     # Returns the message ID. If one hasn't been created yet for this instance,
     # one is generated here.
     def get_id(self):
@@ -259,7 +245,7 @@ class DialogueMessage:
             data = data.encode("utf-8") + os.urandom(8)
             self.mid = hashlib.sha256(data).hexdigest()
         return self.mid
-    
+
     # Converts the message into a JSON dictionary formatted for the OpenAI API.
     def to_openai_json(self):
         name = "user"
@@ -274,7 +260,7 @@ class DialogueMessage:
         cmsg = zlib.compress(self.content.encode())
         result = (self.get_id(), self.author.get_id(), cmsg, self.timestamp.timestamp())
         return result
-    
+
     # Converts the given SQlite3 tuple into a DialogueMessage object.
     # Takes in a reference to the DialogueInterface to use for looking up the
     # message's author for object linkage.
@@ -313,7 +299,7 @@ class DialogueConversation:
     # Returns a string representation of the conversation object.
     def __str__(self):
         return "DialogueConversation: %s [%d messages]" % (self.get_id(), len(self.messages))
-    
+
     # Returns the conversation ID. If one hasn't been created yet for this
     # instance, one is generated here.
     def get_id(self):
@@ -321,12 +307,12 @@ class DialogueConversation:
             data = str(id).encode("utf-8") + os.urandom(8)
             self.cid = hashlib.sha256(data).hexdigest()
         return self.cid
-    
+
     # Adds a role/message pair to the conversation.
     def add(self, msg: DialogueMessage):
         self.messages.append(msg)
         self.time_latest = datetime.now()
-    
+
     # Returns the latest user request (role = "user"), or None.
     def latest_request(self):
         for m in list(reversed(self.messages)):
@@ -340,7 +326,7 @@ class DialogueConversation:
             if m.author.is_system():
                 return m
         return None
-    
+
     # Converts the conversation's messages to a JSON dictionary suitable for
     # OpenAI's API.
     def to_openai_json(self):
@@ -348,12 +334,12 @@ class DialogueConversation:
         for m in self.messages:
             result.append(m.to_openai_json())
         return result
-    
+
     # Creates and returns a unique string to use as a table to store this
     # conversation's messages.
     def to_sqlite3_table(self):
         return "conversation_%s" % self.get_id()
-    
+
     # Converts the object into a SQLite3-friendly tuple. This includes the name
     # of the conversation's message table.
     def to_sqlite3(self):
@@ -387,7 +373,6 @@ class DialogueConfig(lib.config.Config):
         openai_intro = openai_behavior_intro + \
                        openai_behavior_identity + \
                        openai_behavior_rules + \
-                       openai_behavior_commands + \
                        openai_behavior_mood + \
                        openai_outro
 
@@ -426,7 +411,7 @@ class DialogueInterface:
             moods.append(mood)
         self.conf.openai_chat_moods = moods
         self.remood() # select the first mood
-    
+
     # "Re-moods" the dialogue interface by randomly choosing a mood from the
     # configured mood list, and setting the OpenAI intro prompt accordingly.
     # If 'new_mood' is set, it will be used as the new mood (instead of randomly
@@ -438,7 +423,7 @@ class DialogueInterface:
             # get a shuffled copy of the mood array to iterate through
             moods = self.conf.openai_chat_moods.copy()
             random.shuffle(moods)
-    
+
             # iterate until a mood is chosen, or we run out of tries
             m = None
             for tries in range(0, 8):
@@ -448,16 +433,16 @@ class DialogueInterface:
                     if mood.should_activate():
                         m = mood
                         break
-    
+
             # if the random number generation didn't pick a mood, randomly choose
             # one out of the list
             if m is None:
                 m = random.choice(self.openai_chat_moods)
             self.mood = m
-            
+
         # set the interface's mood and return it
         return self.mood
- 
+
     # Takes in a question, request, or statement, and passes it along to the
     # OpenAI chat API. If 'conversation' is specified, the given message will be
     # appended to the conversation's internal list, and the conversation's
@@ -507,7 +492,7 @@ class DialogueInterface:
         # save conversation to the database and return
         self.save_conversation(c)
         return c
-    
+
     # Runs a single, "oneshot" prompt with the LLM, given the system `intro`
     # message, which is used to set the context for the LLM, and the `prompt`
     # itself.
@@ -531,29 +516,24 @@ class DialogueInterface:
         )
         result = result.choices[0].message.content
         return result
-    
+
     # Takes in a sentence and rewords it such that it appears to have come from
     # the mouth of DImROD. It pings OpenAI's API. It's essentially a way to give
     # some AI-assisted variance to the same message.
-    def reword(self, prompt: str):
-        # create the conversation, feeding it the DImROD intro and the !reword
-        # command.
-        c = DialogueConversation()
-        a = DialogueAuthor("system", DialogueAuthorType.UNKNOWN)
+    def reword(self, prompt: str, extra_context: str = None):
         # set up the intro prompt and build a message
-        intro = self.conf.openai_chat_behavior.replace("INSERT_MOOD", self.mood.description)
-        c.add(DialogueMessage(a, intro))
-        a = DialogueAuthor("user", DialogueAuthorType.USER)
-        c.add(DialogueMessage(a, "!reword %s" % prompt))
-        
-        # ping OpenAI for the result
-        result = dialogue_chat_completion(
-            self.conf.openai_api_key,
-            model=self.conf.openai_chat_model,
-            messages=c.to_openai_json()
-        )
-        result = result.choices[0].message.content
-        return result
+        intro = openai_behavior_intro + \
+                openai_behavior_identity + \
+                openai_behavior_rules + \
+                openai_behavior_mood.replace("INSERT_MOOD", self.mood.description)
+        intro += "\n\n" \
+                 "Your current job: please examine the message you are about to receive " \
+                 "and reword it as if DImROD (you) said it.\n" \
+                 "Do not put any quotes, narration, or extra punctuation around the rephrased text. "
+        if extra_context is not None:
+            intro += "\n\nHere is some additional context:\n%s" % extra_context
+
+        return self.oneshot(intro, prompt)
 
     # -------------------------- SQLite3 Databasing -------------------------- #
     # Deletes old conversations whose last-updated-time have passed the
@@ -624,7 +604,7 @@ class DialogueInterface:
         prune_threshold = now.timestamp() - self.conf.dialogue_prune_rate
         if self.last_prune.timestamp() < prune_threshold:
             self.prune()
-    
+
     # Searches for authors in the database based on one or more authors fields.
     # (If NO fields are specified, all stored authors are returned.)
     # Returns an empty list or a list of matching DialogueAuthor objects.
@@ -689,7 +669,7 @@ class DialogueInterface:
         prune_threshold = now.timestamp() - self.conf.dialogue_prune_rate
         if self.last_prune.timestamp() < prune_threshold:
             self.prune()
- 
+
     # Searches for a conversation based on ID and/or start-time range. Returns
     # all matching conversations (or ALL conversations if no parameters are
     # specified).
@@ -697,7 +677,7 @@ class DialogueInterface:
         db_path = self.conf.dialogue_db
         if not os.path.isfile(db_path):
             return []
-            
+
         # build a set of conditions
         conditions = []
         if cid is not None:
@@ -719,7 +699,7 @@ class DialogueInterface:
             convo = DialogueConversation.from_sqlite3(row, self)
             result.append(convo)
         return result
-    
+
     # Searches all conversation tables for any messages with the matching
     # parameters. Reeturns a list of DialogueMessage objects.
     def search_message(self, mid=None, aid=None, time_range=None, keywords=[]):
