@@ -28,7 +28,7 @@ from lib.cli import ServiceCLI
 from lib.todoist import Todoist, TodoistConfig
 from lib.google.google_calendar import GoogleCalendar, GoogleCalendarConfig
 from lib.oracle import OracleSession, OracleSessionConfig
-from lib.dialogue.dialogue import DialogueConfig
+from lib.dialogue import DialogueConfig
 
 # Service imports
 from task import TaskJob
@@ -82,7 +82,7 @@ class TaskmasterThreadQueue:
 
         # return the future
         return entry.future
-    
+
     # Pops from the queue, blocking if the queue is empty.
     def pop(self):
         self.lock.acquire()
@@ -105,7 +105,7 @@ class TaskmasterThread(threading.Thread):
     def log(self, msg: str):
         ct = threading.current_thread()
         self.service.log.write("[Worker Thread %d] %s" % (ct.native_id, msg))
-    
+
     # The thread's main function.
     def run(self):
         self.log("Spawned.")
@@ -123,7 +123,7 @@ class TaskmasterThread(threading.Thread):
                                       self.service.get_gcal())
                 now = datetime.now()
                 j.set_last_update_datetime(now)
-    
+
                 # if the task succeeded, save the timestamp to disk
                 if is_success:
                     j.set_last_success_datetime(now)
@@ -140,7 +140,7 @@ class TaskmasterThread(threading.Thread):
             # thread (which is waiting on this future), so mark the taskjob's
             # future as completed
             f.mark_complete()
-            
+
 
 # ========================= Taskmaster Main Objects ========================== #
 class TaskmasterConfig(ServiceConfig):
@@ -171,7 +171,7 @@ class TaskmasterService(Service):
             t = TaskmasterThread(self, self.queue)
             t.start()
             self.threads.append(t)
-    
+
     # Imports all task jobs in the task job directory.
     def get_jobs(self):
         assert os.path.isdir(task_directory), "missing task directory: %s" % task_directory
@@ -204,7 +204,7 @@ class TaskmasterService(Service):
                                 self.task_dict[name] = cls
 
         return self.task_dict
-    
+
     # Uses the lumen configuration fields to retrieve and return an
     # authenticated Lumen OracleSession.
     def get_lumen_session(self):
@@ -222,7 +222,7 @@ class TaskmasterService(Service):
                            OracleSession.get_response_message(r))
             return None
         return s
-    
+
     # Performs a oneshot LLM call and response.
     def dialogue_oneshot(self, intro: str, message: str):
         # attempt to connect to the speaker
@@ -238,16 +238,16 @@ class TaskmasterService(Service):
             # extract the response and return the reworded message
             rdata = OracleSession.get_response_json(r)
             return str(rdata["message"])
-        
+
         # if the above didn't work, just return the original message
         self.log.write("Failed to get a oneshot response from speaker: %s" %
                        OracleSession.get_response_message(r))
         return message
-    
+
     # Returns a Todoist API object.
     def get_todoist(self):
         return Todoist(self.config.todoist)
-    
+
     # Returns a Google Calendar API object.
     def get_gcal(self):
         return GoogleCalendar(self.config.google_calendar)
@@ -303,7 +303,7 @@ class TaskmasterService(Service):
             for ld in taskjob_launch_data:
                 future = ld["future"]
                 future.wait()
-            
+
             # iterate through them *again* (now that they're all finished), and
             # recalculate how much time they'll need to update next
             for ld in taskjob_launch_data:
@@ -315,7 +315,7 @@ class TaskmasterService(Service):
                 if closest_update_time_seconds is None or \
                    seconds_until_update < closest_update_time_seconds:
                     closest_update_time_seconds = seconds_until_update
-            
+
             # find the minimum amount of time (if *no* taskjobs were updated
             # above, default to some time)
             if closest_update_time_seconds is None:
@@ -329,9 +329,10 @@ class TaskmasterOracle(Oracle):
         super().endpoints()
 
         # TODO
-        
+
 
 # =============================== Runner Code ================================ #
-cli = ServiceCLI(config=TaskmasterConfig, service=TaskmasterService, oracle=TaskmasterOracle)
-cli.run()
+if __name == "__main__":
+    cli = ServiceCLI(config=TaskmasterConfig, service=TaskmasterService, oracle=TaskmasterOracle)
+    cli.run()
 

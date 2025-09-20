@@ -1004,6 +1004,7 @@ class TelegramOracle(Oracle):
 
 
 # =============================== Runner Code ================================ #
-cli = ServiceCLI(config=TelegramConfig, service=TelegramService, oracle=TelegramOracle)
-cli.run()
+if __name__ == "__main__":
+    cli = ServiceCLI(config=TelegramConfig, service=TelegramService, oracle=TelegramOracle)
+    cli.run()
 

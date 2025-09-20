@@ -69,12 +69,12 @@ class RamblerService(Service):
     def __init__(self, config_path):
         super().__init__(config_path)
         self.config = RamblerConfig()
-        self.config.parse_file(config_path) 
+        self.config.parse_file(config_path)
 
     # Overridden main function implementation.
     def run(self):
         super().run()
-        
+
         # print a summary of all configured trips
         self.log.write("Initialized with %d trip(s)." % len(self.config.trips))
         for (i, trip) in enumerate(self.config.trips):
@@ -138,7 +138,7 @@ class RamblerService(Service):
                 self.log.write("    - Returning: flying from %s, landing in %s." %
                                (trip.flight.airport_return_depart,
                                 trip.flight.airport_return_arrive))
-            
+
                 # log the number of people going on the trip
                 people_str = "%d adult%s" % (trip.flight.passengers_adult,
                                              "" if trip.flight.passengers_adult == 1 else "s")
@@ -147,7 +147,7 @@ class RamblerService(Service):
                                   (trip.flight.passengers_child,
                                    "" if trip.flight.passengers_child == 1 else "ren")
                 self.log.write("    - Need airline tickets for: %s." % people_str)
-        
+
         # initialize a flight scraper
         fscraper = flight_scrapers[self.config.flight_scraper](self.config)
 
@@ -161,7 +161,7 @@ class RamblerService(Service):
                 dt_start = datetime.fromtimestamp(dt_now.timestamp() +
                                                   (86400 * (trip.timing.lookahead_days - 1)))
                 dates = trip.timing.get_dates(after=dt_start)
-                
+
                 # if the trip has flight info configured, we'll look for available
                 # flights
                 if trip.flight is not None:
@@ -174,7 +174,7 @@ class RamblerService(Service):
                             result = fscraper.scrape(trip.flight, dt_embark, dt_return,
                                                      count=self.config.flight_scraper_result_max)
                             fscraper.browser_exit()
-                            
+
                             # sleep for a random time between scrapes
                             sleep_time = random.randrange(self.config.flight_scraper_delay_min,
                                                           self.config.flight_scraper_delay_max)
@@ -192,11 +192,12 @@ class RamblerOracle(Oracle):
     # Endpoint definition function.
     def endpoints(self):
         super().endpoints()
-        
+
         # TODO
         pass
 
 # =============================== Runner Code ================================ #
-cli = ServiceCLI(config=RamblerConfig, service=RamblerService, oracle=RamblerOracle)
-cli.run()
+if __name == "__main__":
+    cli = ServiceCLI(config=RamblerConfig, service=RamblerService, oracle=RamblerOracle)
+    cli.run()
 

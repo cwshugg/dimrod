@@ -14,8 +14,8 @@ if pdir not in sys.path:
 from task import TaskConfig
 from tasks.groceries.base import *
 import lib.dtu as dtu
-from lib.dialogue.dialogue import DialogueInterface, DialogueAuthor, \
-                                  DialogueAuthorType
+from lib.dialogue import DialogueInterface, DialogueAuthor, \
+                         DialogueAuthorType
 
 # Helper class used to keep an on-disk record of the current grocery items and
 # the categories they've been assigned.
@@ -24,26 +24,26 @@ class GrocerySortRecord:
         self.dict = {}
         self.fpath = os.path.join(os.path.realpath(os.path.dirname(__file__)),
                                   ".%s_grocery_sort_record.pkl" % os.path.basename(__file__).replace(".py", ""))
-    
+
     # Attempts to load from disk. Returns True on success and False on failure.
     def load(self):
         if not os.path.isfile(self.fpath):
             return False
         with open(self.fpath, "rb") as fp:
             self.dict = pickle.load(fp)
-    
+
     # Attempts to save the dictionary to disk.
     def save(self):
         with open(self.fpath, "wb") as fp:
             pickle.dump(self.dict, fp)
-    
+
     # Returns the dictionary entry pertaining to the given key. None is
     # returned if the key doesn't exist in the dictionary.
     def get(self, key: str):
         if key not in self.dict:
             return None
         return self.dict[key]
-    
+
     # Removes the given key and value. Returns True if the key was found, and
     # False if not.
     def remove(self, key: str):
@@ -51,7 +51,7 @@ class GrocerySortRecord:
             return False
         self.dict.pop(key, None)
         return True
-   
+
     # Sets the dictionary entry pertaining to the given key.
     def set(self, key: str, data: any):
         self.dict[key] = data
@@ -73,7 +73,7 @@ class TaskJob_Groceries_Autosort(TaskJob_Groceries):
             "For example, if the grocery item is \"bananas\" and you have chosen the category \"PRODUCE\", your response must include this line of text: \"bananas|PRODUCE\". " \
             "Include the full list of grocery items and their assigned categories in your response; do not include anything else in your response."
         return r
-            
+
     # Builds a prompt to be passed to an LLM *after* the initial introduction
     # prompt has been set.
     def build_prompt_message(self, proj, sections, tasks):
@@ -82,7 +82,7 @@ class TaskJob_Groceries_Autosort(TaskJob_Groceries):
         r += "Here is the list of available categories to choose from:\n"
         for section in sections:
             r += " - \"%s\"\n" % section.name
-        
+
         # add the grocery items (tasks) to the prompt
         r += "Here is the list of grocery items you must categorize:\n"
         for task in tasks:
@@ -98,7 +98,7 @@ class TaskJob_Groceries_Autosort(TaskJob_Groceries):
         if type(section) != str:
             section = section.name
         return section.strip().lower()
-    
+
     def update(self, todoist, gcal):
         # this task doesn't add any new grocery tasks to the grocery project.
         # Instead, it examines the list and sorts them by category (where each
@@ -168,7 +168,7 @@ class TaskJob_Groceries_Autosort(TaskJob_Groceries):
         dialogue = DialogueInterface(self.service.config.dialogue)
         c = dialogue.talk(dialogue_message, author=dialogue_author, intro=dialogue_intro)
         result = c.latest_response().content
-        
+
         # iterate through the response, line-by-line
         delim = "|"
         for line in result.split("\n"):
@@ -205,6 +205,6 @@ class TaskJob_Groceries_Autosort(TaskJob_Groceries):
 
         # write the sort record out to disk
         self.gsr.save()
-            
+
         return True
 

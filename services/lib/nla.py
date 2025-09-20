@@ -52,6 +52,15 @@ class NLAEndpoint(Config):
         self.handler = func
         return self
 
+# Defines fields used to invoke an NLA endpoint.
+class NLAEndpointInvokeParameters(Config):
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            ConfigField("message",      [str],      required=True),
+            ConfigField("substring",    [str],      required=False, default=None),
+        ]
+
 # Defines the result of an NLA invocation.
 class NLAResult(Config):
     def __init__(self):

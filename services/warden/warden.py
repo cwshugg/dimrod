@@ -52,7 +52,7 @@ class WardenService(Service):
         super().__init__(config_path)
         self.config = WardenConfig()
         self.config.parse_file(config_path)
-        
+
         # make a few config assertions
         assert self.config.refresh_rate > 0, "the refresh rate must be greater than 0"
         assert self.config.ping_timeout > 0.0, "the ping timeout must be greater than 0"
@@ -74,7 +74,7 @@ class WardenService(Service):
     # Overridden main function implementation.
     def run(self):
         super().run()
-        
+
         # Helper function to determine if it's time for a sweep.
         def can_sweep():
             time_to_sweep_threshold = now.timestamp() - self.last_sweep.timestamp()
@@ -96,23 +96,23 @@ class WardenService(Service):
         self.log.write("Initial cache entries:")
         for entry in self.cache:
             self.log.write(" - %s" % self.cache[entry])
-         
+
         # loop forever
         while True:
             now = datetime.now()
             pfx = "[%s]" % now.strftime("%Y-%m-%d %H:%M:%S")
-            
+
             # if we're past the sweep threshold, sweep the network
             if can_sweep():
                 self.log.write("%s Sweeping the network..." % pfx)
                 self.sweep()
                 for entry in self.cache:
                     self.log.write(" - %s" % self.cache[entry])
-            
+
             # iterate across all clients stored in the cache
             for addr in self.cache:
                 client = self.cache[addr]
-                
+
                 # ping the client and update if it responds
                 ping_tries = self.config.ping_tries * 2
                 if self.ping(client.ipaddr, tries=ping_tries):
@@ -123,7 +123,7 @@ class WardenService(Service):
             # sleep for the specified amount of seconds
             time.sleep(self.config.refresh_rate)
 
-    
+
     # ------------------------------- Caching -------------------------------- #
     # Returns the matching Client object, or None.
     def cache_get(self, macaddr: str):
@@ -156,7 +156,7 @@ class WardenService(Service):
         # close the socket and return the address
         sock.close()
         return addr
-    
+
     # Gets the service's IP address with the "/24" netmask included at the end.
     def get_netmask(self):
         args = ["ip", "-o", "-f", "inet", "addr", "show"]
@@ -170,7 +170,7 @@ class WardenService(Service):
             line = line.strip()
             if len(line) == 0:
                 continue
-            
+
             # split into pieces and skip lines that don't have enough
             pieces = line.split()
             if len(pieces) < 4:
@@ -180,10 +180,10 @@ class WardenService(Service):
             mask = pieces[3]
             if addr in mask:
                 return mask
-        
+
         # we shouldn't reach here...
         assert False, "failed to look up netmask"
-    
+
     # Returns a list of all the valid addresses on the same network as the
     # service.
     def get_all_addresses(self):
@@ -192,7 +192,7 @@ class WardenService(Service):
         for addr in list(network.hosts()):
             result.append(str(addr))
         return result
-    
+
     # Sweeps the entire range of IP addresses in the same subnet as the
     # service's IP address. Returns dictionary of IP addresses and MAC
     # addresses corresponding to the clients that responded.
@@ -201,7 +201,7 @@ class WardenService(Service):
         # get all addresses, and our own address
         addr = self.get_address()
         addresses = self.get_all_addresses()
-        
+
         # ping all addresses
         up_addrs = []
         log_msg = "Trying address %s"
@@ -301,7 +301,7 @@ class WardenService(Service):
 
             # return according to what we found in the output
             return host_is_up
-   
+
     # Pings a given IP address and returns True if the host is up.
     # This may attempt multiple pings to reduce inaccuracy or unreturned pings
     # due to network latency.
@@ -331,14 +331,14 @@ class WardenService(Service):
                 continue
             return True
         return False
-    
+
     # Attempts a variety of different pinging techniques to determine if a host
     # is up and responding.
     def ping(self, address: str, timeout=None, tries=None):
         # establish limits and run the nmap helper
         timeout = self.config.ping_timeout if timeout is None else timeout
         tries = self.config.ping_tries if tries is None else tries
-        
+
         # ATTEMPT 1: Classic 'ping' utility
         if self.ping_classic(address, timeout=timeout, tries=tries):
             return True
@@ -350,7 +350,7 @@ class WardenService(Service):
             for pt in ["pp", "pm", "ps", "pa", "pu"]:
                 if self.ping_nmap(address, timeout, tries, pingtype=pt):
                     return True
-        
+
         # if we reach here without returning true, we'll assume the host is
         # offline
         return False
@@ -382,14 +382,14 @@ class WardenService(Service):
                 client.update(ipaddr=address)
                 return pieces[2]
         return None
-    
+
 
 # ============================== Service Oracle ============================== #
 class WardenOracle(Oracle):
     # Endpoint definition function.
     def endpoints(self):
         super().endpoints()
-        
+
         # This endpoint retrieves the current known status of the devices
         # specified in the warden config file.
         @self.server.route("/devices", methods=["GET"])
@@ -402,7 +402,7 @@ class WardenOracle(Oracle):
             for device in self.service.devices:
                 result.append(device.config.to_json())
             return self.make_response(payload=result)
-        
+
         # This endpoint retrieves all clients stored in the warden's cache.
         @self.server.route("/clients", methods=["GET"])
         def endpoint_clients():
@@ -427,6 +427,7 @@ class WardenOracle(Oracle):
 
 
 # =============================== Runner Code ================================ #
-cli = ServiceCLI(config=WardenConfig, service=WardenService, oracle=WardenOracle)
-cli.run()
+if __name == "__main__":
+    cli = ServiceCLI(config=WardenConfig, service=WardenService, oracle=WardenOracle)
+    cli.run()
 

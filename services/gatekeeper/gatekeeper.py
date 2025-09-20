@@ -67,7 +67,7 @@ class GatekeeperService(Service):
                                stdout_fd=out_fd,
                                stderr_fd=err_fd))
             self.log.return_fd(out_fd)
-        
+
         # iterate through all events and fire off those that match
         matches = 0
         for e in self.events:
@@ -110,7 +110,7 @@ class GatekeeperOracle(Oracle):
     # Endpoint definition function.
     def endpoints(self):
         super().endpoints()
-        
+
         # Endpoint for a simple greeting.
         @self.server.route("/events/get", methods=["GET"])
         def endpoint_events_get():
@@ -131,7 +131,7 @@ class GatekeeperOracle(Oracle):
             if not flask.g.jdata:
                 return self.make_response(msg="No JSON data provided.",
                                           success=False)
-            
+
             # interpret the data as a gatekeeper event post config object to ensure
             # all the correct fields were given
             pconf = GatekeeperEventPostConfig()
@@ -151,9 +151,10 @@ class GatekeeperOracle(Oracle):
                 return self.make_response(msg="Unknown event: \"%s\"" % pconf.name,
                                           success=False)
             return self.make_response(msg="Event successfully posted.")
-        
+
 
 # =============================== Runner Code ================================ #
-cli = ServiceCLI(config=GatekeeperConfig, service=GatekeeperService, oracle=GatekeeperOracle)
-cli.run()
+if __name == "__main__":
+    cli = ServiceCLI(config=GatekeeperConfig, service=GatekeeperService, oracle=GatekeeperOracle)
+    cli.run()
 

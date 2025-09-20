@@ -19,10 +19,11 @@ if pdir not in sys.path:
 # Local imports
 from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
-from lib.oracle import Oracle
-from lib.nla import NLAEndpoint, NLAEndpointHandlerFunction, NLAResult
+from lib.oracle import Oracle, OracleSessionConfig
+from lib.nla import NLAEndpoint, NLAEndpointHandlerFunction, NLAResult, NLAEndpointInvokeParameters
 from lib.ifttt import WebhookConfig, Webhook
 from lib.cli import ServiceCLI
+from lib.dialogue import DialogueConfig, DialogueInterface
 from lib.wyze import WyzeConfig, Wyze
 from lib.lifx import LIFXConfig, LIFX
 
@@ -41,9 +42,11 @@ class LumenConfig(ServiceConfig):
             ConfigField("webhook_event",        [str],          required=True),
             ConfigField("webhook_key",          [str],          required=True),
             ConfigField("wyze_config",          [WyzeConfig],   required=True),
+            ConfigField("dialogue",             [DialogueConfig], required=True),
             ConfigField("lifx_config",          [LIFXConfig],   required=False, default=None),
             ConfigField("refresh_rate",         [int],          required=False, default=60),
             ConfigField("action_threads",       [int],          required=False, default=4),
+            ConfigField("nla_toggle_dialogue_retries", [int],   required=False, default=4),
         ]
         self.fields += fields
 
@@ -444,21 +447,123 @@ class LumenOracle(Oracle):
 
 # =============================== NLA Handlers =============================== #
 def nla_get(oracle: LumenOracle, jdata: dict):
-    # TODO
+    params = NLAEndpointInvokeParameters.from_json(jdata)
+
+    # iterate through all the lights in the service and build a response
+    # message containing all lights
+    msg = ""
+    device_strs = []
+    for device in oracle.service.lights:
+        device_strs.append("• %s - %s" % (device.lid, device.description))
+    msg = "List of controllable devices:\n" + "\n".join(device_strs)
+
     return NLAResult.from_json({
-        "success": False,
-        "message": "TODO - /get_devices",
+        "success": True,
+        "message": msg
     })
 
 def nla_toggle(oracle: LumenOracle, jdata: dict):
-    # TODO
+    params = NLAEndpointInvokeParameters.from_json(jdata)
+
+    # build an array of strings to represent all supported devices
+    device_str = ""
+    for device in oracle.service.lights:
+        device_str += "• %s - %s\n" % (device.lid, device.description)
+        device_str += "    • Tags: %s\n" % str(device.tags)
+
+    # set up an intro prompt for the LLM
+    prompt_intro = "You are a home assistant specializing in toggling smart home devices.\n " \
+                   "You have access to the following devices:\n\n%s\n" \
+                   "You will receive a command from a user to toggle one or more of these devices.\n" \
+                   "Your task is to:\n\n" \
+                   "1. Identify the ID strings of the device(s) to be toggled, using the tags and device descriptions.\n" \
+                   "2. Determine if the user wants the device(s) turned on or off.\n" \
+                   "\n" \
+                   "You must respond in the following JSON format:\n\n" \
+                   "[\n" \
+                   "    {\n" \
+                   "        \"id\": \"ID_STRING_OF_DEVICE\",\n" \
+                   "        \"action\": \"'ON' or 'OFF'\"\n" \
+                   "    },\n" \
+                   "    {\n" \
+                   "        \"id\": \"ID_STRING_OF_DEVICE\",\n" \
+                   "        \"action\": \"'ON' or 'OFF'\"\n" \
+                   "    }\n" \
+                   "]\n\n" \
+                   "If you cannot identify any devices to toggle, respond with an empty JSON list: []\n\n" \
+                   "Please only respond with the JSON list, and nothing else." \
+                   % device_str
+
+    # build the user-message prompt
+    prompt_content = params.message
+    if hasattr(params, "substring"):
+        prompt_content = params.substring
+
+    # set up a dialogue interface and prompt it
+    dialogue = DialogueInterface(oracle.service.config.dialogue)
+    r = dialogue.oneshot(prompt_intro, prompt_content)
+
+    # parse the response as JSON
+    action_list = []
+    fail_count = 0
+    for attempt in range(oracle.service.config.nla_toggle_dialogue_retries):
+        try:
+            action_list = json.loads(r)
+            if type(action_list) != list:
+                raise Exception("LLM response is not a JSON list.")
+
+            # sanitize for bad formatting
+            for entry in action_list:
+                if "id" not in entry or \
+                   "action" not in entry:
+                    raise Exception("LLM response is missing required fields.")
+        except Exception as e:
+            oracle.service.log.write("Failed to parse LLM response: %s" % e)
+            fail_count += 1
+            continue
+
+    # if we couldn't parse the response, return an error message
+    if fail_count == oracle.service.config.nla_toggle_dialogue_retries:
+        return NLAResult.from_json({
+            "success": False,
+            "message": "Something went wrong while trying to find devices to toggle."
+        })
+
+    # otherwise, if there were *no* devices to toggle, return a message
+    action_list_len = len(action_list)
+    if action_list_len == 0:
+        return NLAResult.from_json({
+            "success": True,
+            "message": "I couldn't find any devices to toggle based on your request."
+        })
+
+    # finally, iterate through the action list and submit toggles to the
+    # service. At the same time, build a response message
+    device_msgs = []
+    for action_info in action_list:
+        device_id = action_info["id"]
+
+        # grab the action and invoke the appropriate service function
+        action = action_info["action"].strip().lower()
+        if action == "on":
+            oracle.service.queue_power_on(device_id)
+        elif action == "off":
+            oracle.service.queue_power_off(device_id)
+
+        device_msgs.append("• I turned \"%s\" %s." %
+                           (device_id, action))
+
+    # compose a final response message
+    msg = "I did the following:\n\n%s" % "\n".join(device_msgs)
+
     return NLAResult.from_json({
-        "success": False,
-        "message": "TODO - /toggle_device",
+        "success": True,
+        "message": msg,
     })
 
 
 # =============================== Runner Code ================================ #
-cli = ServiceCLI(config=LumenConfig, service=LumenService, oracle=LumenOracle)
-cli.run()
+if __name__ == "__main__":
+    cli = ServiceCLI(config=LumenConfig, service=LumenService, oracle=LumenOracle)
+    cli.run()
 

@@ -14,6 +14,7 @@ from datetime import datetime
 import inspect
 import importlib.util
 import json
+import copy
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -25,10 +26,10 @@ from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle, OracleSession
 from lib.cli import ServiceCLI
-from lib.dialogue.dialogue import DialogueConfig, DialogueInterface, \
-                                  DialogueAuthor, DialogueAuthorType, \
-                                  DialogueConversation, DialogueMessage
-from lib.nla import NLAService, NLAEndpoint, NLAResult
+from lib.dialogue import DialogueConfig, DialogueInterface, \
+                         DialogueAuthor, DialogueAuthorType, \
+                         DialogueConversation, DialogueMessage
+from lib.nla import NLAService, NLAEndpoint, NLAResult, NLAEndpointInvokeParameters
 
 
 # =============================== Config Class =============================== #
@@ -37,6 +38,7 @@ class SpeakerConfig(ServiceConfig):
     def __init__(self):
         super().__init__()
         self.fields += [
+            ConfigField("dialogue",         [DialogueConfig], required=True),
             ConfigField("tick_rate",        [int],      required=False,     default=30),
             ConfigField("mood_timeout",     [int],      required=False,     default=1200),
             ConfigField("nla_services",     [NLAService], required=False,   default=[]),
@@ -53,9 +55,7 @@ class SpeakerService(Service):
         self.config.parse_file(config_path)
 
         # create a dialogue config object and a dialogue interface object
-        self.dialogue_conf = DialogueConfig()
-        self.dialogue_conf.parse_file(config_path)
-        self.dialogue = DialogueInterface(self.dialogue_conf)
+        self.dialogue = DialogueInterface(self.config.dialogue)
 
         # action-related class fields
         self.actions = None
@@ -151,13 +151,22 @@ class SpeakerService(Service):
                         "based on the description of the endpoint and the message provided by the user.\n" \
                         "You must respond with a JSON object in this format:\n\n" \
                         "[\n" \
-                        "    \"ID_OF_ENDPOINT_TO_INVOKE_1\",\n" \
-                        "    \"ID_OF_ENDPOINT_TO_INVOKE_2\",\n" \
-                        "    \"ID_OF_ENDPOINT_TO_INVOKE_3\"\n" \
+                        "   {\n" \
+                        "       \"id\": \"ID_OF_ENDPOINT_TO_INVOKE_1\",\n" \
+                        "       \"substring\": \"SPECIFIC_SUBSTRING_OF_MESSAGE_REFERRING_TO_THIS_ENDPOINT\"\n" \
+                        "   },\n" \
+                        "   {\n" \
+                        "       \"id\": \"ID_OF_ENDPOINT_TO_INVOKE_2\",\n" \
+                        "       \"substring\": \"SPECIFIC_SUBSTRING_OF_MESSAGE_REFERRING_TO_THIS_ENDPOINT\"\n" \
+                        "   }\n" \
                         "]\n" \
-                        "The list should contain every API endpoint that should be invoked.\n" \
-                        "If no endpoints should be invoked, respond with an empty list: []\n" \
-                        "Do not include any other text in your response; only respond with the JSON list."
+                        "The list should contain an entry for every API endpoint that should be invoked.\n" \
+                        "The \"substring\" field is optional. " \
+                        "If there is a specific substring (i.e. a part of the message that is *not* the full string) " \
+                        "in the message that provides context for the specific endpoint, include it in the \"substring\" field.\n" \
+                        "If there is no specific substring, please omit the \"substring\" field entirely.\n" \
+                        "If you decide that no endpoints should be invoked, respond with an empty list: []\n" \
+                        "Do not include any other text in your response; only respond with the JSON object."
         prompt_content = "%s" % message
 
         # attempt to use the LLM to determine which endpoints should be
@@ -178,9 +187,33 @@ class SpeakerService(Service):
 
                 # iterate through the list and match each string to an endpoint ID
                 for entry in endpoint_id_list:
-                    entry_str = str(entry).lower().strip()
-                    if entry_str in endpoints:
-                        endpoints_to_invoke.append(endpoints[entry_str])
+                    entry_id = str(entry["id"]).lower().strip()
+
+                    # set up an object containing invocation parameters for the
+                    # NLA endpoint
+                    invoke_params = NLAEndpointInvokeParameters.from_json({
+                        "message": message,
+                    })
+
+                    # get the substring field from the parsed JSON, if it was
+                    # provided
+                    if "substring" in entry:
+                        substr = entry["substring"]
+                        if substr is not None and len(str(substr).strip()) > 0:
+                            invoke_params.substring = str(entry["substring"]).strip()
+
+                    # if the ID string points to one of the endpoints, create a
+                    # deep copy of the object and add it to the list of
+                    # endpoints to invoke. Additionally, modify the object to
+                    # store the invocation parameters; these'll be needed later
+                    #
+                    # (we do a deep copy, because the same endpoint may end up
+                    # getting invoked more than once, each time with different
+                    # paramters)
+                    if entry_id in endpoints:
+                        ep_copy = copy.deepcopy(endpoints[entry_id])
+                        ep_copy["invoke_params"] = invoke_params
+                        endpoints_to_invoke.append(ep_copy)
 
                 # break out of the loop on the first success
                 break
@@ -211,7 +244,7 @@ class SpeakerService(Service):
             ep_id = ep_info["id"]
             ep = ep_info["endpoint"]
             service = ep_info["service"]
-            self.log.write("Invoking NLA endpoint: %s" % ep_id)
+            self.log.write("Invoking NLA endpoint \"%s\" with params: %s" % (ep_id, str(ep_info["invoke_params"])))
 
             # open a session to the service that owns this endpoint, and
             # attempt to log in
@@ -230,11 +263,14 @@ class SpeakerService(Service):
                     continue
 
             # post to the endpoint's URL; provide the message as the payload
-            ep_input_data = {
-                "message": message
-            }
             try:
-                r = session.post(ep.get_url(), payload=ep_input_data)
+                r = session.post(ep.get_url(), payload=ep_info["invoke_params"].to_json())
+
+                # make sure the invocation succeeded
+                if OracleSession.get_response_status(r) != 200:
+                    self.log.write("Failed to invoke NLA endpoint \"%s\": %s" %
+                                   (ep_id, str(r)))
+                    continue
 
                 # upon a successful call to the NLA endpoint, save the endpoint
                 # information, as well as the result, to an object, and add it
@@ -452,6 +488,7 @@ class SpeakerOracle(Oracle):
 
 
 # =============================== Runner Code ================================ #
-cli = ServiceCLI(config=SpeakerConfig, service=SpeakerService, oracle=SpeakerOracle)
-cli.run()
+if __name__ == "__main__":
+    cli = ServiceCLI(config=SpeakerConfig, service=SpeakerService, oracle=SpeakerOracle)
+    cli.run()
 

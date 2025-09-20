@@ -85,7 +85,7 @@ class NimbusService(Service):
         hdrs = {"User-Agent": self.config.api_user_agent}
         r = requests.get(url, headers=hdrs)
         rdata = r.json()
-        
+
         # now that we have the apporpriate information for the given location,
         # extract the correct URL to ping next for forecast information
         properties = rdata["properties"]
@@ -112,7 +112,7 @@ class NimbusOracle(Oracle):
     # Endpoint definition function.
     def endpoints(self):
         super().endpoints()
-        
+
         # Endpoint that takes in a location and looks up basic weather
         # statistics.
         @self.server.route("/weather/bylocation", methods=["POST"])
@@ -121,7 +121,7 @@ class NimbusOracle(Oracle):
                 return self.make_response(rstatus=404)
             if not flask.g.jdata:
                 return self.make_response(msg="No JSON data provided.")
-            
+
             # parse a location from the request payload
             location = Location()
             location.parse_json(flask.g.jdata)
@@ -139,7 +139,7 @@ class NimbusOracle(Oracle):
             if fc is None:
                 return self.make_response(success=False, msg="No forecast for that time exists.")
             return self.make_response(payload=fc.to_json())
-        
+
         # Endpoint that takes in saved location's name and looks up basic
         # weather statistics for it.
         @self.server.route("/weather/byname", methods=["POST"])
@@ -148,7 +148,7 @@ class NimbusOracle(Oracle):
                 return self.make_response(rstatus=404)
             if not flask.g.jdata:
                 return self.make_response(msg="No JSON data provided.")
-            
+
             # parse a location from the request payload and use geopy to look
             # it up
             if "name" not in flask.g.jdata:
@@ -161,7 +161,7 @@ class NimbusOracle(Oracle):
                 if l.name == name:
                     location = l
                     break
-            
+
             # if we couldn't find a location, stop here
             if location is None:
                 return self.make_response(success=False,
@@ -183,6 +183,7 @@ class NimbusOracle(Oracle):
 
 
 # =============================== Runner Code ================================ #
-cli = ServiceCLI(config=NimbusConfig, service=NimbusService, oracle=NimbusOracle)
-cli.run()
+if __name == "__main__":
+    cli = ServiceCLI(config=NimbusConfig, service=NimbusService, oracle=NimbusOracle)
+    cli.run()
 

@@ -51,7 +51,7 @@ class HistorianService(Service):
 
         # create a database object
         self.db = HistorianDatabase(self.config.db_path)
-        
+
     # Overridden main function implementation.
     def run(self):
         super().run()
@@ -62,7 +62,7 @@ class HistorianOracle(Oracle):
     # Endpoint definition function.
     def endpoints(self):
         super().endpoints()
-        
+
         # Endpoint that retrieves and returns the latest N events.
         @self.server.route("/retrieve/latest", methods=["POST"])
         def endpoint_retrieve_latest():
@@ -71,7 +71,7 @@ class HistorianOracle(Oracle):
             if not flask.g.jdata:
                 return self.make_response(msg="Missing JSON data.",
                                           success=False, rstatus=400)
-            
+
             # look for JSON specifying the number of entries to return
             if "count" not in flask.g.jdata or type(flask.g.jdata["count"]) != int:
                 return self.make_response(msg="Must specify 'count' integer.",
@@ -84,7 +84,7 @@ class HistorianOracle(Oracle):
             for e in results:
                 payload.append(e.to_json(include_id=True))
             return self.make_response(success=True, payload=payload)
-        
+
         # Endpoint that retrieves and returns an event with the given ID.
         @self.server.route("/retrieve/by_id", methods=["POST"])
         def endpoint_retrieve_by_id():
@@ -108,7 +108,7 @@ class HistorianOracle(Oracle):
             else:
                 pyld = result.to_json(include_id=True)
                 return self.make_response(success=True, payload=pyld)
-            
+
         # Endpoint used to submit a single event to the historian.
         @self.server.route("/submit", methods=["POST"])
         def endpoint_submit():
@@ -133,6 +133,7 @@ class HistorianOracle(Oracle):
 
 
 # =============================== Runner Code ================================ #
-cli = ServiceCLI(config=HistorianConfig, service=HistorianService, oracle=HistorianOracle)
-cli.run()
+if __name == "__main__":
+    cli = ServiceCLI(config=HistorianConfig, service=HistorianService, oracle=HistorianOracle)
+    cli.run()
 

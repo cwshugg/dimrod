@@ -51,14 +51,14 @@ class NotifService(Service):
         mconf = MessengerConfig()
         mconf.parse_file(config_path)
         self.emailer = Messenger(mconf)
-     
+
     # Overridden main function implementation.
     def run(self):
         super().run()
 
         # if the reminder directory doesn't exist, make it
         if not os.path.isdir(self.config.reminder_dir):
-            self.log.write("Reminder directory (%s) doesn't exist. Creating..." % 
+            self.log.write("Reminder directory (%s) doesn't exist. Creating..." %
                            self.config.reminder_dir)
             os.mkdir(self.config.reminder_dir)
 
@@ -84,7 +84,7 @@ class NotifService(Service):
                     # skip non-JSON files
                     if not f.endswith(".json"):
                         continue
-                    
+
                     # load the JSON file and parse its reminders
                     fpath = os.path.join(root, f)
                     rems = []
@@ -94,10 +94,10 @@ class NotifService(Service):
                         self.log.write("Failed to load reminder JSON file %s: %s" %
                                         (f, e))
                         continue
-                    
+
                     # check all reminders for readiness
                     check_all(rems)
-                    
+
                     # while we're at it, look at all the reminders that were
                     # loaded in. If *all* of them exist in the past, we can
                     # delete this file to prevent buildup
@@ -119,7 +119,7 @@ class NotifService(Service):
                                    (os.path.basename(fpath), e))
 
             time.sleep(60)
-    
+
     # ------------------------------- File IO -------------------------------- #
     # Loads reminders in from a JSON file and returns a list of Reminder
     # objects.
@@ -132,14 +132,14 @@ class NotifService(Service):
                 r.parse_json(entry)
                 rems.append(r)
         return rems
-    
+
     # Saves the given reminder to its own file in the reminder directory.
     def save_reminder(self, rem: Reminder):
         fname = ".%s.json" % rem.get_id()
         fpath = os.path.join(self.config.reminder_dir, fname)
         with open(fpath, "w") as fp:
             fp.write(json.dumps([rem.to_json()], indent=4))
- 
+
     # --------------------------- Reminder Sending --------------------------- #
     # Sends a reminder over one or more mediums, depending on how the reminder
     # was configured.
@@ -182,7 +182,7 @@ class NotifService(Service):
                 self.log.write("Couldn't find a telegram chat that matched \"%s\"." %
                                chat)
                 continue
-            
+
             # compose a message (include the title only if it's not empty)
             msg = rem.message
             title_str = ""
@@ -215,7 +215,7 @@ class NotifService(Service):
                 title_str = "DImROD Notification"
             elif not title_has_letters and len(title_str) < 10:
                 title_str = "DImROD Notification - %s" % title_str
-            
+
             # send the ntfy HTTP request to post to the channel
             self.log.write(" - Posting a ntfy message to channel \"%s\"" % str(channel))
             r = ntfy_send(str(channel), rem.message, title=title_str)
@@ -233,7 +233,7 @@ class NotifOracle(Oracle):
     # Endpoint definition function.
     def endpoints(self):
         super().endpoints()
-        
+
         # Retrieves and returns all lists.
         @self.server.route("/reminder/create", methods=["POST"])
         def endpoint_list_get_all():
@@ -242,7 +242,7 @@ class NotifOracle(Oracle):
             if not flask.g.jdata:
                 return self.make_response(msg="Missing JSON data.",
                                           success=False, rstatus=400)
-            
+
             # attempt to create a reminder object from the JSON payload
             rem = Reminder()
             try:
@@ -250,7 +250,7 @@ class NotifOracle(Oracle):
             except Exception as e:
                 return self.make_response(msg="Invalid JSON data: %s" % e,
                                           success=False, rstatus=400)
-            
+
             # save the reminder
             try:
                 self.service.save_reminder(rem)
@@ -260,9 +260,10 @@ class NotifOracle(Oracle):
 
             return self.make_response(msg="Reminder created successfully.",
                                       payload=rem.to_json())
-        
+
 
 # =============================== Runner Code ================================ #
-cli = ServiceCLI(config=NotifConfig, service=NotifService, oracle=NotifOracle)
-cli.run()
+if __name == "__main__":
+    cli = ServiceCLI(config=NotifConfig, service=NotifService, oracle=NotifOracle)
+    cli.run()
 
