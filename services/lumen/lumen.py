@@ -45,7 +45,7 @@ class LumenConfig(ServiceConfig):
             ConfigField("dialogue",             [DialogueConfig], required=True),
             ConfigField("lifx_config",          [LIFXConfig],   required=False, default=None),
             ConfigField("refresh_rate",         [int],          required=False, default=60),
-            ConfigField("action_threads",       [int],          required=False, default=4),
+            ConfigField("action_threads",       [int],          required=False, default=8),
             ConfigField("nla_toggle_dialogue_retries", [int],   required=False, default=4),
         ]
         self.fields += fields
@@ -142,6 +142,7 @@ class LumenService(Service):
         # set up a Wyze API object
         self.wyze = Wyze(self.config.wyze_config)
         try:
+            self.log.write("Attempting to log into Wyze API...")
             self.wyze.login()
             self.log.write("Logged into Wyze successfully.")
         except Exception as e:
@@ -153,6 +154,20 @@ class LumenService(Service):
             lifx_config = LIFXConfig()
             lifx_config.parse_json({})
         self.lifx = LIFX(lifx_config)
+
+        # invoke the LIFX's `get_lights()` function to initially discover as
+        # many lights as possible. This way, we don't have a delay when the
+        # first LIFX light toggle request comes along
+        try:
+            self.log.write("Attempting to initially discover LIFX lights...")
+            lifx_lights = self.lifx.get_lights()
+            lifx_lights_len = len(lifx_lights)
+            if lifx_lights_len > 0:
+                self.log.write("Initially discovered %d LIFX lights." % lifx_lights_len)
+            else:
+                self.log.write("Initially discovered no LIFX lights.")
+        except Exception as e:
+            self.log.write("Failed to initially discover LIFX lights: %s" % e)
 
         # for each of the entries in the config's 'lights' field, we'll create a
         # new Light object
@@ -317,8 +332,7 @@ class LumenService(Service):
 
         # if brightness was specified, apply it
         if brightness is not None:
-            # TODO
-            pass
+            self.lifx.set_light_brightness(l, brightness)
 
     # Searches for a Wyze device with the given ID string and returns it (or
     # None).
@@ -440,7 +454,7 @@ class LumenOracle(Oracle):
                 }).set_handler(nla_get),
             NLAEndpoint.from_json({
                     "name": "toggle_device",
-                    "description": "Toggle a device on or off."
+                    "description": "Toggle a device on or off, set a device's color, set a device's brightness."
                 }).set_handler(nla_toggle),
         ]
 
@@ -477,17 +491,28 @@ def nla_toggle(oracle: LumenOracle, jdata: dict):
                    "You will receive a command from a user to toggle one or more of these devices.\n" \
                    "Your task is to:\n\n" \
                    "1. Identify the ID strings of the device(s) to be toggled, using the tags and device descriptions.\n" \
+                   "    * The tags are keywords that represent the categories and groups these lights fall into.\n" \
+                   "    * If you see a device's tag mentioned in the message, there is a good chance the user is referring to that device.\n" \
                    "2. Determine if the user wants the device(s) turned on or off.\n" \
+                   "3. If the user wants a device turned on, determine if a specific color or brightness is requested.\n" \
+                   "    * The color should be a list of three RGB integers between 0 and 255 (inclusive).\n" \
+                   "    * The brightness should be a float between 0.0 and 1.0 (inclusive).\n" \
+                   "    * If no color is specified, omit the field from the JSON object.\n" \
+                   "    * If no brightness is specified, omit the field from the JSON object.\n" \
                    "\n" \
                    "You must respond in the following JSON format:\n\n" \
                    "[\n" \
                    "    {\n" \
                    "        \"id\": \"ID_STRING_OF_DEVICE\",\n" \
-                   "        \"action\": \"'ON' or 'OFF'\"\n" \
+                   "        \"action\": \"'ON' or 'OFF'\",\n" \
+                   "        \"color\": [255, 255, 255],\n" \
+                   "        \"brightness\": 0.5\n" \
                    "    },\n" \
                    "    {\n" \
                    "        \"id\": \"ID_STRING_OF_DEVICE\",\n" \
-                   "        \"action\": \"'ON' or 'OFF'\"\n" \
+                   "        \"action\": \"'ON' or 'OFF'\",\n" \
+                   "        \"color\": \"\"255,255,255\",\n" \
+                   "        \"brightness\": 0.5\n" \
                    "    }\n" \
                    "]\n\n" \
                    "If you cannot identify any devices to toggle, respond with an empty JSON list: []\n\n" \
@@ -517,6 +542,23 @@ def nla_toggle(oracle: LumenOracle, jdata: dict):
                 if "id" not in entry or \
                    "action" not in entry:
                     raise Exception("LLM response is missing required fields.")
+
+                # if color was provided, make sure it's a list of 3 integers
+                if "color" in entry and not \
+                   (type(entry["color"]) == list and
+                    len(entry["color"]) == 3):
+                    raise Exception("LLM response has invalid color field.")
+
+                # if brightness was provided, make sure it's a float between
+                # 0.0 and 1.0
+                if "brightness" in entry and not \
+                   (type(entry["brightness"]) in [float, int] and
+                    entry["brightness"] >= 0.0 and
+                    entry["brightness"] <= 1.0):
+                    raise Exception("LLM response has invalid brightness field.")
+
+            # break on the first success
+            break
         except Exception as e:
             oracle.service.log.write("Failed to parse LLM response: %s" % e)
             fail_count += 1
@@ -546,7 +588,23 @@ def nla_toggle(oracle: LumenOracle, jdata: dict):
         # grab the action and invoke the appropriate service function
         action = action_info["action"].strip().lower()
         if action == "on":
-            oracle.service.queue_power_on(device_id)
+            # get the color string, if one was provided
+            color = None
+            if "color" in action_info:
+                color = action_info["color"]
+
+            # get the brightness, if one was provided
+            brightness = None
+            if "brightness" in action_info:
+                brightness = action_info["brightness"]
+                # if brightness isn't a float, ignore it
+                if type(brightness) != float:
+                    brightness = None
+
+            # queue the power-on action
+            oracle.service.queue_power_on(device_id,
+                                          color=color,
+                                          brightness=brightness)
         elif action == "off":
             oracle.service.queue_power_off(device_id)
 
