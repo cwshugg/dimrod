@@ -46,6 +46,7 @@ class TaskJob:
     def __init__(self, service):
         self.service = service
         self.refresh_rate = 43200
+        self.todoist_rate_limit_retries = 10
         self.todoist_rate_limit_timeout = 30
         self.last_update_fpath = os.path.join(fdir, ".%s_last_update.pkl" %
                                               self.__class__.__name__.lower())
@@ -131,7 +132,8 @@ class TaskJob:
     def get_project_by_name(self, todoist, name: str,
                             color="grey", parent_id=None,
                             is_favorite=False, view_style="list"):
-        while True:
+        rate_limit_retries_attempted = 0
+        for attempt in range(self.todoist_rate_limit_retries):
             try:
                 proj = todoist.get_project_by_name(name)
                 if proj is None:
@@ -141,13 +143,19 @@ class TaskJob:
                 if e.response.status_code == 429:
                     self.log("Getting rate-limited by Todoist. Sleeping...")
                     time.sleep(self.todoist_rate_limit_timeout)
+                    rate_limit_retries_attempted += 1
                 else:
                     raise e
+
+        # if we exhaused our retries, raise an exception
+        if rate_limit_retries_attempted >= self.todoist_rate_limit_retries:
+            raise Exception("Exceeded maximum retries due to Todoist rate limiting")
 
     # Creates and returns the section with the given name.
     def get_section_by_name(self, todoist, project_id: str, name: str,
                             order=None):
-        while True:
+        rate_limit_retries_attempted = 0
+        for attempt in range(self.todoist_rate_limit_retries):
             try:
                 sect = todoist.get_section_by_name(name)
                 if sect is None:
@@ -157,6 +165,11 @@ class TaskJob:
                 if e.response.status_code == 429:
                     self.log("Getting rate-limited by Todoist. Sleeping...")
                     time.sleep(self.todoist_rate_limit_timeout)
+                    rate_limit_retries_attempted += 1
                 else:
                     raise e
+
+        # if we exhaused our retries, raise an exception
+        if rate_limit_retries_attempted >= self.todoist_rate_limit_retries:
+            raise Exception("Exceeded maximum retries due to Todoist rate limiting")
 

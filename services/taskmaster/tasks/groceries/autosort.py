@@ -103,7 +103,24 @@ class TaskJob_Groceries_Autosort(TaskJob_Groceries):
         # this task doesn't add any new grocery tasks to the grocery project.
         # Instead, it examines the list and sorts them by category (where each
         # section is a grocery category)
-        proj = self.get_project(todoist)
+
+        # retrieve the grocery project; watch out for rate limiting
+        proj = None
+        rate_limit_retries_attempted = 0
+        for attempt in range(self.todoist_rate_limit_retries):
+            try:
+                proj = self.get_project(todoist)
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 429:
+                    self.log("Getting rate-limited by Todoist. Sleeping...")
+                    time.sleep(self.todoist_rate_limit_timeout)
+                    rate_limit_retries_attempted += 1
+                else:
+                    raise e
+
+        # if we exhaused our retries, raise an exception
+        if rate_limit_retries_attempted >= self.todoist_rate_limit_retries:
+            raise Exception("Exceeded maximum retries due to Todoist rate limiting")
 
         # first, get all sections in the grocery list (if there are no
         # sections, then sorting is impossible)
@@ -161,13 +178,10 @@ class TaskJob_Groceries_Autosort(TaskJob_Groceries):
         # to be inserted into the dialogue database
         dialogue_intro = self.build_prompt_intro()
         dialogue_message = self.build_prompt_message(proj, sections, dirty_tasks)
-        dialogue_author = DialogueAuthor("taskmaster_%s" % __class__.__name__.lower(),
-                                         DialogueAuthorType.SYSTEM)
 
         # pass the prompt to the dialogue library
         dialogue = DialogueInterface(self.service.config.dialogue)
-        c = dialogue.talk(dialogue_message, author=dialogue_author, intro=dialogue_intro)
-        result = c.latest_response().content
+        result = dialogue.oneshot(dialogue_intro, dialogue_message)
 
         # iterate through the response, line-by-line
         delim = "|"
