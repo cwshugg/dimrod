@@ -288,6 +288,7 @@ class SpeakerService(Service):
     # builds a nicely-formatted message that can be sent back to the user.
     def nla_compose_message(self, nla_results: list):
         raw_combined_msg = ""
+        raw_combined_msg_ctx = ""
         nla_results_len = len(nla_results)
         for (i, result_info) in enumerate(nla_results):
             # skip if there is no message
@@ -303,6 +304,14 @@ class SpeakerService(Service):
             if i < nla_results_len - 1:
                 raw_combined_msg += "\n\n"
 
+            # if message context was provided, append it to the combined
+            # context string. This information will be presented to the LLM
+            # when we ask it to reword things
+            if result.message_context is not None:
+                ctx = result.message_context.strip()
+                if len(ctx) > 0:
+                    raw_combined_msg_ctx += "%s\n\n" % ctx
+
         # if the combined message is empty (meaning no NLA endpoints returned a
         # message string), return None
         if len(raw_combined_msg) == 0:
@@ -312,6 +321,10 @@ class SpeakerService(Service):
         reword_context = "This message contains a list of actions performed, or information retrieved, " \
                          "by a home assistant.\n" \
                          "Reword the message such that the sentences and information flow together naturally.\n"
+        if len(raw_combined_msg_ctx) > 0:
+            reword_context += "The following additional context is provided; " \
+                              "please consider this when rewording the message:\n\n%s" % \
+                              raw_combined_msg_ctx
 
         # next, invoke the again to reword the message into something more well
         # formatted and human-like

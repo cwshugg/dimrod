@@ -609,15 +609,26 @@ def nla_toggle(oracle: LumenOracle, jdata: dict):
         elif action == "off":
             oracle.service.queue_power_off(device_id)
 
-        device_msgs.append("• I turned \"%s\" %s." %
-                           (device_id, action))
+        # compose a message for this device
+        device_msg = "• I turned \"%s\" %s" % (device_id, action)
+        if color is not None:
+            device_msg += " with color RGB(%d, %d, %d)" % (color[0], color[1], color[2])
+        if brightness is not None:
+            device_msg += " at brightness %d%%" % (int(brightness * 100.0))
+        device_msg += "."
+        device_msgs.append(device_msg)
 
     # compose a final response message
     msg = "I did the following:\n\n%s" % "\n".join(device_msgs)
 
+    # give some additional context about interpreting/rewording the message
+    msg_ctx = "When rewording this, please turn the device ID strings into human-friendly names.\n" \
+              "Additionally, if you see any colors, please interpret the RGB values and replace them with a fitting common color name.\n"
+
     return NLAResult.from_json({
         "success": True,
         "message": msg,
+        "message_context": msg_ctx,
     })
 
 
