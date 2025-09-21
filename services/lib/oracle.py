@@ -246,7 +246,8 @@ class Oracle(threading.Thread):
                 try:
                     nla_result = nla_ep.handler(self, flask.g.jdata)
                     return self.make_response(success=nla_result.success,
-                                              msg=nla_result.message)
+                                              msg=None,
+                                              payload=nla_result.to_json())
                 except Exception as e:
                     raise e
                     return self.make_response(msg="Error processing NLA endpoint: %s" % str(e),
