@@ -454,7 +454,8 @@ class LumenOracle(Oracle):
                 }).set_handler(nla_get),
             NLAEndpoint.from_json({
                     "name": "toggle_device",
-                    "description": "Toggle a device on or off, set a device's color, set a device's brightness."
+                    "description": "Toggle a device on or off, set a device's color, set a device's brightness.\n" \
+                                   "Phrases like \"turn ___ on\", \"set ___ to\", \"make ___ X%%\", etc., are examples of what to look for."
                 }).set_handler(nla_toggle),
         ]
 
