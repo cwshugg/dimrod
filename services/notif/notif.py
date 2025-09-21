@@ -68,68 +68,85 @@ class NotifService(Service):
                            self.config.reminder_dir)
             os.mkdir(self.config.reminder_dir)
 
-        # Helper function that runs through a list of reminders and checks each
-        # one for triggering. Returns the number of reminders that were fired.
-        def check_all(rems: list):
-            count = 0
-            for rem in rems:
-                if not rem.ready():
-                    continue
-                self.log.write("Ready reminder: %s" % rem)
-                self.send_reminder(rem)
-                count += 1
-            return count
-
         # loop indefinitely, checking for reminders every minute
         while True:
-            prune_list = []
+            rems = self.load_all_reminders_and_prune()
 
-            # iterate through all files in the reminder directory
-            for (root, dirs, files) in os.walk(self.config.reminder_dir):
-                for f in files:
-                    # skip non-JSON files
-                    if not f.endswith(".json"):
-                        continue
+            # iterate through all reminders and check them for readiness
+            ready_count = 0
+            for rem_id in rems:
+                rem = rems[rem_id]
+                if not rem.ready():
+                    continue
 
-                    # load the JSON file and parse its reminders
-                    fpath = os.path.join(root, f)
-                    rems = []
-                    try:
-                        rems = self.load_reminders(fpath)
-                    except Exception as e:
-                        self.log.write("Failed to load reminder JSON file %s: %s" %
-                                        (f, e))
-                        continue
+                self.log.write("Ready reminder: %s" % rem)
+                self.send_reminder(rem)
+                ready_count += 1
 
-                    # check all reminders for readiness
-                    check_all(rems)
-
-                    # while we're at it, look at all the reminders that were
-                    # loaded in. If *all* of them exist in the past, we can
-                    # delete this file to prevent buildup
-                    expired = 0
-                    for rem in rems:
-                        expired += 1 if rem.expired() else 0
-                    if expired == len(rems):
-                        prune_list.append(fpath)
-
-            # any files that were deemed to contain only expired reminders will
-            # be deleted
-            for fpath in prune_list:
-                try:
-                    self.log.write("Deleting expired reminder file %s." %
-                                   os.path.basename(fpath))
-                    os.remove(fpath)
-                except Exception as e:
-                    self.log.write("Failed to delete expired reminder file %s: %s" %
-                                   (os.path.basename(fpath), e))
-
+            # sleep for a short time before checking the reminders again
             time.sleep(60)
 
     # ------------------------------- File IO -------------------------------- #
+    # Iterates through the configured reminder directory and loads all
+    # reminders that were found.
+    #
+    # This function also prunes expired reminders by deleting reminder JSON
+    # files that contain only expired reminders.
+    def load_all_reminders_and_prune(self):
+        prune_list = []
+
+        # iterate through all files in the reminder directory
+        all_rems = {}
+        for (root, dirs, files) in os.walk(self.config.reminder_dir):
+            for f in files:
+                # skip non-JSON files
+                if not f.endswith(".json"):
+                    continue
+
+                # load the JSON file and parse its reminders
+                fpath = os.path.join(root, f)
+                rems = []
+                try:
+                    rems = self.load_reminders_from_file(fpath)
+                except Exception as e:
+                    self.log.write("Failed to load reminder JSON file %s: %s" %
+                                    (f, e))
+                    continue
+
+                # while we're at it, look at all the reminders that were
+                # loaded in. If *all* of them exist in the past, we can
+                # delete this file to prevent buildup
+                expired = 0
+                for rem in rems:
+                    # if the reminder is expired, increment
+                    if rem.expired():
+                        expired += 1
+                        continue
+
+                    # otherwise, add this non-expired reminder `all_rems`
+                    # dictionary (there shouldn't be duplicate reminder IDs,
+                    # but if there are, this will overwrite any previous
+                    # duplicates)
+                    all_rems[rem.get_id()] = rem
+                if expired == len(rems):
+                    prune_list.append(fpath)
+
+        # any files that were deemed to contain only expired reminders will
+        # be deleted
+        for fpath in prune_list:
+            try:
+                self.log.write("Deleting expired reminder file %s." %
+                               os.path.basename(fpath))
+                os.remove(fpath)
+            except Exception as e:
+                self.log.write("Failed to delete expired reminder file %s: %s" %
+                               (os.path.basename(fpath), e))
+
+        return all_rems
+
     # Loads reminders in from a JSON file and returns a list of Reminder
     # objects.
-    def load_reminders(self, fpath: str):
+    def load_reminders_from_file(self, fpath: str):
         rems = []
         with open(fpath, "r") as fp:
             jdata = json.load(fp)
@@ -145,6 +162,19 @@ class NotifService(Service):
         fpath = os.path.join(self.config.reminder_dir, fname)
         with open(fpath, "w") as fp:
             fp.write(json.dumps([rem.to_json()], indent=4))
+
+    # Accepts a reminder ID string and deletes the corresponding reminder, if
+    # it was found. Returns the reminder object that was deleted, or None, if
+    # no matching reminder was found.
+    def delete_reminder(self, rem_id: str):
+        rems = self.load_all_reminders_and_prune()
+        if rem_id not in rems:
+            return None
+
+        rem = rems[rem_id]
+        fpath = os.path.join(self.config.reminder_dir, ".%s.json" % rem.get_id())
+        os.remove(fpath)
+        return rem
 
     # --------------------------- Reminder Sending --------------------------- #
     # Sends a reminder over one or more mediums, depending on how the reminder
@@ -240,9 +270,9 @@ class NotifOracle(Oracle):
     def endpoints(self):
         super().endpoints()
 
-        # Retrieves and returns all lists.
+        # Creates a reminder.
         @self.server.route("/reminder/create", methods=["POST"])
-        def endpoint_list_get_all():
+        def endpoint_reminder_create():
             if not flask.g.user:
                 return self.make_response(rstatus=404)
             if not flask.g.jdata:
@@ -267,13 +297,47 @@ class NotifOracle(Oracle):
             return self.make_response(msg="Reminder created successfully.",
                                       payload=rem.to_json())
 
+        # Deletes a reminder.
+        @self.server.route("/reminder/delete", methods=["POST"])
+        def endpoint_reminder_delete():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            # look for a reminder ID string in the JSON payload
+            if "reminder_id" not in flask.g.jdata:
+                return self.make_response(msg="Missing reminder ID in JSON data.",
+                                          success=False, rstatus=400)
+            rem_id = str(flask.g.jdata["reminder_id"])
+
+            # try to delete the reminder
+            rem = None
+            try:
+                rem = self.service.delete_reminder(rem_id)
+                if rem is None:
+                    return self.make_response(msg="No reminder with ID \"%s\" was found." % rem_id,
+                                              success=False, rstatus=400)
+            except Exception as e:
+                return self.make_response(msg="Failed to delete the reminder: %s" % e,
+                                          success=False, rstatus=400)
+
+            return self.make_response(msg="Reminder deleted successfully.",
+                                      payload=rem.to_json())
 
     def init_nla(self):
         super().init_nla()
         self.nla_endpoints += [
             NLAEndpoint.from_json({
                     "name": "create_reminder",
-                    "description": "Create a reminder, given a message and a time."
+                    "description": "Create a reminder, given a message and a time.\n" \
+                                   "If the user requests that a reminder be set, then you should select this endpoint.\n" \
+                                   "Example phrases that should trigger this endpoint:\n\n" \
+                                   "* \"Remind me ...\"\n" \
+                                   "* \"Reminder for ...\"\n" \
+                                   "* \"Set a reminder ...\"\n" \
+                                   "* \"Make a reminder ...\"\n"
                 }).set_handler(nla_create_reminder),
         ]
 
@@ -412,9 +476,8 @@ def nla_create_reminder(oracle: NotifOracle, jdata: dict):
         oracle.service.save_reminder(rem)
 
         # compose a message for this reminder
-        rem_msg = "• I created reminder: \"%s\", triggering on: %s" % \
-                  (rem.message,
-                  rem.get_trigger_str())
+        rem_msg = "• I created reminder (ID: <code>%s</code>): \"%s\", triggering on: %s" % \
+                  (rem.get_id(), rem.message, rem.get_trigger_str())
         rem_msgs.append(rem_msg)
 
     # log the success
@@ -427,6 +490,7 @@ def nla_create_reminder(oracle: NotifOracle, jdata: dict):
 
     # give some additional context about interpreting/rewording the message
     msg_ctx = "Please reword this such that the trigger datetime information is human-readable.\n"
+    msg_ctx = "Please leave the reminder ID as-is, and wrap it in \"<code>\" HTML tags in your output.\n"
 
     return NLAResult.from_json({
         "success": True,

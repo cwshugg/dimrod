@@ -515,13 +515,13 @@ class TelegramService(Service):
                     }
 
                 # send the message
-                self.send_message(message.chat.id, response)
+                self.send_message(message.chat.id, response, parse_mode="HTML")
             except Exception as e:
                 # dump the exception stack trace into the message, for easier
                 # debugging through Telegram
                 tb = traceback.format_exc()
                 msg = "Something went wrong.\n\n<code>%s</code>" % tb
-                self.send_message(message.chat.id, msg)
+                self.send_message(message.chat.id, msg, parse_mode="HTML")
 
                 # raise the exception
                 raise e
