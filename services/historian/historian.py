@@ -133,7 +133,7 @@ class HistorianOracle(Oracle):
 
 
 # =============================== Runner Code ================================ #
-if __name == "__main__":
+if __name__ == "__main__":
     cli = ServiceCLI(config=HistorianConfig, service=HistorianService, oracle=HistorianOracle)
     cli.run()
 

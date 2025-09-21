@@ -8,6 +8,7 @@ import json
 import flask
 import time
 import re
+from datetime import datetime
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -18,9 +19,12 @@ if pdir not in sys.path:
 from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle, OracleSession, OracleSessionConfig
+from lib.nla import NLAEndpoint, NLAEndpointHandlerFunction, NLAResult, NLAEndpointInvokeParameters
+from lib.dialogue import DialogueConfig, DialogueInterface
 from lib.cli import ServiceCLI
 from lib.mail import MessengerConfig, Messenger
 from lib.ntfy import ntfy_send
+import lib.dtu as dtu
 
 # Service imports
 from reminder import Reminder
@@ -35,7 +39,9 @@ class NotifConfig(ServiceConfig):
             ConfigField("reminder_dir",             [str],  required=True),
             ConfigField("messenger_webhook_event",  [str],  required=True),
             ConfigField("webhook_key",              [str],  required=True),
+            ConfigField("dialogue",                 [DialogueConfig], required=True),
             ConfigField("telegram",     [OracleSessionConfig],  required=True),
+            ConfigField("nla_create_reminder_dialogue_retries", [int], required=False, default=4),
         ]
 
 
@@ -262,8 +268,170 @@ class NotifOracle(Oracle):
                                       payload=rem.to_json())
 
 
+    def init_nla(self):
+        super().init_nla()
+        self.nla_endpoints += [
+            NLAEndpoint.from_json({
+                    "name": "create_reminder",
+                    "description": "Create a reminder, given a message and a time."
+                }).set_handler(nla_create_reminder),
+        ]
+
+def nla_create_reminder(oracle: NotifOracle, jdata: dict):
+    params = NLAEndpointInvokeParameters.from_json(jdata)
+
+    # create a date string to give to the LLM, for context
+    now = datetime.now()
+    datetime_str = "%s, %s" % (dtu.format_yyyymmdd_hhmmss_24h(now),
+                               dtu.get_weekday_str(now))
+
+    # set up an intro prompt for the LLM
+    prompt_intro = "You are a home assistant specializing in creating reminders for the user.\n" \
+                   "The current datetime is: %s.\n\n" \
+                   "You will receive a sentence from the user that describes two things:\n\n" \
+                   "1. The content/message of the reminder.\n" \
+                   "2. The time at which the reminder should be sent.\n\n" \
+                   "Your task is to extract these pieces of information and respond in the following JSON format:\n\n" \
+                   "[\n" \
+                   "    {\n" \
+                   "        \"title\": \"(OPTIONAL) TITLE OF THE REMINDER\",\n" \
+                   "        \"message\": \"CONTENT OF THE REMINDER\",\n" \
+                   "        \"trigger_years\": [YEAR1_TO_TRIGGER_ON, YEAR2_TO_TRIGGER_ON, ...],\n" \
+                   "        \"trigger_months\": [MONTH1_TO_TRIGGER_ON, MONTH2_TO_TRIGGER_ON, ...],\n" \
+                   "        \"trigger_days\": [DAY1_TO_TRIGGER_ON, DAY2_TO_TRIGGER_ON, ...],\n" \
+                   "        \"trigger_hours\": [HOUR1_TO_TRIGGER_ON_IN_24H_FORMAT, HOUR2_TO_TRIGGER_ON_IN_24H_FORMAT, ...],\n" \
+                   "        \"trigger_minutes\": [MINUTE1_TO_TRIGGER_ON, MINUTE2_TO_TRIGGER_ON, ...],\n" \
+                   "    },\n" \
+                   "    {\n" \
+                   "        \"title\": \"(OPTIONAL) TITLE OF THE REMINDER\",\n" \
+                   "        \"message\": \"CONTENT OF THE REMINDER\",\n" \
+                   "        \"trigger_years\": [YEAR1_TO_TRIGGER_ON, YEAR2_TO_TRIGGER_ON, ...],\n" \
+                   "        \"trigger_months\": [MONTH1_TO_TRIGGER_ON, MONTH2_TO_TRIGGER_ON, ...],\n" \
+                   "        \"trigger_days\": [DAY1_TO_TRIGGER_ON, DAY2_TO_TRIGGER_ON, ...],\n" \
+                   "        \"trigger_hours\": [HOUR1_TO_TRIGGER_ON_IN_24H_FORMAT, HOUR2_TO_TRIGGER_ON_IN_24H_FORMAT, ...],\n" \
+                   "        \"trigger_minutes\": [MINUTE1_TO_TRIGGER_ON, MINUTE2_TO_TRIGGER_ON, ...],\n" \
+                   "    }\n" \
+                   "]\n" \
+                   "\n" \
+                   "Each JSON object in the list represents a single reminder to be created.\n" \
+                   "The \"message\" field is required and should contain the content of the reminder.\n" \
+                   "If the user's message refers to \"me\" or \"my\", please rephrase the reminder's message as though you are speaking *to* the user (\"you\", \"your\", etc.).\n" \
+                   "The \"title\" field is optional; if you cannot find a fitting title, omit this field.\n" \
+                   "All \"trigger_*\" fields should be lists of integers.\n" \
+                   "Collectively, these \"trigger_*\" fields should define the exact datetime(s) at which the reminder should be sent.\n" \
+                   "Use the current datetime, and the user's wording, to determine a value for each of these.\n" \
+                   "If you detect that the user wants multiple reminders to be created, please create multiple JSON objects in the list.\n" \
+                   "If not enough information is available to determine the contents or the time any reminders, please respond with an empty list: []\n" \
+                   "Only respond with the JSON object, and nothing else." \
+                   % datetime_str
+
+
+    # build the user-message prompt
+    prompt_content = params.message
+    if hasattr(params, "substring"):
+        prompt_content = params.substring
+
+    # set up a dialogue interface
+    dialogue = DialogueInterface(oracle.service.config.dialogue)
+
+    # parse the response as JSON
+    reminders = []
+    fail_count = 0
+    for attempt in range(oracle.service.config.nla_create_reminder_dialogue_retries):
+        try:
+            r = dialogue.oneshot(prompt_intro, prompt_content)
+            remdata = json.loads(r)
+
+            # if the response is empty, skip
+            if len(remdata) == 0:
+                continue
+
+            # otherwise, iterate through the reminders and attempt to parse
+            for entry in remdata:
+                rem = Reminder.from_json(entry)
+                rem.check_triggers()
+
+                # append the reminder to the list
+                reminders.append(rem)
+
+            # break on the first success
+            break
+        except Exception as e:
+            oracle.service.log.write("Failed to parse LLM response: %s" % e)
+            fail_count += 1
+            continue
+
+    # if we couldn't parse the response, return an error message
+    if fail_count == oracle.service.config.nla_create_reminder_dialogue_retries:
+        return NLAResult.from_json({
+            "success": False,
+            "message": "Something went wrong while trying to set up a reminder."
+        })
+
+    # otherwise, if no reminder could be discerned, return an error
+    if len(reminders) == 0:
+        return NLAResult.from_json({
+            "success": True,
+            "message": "I didn't have enough information to set up a reminder."
+        })
+
+    title_override = None
+
+    # look for telegram chat IDs from the invocation params. We'll use this to
+    # know where to send the reminders
+    rem_send_telegrams = []
+    exparams = params.extra_params
+    if exparams is not None:
+        # drill down in the JSON object and look for the telegram chat ID
+        if "request_data" in exparams:
+            reqdata = exparams["request_data"]
+            if "telegram_message" in reqdata:
+                telegram_info = reqdata["telegram_message"]
+                if "chat_id" in telegram_info:
+                    rem_send_telegrams.append(str(telegram_info["chat_id"]))
+                    # since this came from a telegram message, override the
+                    # title with the bell emoji (to mimick the same behavior as
+                    # the telegram service when setting reminders via command)
+                    title_override = "🔔"
+
+    # submit each reminder object, and compose a message to return
+    rem_msgs = []
+    for rem in reminders:
+        rem.send_telegrams = rem_send_telegrams
+
+        # override the title, if necessary
+        if title_override is not None:
+            rem.title = title_override
+
+        oracle.service.save_reminder(rem)
+
+        # compose a message for this reminder
+        rem_msg = "• I created reminder: \"%s\", triggering on: %s" % \
+                  (rem.message,
+                  rem.get_trigger_str())
+        rem_msgs.append(rem_msg)
+
+    # log the success
+    oracle.service.log.write("Created %d reminder(s) via NLA: %s" %
+                             (len(reminders),
+                             ", ".join([str(rem) for rem in reminders])))
+
+    # compose a final response message
+    msg = "I created %d reminder(s):\n\n%s" % (len(reminders), "\n".join(rem_msgs))
+
+    # give some additional context about interpreting/rewording the message
+    msg_ctx = "Please reword this such that the trigger datetime information is human-readable.\n"
+
+    return NLAResult.from_json({
+        "success": True,
+        "message": msg,
+        "message_context": msg_ctx,
+    })
+
+
+
 # =============================== Runner Code ================================ #
-if __name == "__main__":
+if __name__ == "__main__":
     cli = ServiceCLI(config=NotifConfig, service=NotifService, oracle=NotifOracle)
     cli.run()
 

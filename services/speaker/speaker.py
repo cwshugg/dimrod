@@ -85,7 +85,7 @@ class SpeakerService(Service):
     # Takes in a message and attempts to find (and invoke) one or more NLA
     # endpoints across the various configured services.
     # Returns a list of NLAResults for each action that was executed.
-    def nla_process(self, message: str):
+    def nla_process(self, message: str, request_data: dict):
         results = []
 
         # the loop below will construct a dictionary of endpoints to search
@@ -193,6 +193,9 @@ class SpeakerService(Service):
                     # NLA endpoint
                     invoke_params = NLAEndpointInvokeParameters.from_json({
                         "message": message,
+                        "extra_params": {
+                            "request_data": request_data
+                        }
                     })
 
                     # get the substring field from the parsed JSON, if it was
@@ -402,7 +405,7 @@ class SpeakerOracle(Oracle):
             # before passing anything to the dialogue library, try to parse the
             # text as a call to action. If successful, an array of messages will
             # be returned.
-            nla_results = self.service.nla_process(msg)
+            nla_results = self.service.nla_process(msg, flask.g.jdata)
             nla_results_len = len(nla_results)
             # if at least one result was returned, build a response message
             # containing all the nla_results, send it, and return

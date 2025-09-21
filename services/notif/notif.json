@@ -25,7 +25,7 @@
     },
 
     "reminder_dir": "/path/to/reminders",
-        
+
     "telegram":
     {
         "addr": "0.0.0.0",
@@ -35,5 +35,10 @@
     },
 
     "messenger_webhook_event": "IFTTT_EVENT_NAME",
-    "webhook_key": "IFTTT_WEBHOOK_KEY"
+    "webhook_key": "IFTTT_WEBHOOK_KEY",
+
+    "dialogue":
+    {
+        "openai_api_key": "YOUR_OPENAI_API_KEY"
+    }
 }

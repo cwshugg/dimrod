@@ -427,7 +427,7 @@ class WardenOracle(Oracle):
 
 
 # =============================== Runner Code ================================ #
-if __name == "__main__":
+if __name__ == "__main__":
     cli = ServiceCLI(config=WardenConfig, service=WardenService, oracle=WardenOracle)
     cli.run()
 

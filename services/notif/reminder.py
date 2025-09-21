@@ -40,7 +40,23 @@ class Reminder(Config):
     # String representation
     def __str__(self):
         return "[R-%s] %s: %s" % (self.get_id(), self.title, self.message)
-    
+
+    def get_trigger_str(self):
+        parts = []
+        if len(self.trigger_years) > 0:
+            parts.append("Years: " + ", ".join([str(y) for y in self.trigger_years]))
+        if len(self.trigger_months) > 0:
+            parts.append("Months: " + ", ".join([str(m) for m in self.trigger_months]))
+        if len(self.trigger_days) > 0:
+            parts.append("Days: " + ", ".join([str(d) for d in self.trigger_days]))
+        if len(self.trigger_weekdays) > 0:
+            parts.append("Weekdays: " + ", ".join([str(wd) for wd in self.trigger_weekdays]))
+        if len(self.trigger_hours) > 0:
+            parts.append("Hours: " + ", ".join([str(h) for h in self.trigger_hours]))
+        if len(self.trigger_minutes) > 0:
+            parts.append("Minutes: " + ", ".join([str(m) for m in self.trigger_minutes]))
+        return "; ".join(parts)
+
     # Returns the reminder's unique ID string. (If one hasn't been set, this
     # generates one.)
     def get_id(self):
@@ -59,7 +75,7 @@ class Reminder(Config):
             h.update(text.encode("utf-8"))
             self.id = h.hexdigest()
         return self.id
-    
+
     # ------------------------------- Triggers ------------------------------- #
     # Checks the values of each trigger to ensure it's in a valid range.
     def check_triggers(self):
@@ -85,7 +101,7 @@ class Reminder(Config):
     def ready(self):
         now = datetime.now()
         result = True
-            
+
         # YEAR CHECK
         if len(self.trigger_years) > 0:
             year_ok = False
@@ -144,7 +160,7 @@ class Reminder(Config):
             result = result and minute_ok
 
         return result
-    
+
     # Returns True if the reminder will never be triggered again.
     def expired(self):
         now = datetime.now()
@@ -153,7 +169,7 @@ class Reminder(Config):
         # reminders will repeat annually unless a year is specified)
         if len(self.trigger_years) == 0:
             return False
-            
+
         # otherwise, if all the defined years have been passed, it's expired
         highest_year = max(self.trigger_years)
         if highest_year < now.year: # highest year has passed
@@ -166,14 +182,14 @@ class Reminder(Config):
         has_days = len(self.trigger_days) > 0
         if not has_months and not has_days:
             return False
-        
+
         # if months are defined, find the highest one and determine if it's
         # passed yet
         if has_months:
             highest_month = max(self.trigger_months)
             if highest_month < now.month:
                 return True
-        
+
         # check if the day has passed, if days are defined
         if has_days:
             highest_day = max(self.trigger_days)
@@ -190,11 +206,3 @@ class Reminder(Config):
         # out expired reminders
         return False
 
-    # --------------------------- JSON Conversion ---------------------------- #
-    # Inherited JSON-parsing function.
-    @staticmethod
-    def from_json(jdata: dict):
-        result = super().from_json(jdata)
-        result.check_triggers()
-        return result
-    

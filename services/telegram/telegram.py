@@ -239,7 +239,7 @@ class TelegramService(Service):
 
     # Takes in a message and communicates with DImROD's dialogue system to
     # converse with the telegram user.
-    def dialogue_talk(self, message: str, conversation_id=None):
+    def dialogue_talk(self, message: any, conversation_id=None):
         # attempt to connect to the speaker
         speaker = self.get_speaker_session()
         if speaker is None:
@@ -247,9 +247,16 @@ class TelegramService(Service):
             return (None, None)
 
         # build a payload to pass to the speaker
-        pyld = {"message": message}
+        pyld = {"message": message.text}
         if conversation_id is not None:
             pyld["conversation_id"] = conversation_id
+
+        # include telegram message information
+        message_info = {
+            "message_id": str(message.message_id),
+            "chat_id": str(message.chat.id),
+        }
+        pyld["telegram_message"] = message_info
 
         # ping the /talk endpoint
         r = speaker.post("/talk", payload=pyld)
@@ -496,7 +503,7 @@ class TelegramService(Service):
             # next, pass the message (and conversation ID, if we found one) to
             # the dialogue interface
             try:
-                (convo_id, response) = self.dialogue_talk(message.text, conversation_id=convo_id)
+                (convo_id, response) = self.dialogue_talk(message, conversation_id=convo_id)
                 # check for failure-to-converse and update the chat dictionary,
                 # if able
                 if response is None:

@@ -197,7 +197,7 @@ class RamblerOracle(Oracle):
         pass
 
 # =============================== Runner Code ================================ #
-if __name == "__main__":
+if __name__ == "__main__":
     cli = ServiceCLI(config=RamblerConfig, service=RamblerService, oracle=RamblerOracle)
     cli.run()
 

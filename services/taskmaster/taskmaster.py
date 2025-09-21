@@ -332,7 +332,7 @@ class TaskmasterOracle(Oracle):
 
 
 # =============================== Runner Code ================================ #
-if __name == "__main__":
+if __name__ == "__main__":
     cli = ServiceCLI(config=TaskmasterConfig, service=TaskmasterService, oracle=TaskmasterOracle)
     cli.run()
 

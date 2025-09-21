@@ -183,7 +183,7 @@ class NimbusOracle(Oracle):
 
 
 # =============================== Runner Code ================================ #
-if __name == "__main__":
+if __name__ == "__main__":
     cli = ServiceCLI(config=NimbusConfig, service=NimbusService, oracle=NimbusOracle)
     cli.run()
 

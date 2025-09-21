@@ -154,7 +154,7 @@ class GatekeeperOracle(Oracle):
 
 
 # =============================== Runner Code ================================ #
-if __name == "__main__":
+if __name__ == "__main__":
     cli = ServiceCLI(config=GatekeeperConfig, service=GatekeeperService, oracle=GatekeeperOracle)
     cli.run()
 

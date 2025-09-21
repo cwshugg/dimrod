@@ -59,6 +59,7 @@ class NLAEndpointInvokeParameters(Config):
         self.fields = [
             ConfigField("message",      [str],      required=True),
             ConfigField("substring",    [str],      required=False, default=None),
+            ConfigField("extra_params", [dict],     required=False, default=None),
         ]
 
 # Defines the result of an NLA invocation.

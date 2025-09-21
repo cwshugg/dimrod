@@ -525,15 +525,16 @@ def nla_toggle(oracle: LumenOracle, jdata: dict):
     if hasattr(params, "substring"):
         prompt_content = params.substring
 
-    # set up a dialogue interface and prompt it
+    # set up a dialogue interface
     dialogue = DialogueInterface(oracle.service.config.dialogue)
-    r = dialogue.oneshot(prompt_intro, prompt_content)
 
-    # parse the response as JSON
+    # repeatedly prompt the LLM until we get a valid response (or run out of
+    # tries)
     action_list = []
     fail_count = 0
     for attempt in range(oracle.service.config.nla_toggle_dialogue_retries):
         try:
+            r = dialogue.oneshot(prompt_intro, prompt_content)
             action_list = json.loads(r)
             if type(action_list) != list:
                 raise Exception("LLM response is not a JSON list.")
@@ -606,17 +607,24 @@ def nla_toggle(oracle: LumenOracle, jdata: dict):
             oracle.service.queue_power_on(device_id,
                                           color=color,
                                           brightness=brightness)
+
+            # compose a message for this device
+            device_msg = "• I turned \"%s\" on" % device_id
+            if color is not None:
+                device_msg += " with color RGB(%d, %d, %d)" % (color[0], color[1], color[2])
+            if brightness is not None:
+                device_msg += " at brightness %d%%" % (int(brightness * 100.0))
+            device_msg += "."
+            device_msgs.append(device_msg)
         elif action == "off":
             oracle.service.queue_power_off(device_id)
 
-        # compose a message for this device
-        device_msg = "• I turned \"%s\" %s" % (device_id, action)
-        if color is not None:
-            device_msg += " with color RGB(%d, %d, %d)" % (color[0], color[1], color[2])
-        if brightness is not None:
-            device_msg += " at brightness %d%%" % (int(brightness * 100.0))
-        device_msg += "."
-        device_msgs.append(device_msg)
+            # compose a message for this device
+            device_msg = "• I turned \"%s\" off." % device_id
+            device_msgs.append(device_msg)
+        else:
+            oracle.service.log.write("Unknown action \"%s\" for device \"%s\"." % (action, device_id))
+
 
     # compose a final response message
     msg = "I did the following:\n\n%s" % "\n".join(device_msgs)
