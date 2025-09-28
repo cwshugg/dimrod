@@ -132,6 +132,24 @@ def is_winter(dt):
     return dt.timestamp() >= winter_start.timestamp() and \
            dt.timestamp() < winter_start.timestamp()
 
+# Given a specific year, this returns a datetime object indicating the date of
+# Thanksgiving this year.
+# (Thanksgiving falls on the fourth Thursday of November in the USA.)
+def get_thanksgiving_day(year: int):
+    dt = datetime(year, 11, 30) # start at the end of november
+    dt_weekday = get_weekday(dt)
+
+    # if the last day of November is a Thursday, return it
+    if dt_weekday == Weekday.THURSDAY:
+        return dt
+
+    # otherwise, we need to backtrack to the previous Thursday
+    days_back = (dt_weekday.value - Weekday.THURSDAY.value)
+
+    if days_back > 0:
+        return add_days(dt, -days_back)
+    return add_days(dt, -(7 + days_back))
+
 # Given a datetime, this returns the datetime representing the final day of
 # that datetime's month.
 # Special thanks to this clever solution:
@@ -216,7 +234,7 @@ def diff_in_seconds_minutes(dt1, dt2):
 def diff_in_seconds_minutes_hours(dt1, dt2):
     hours = int(diff_in_hours(dt1, dt2))
     [secs, mins] = diff_in_seconds_minutes(dt1, dt2)
-    
+
     # if there was at least one hour's worth of time difference, subtract out
     # those minutes from the total number of minutes
     if hours > 0:
@@ -362,12 +380,12 @@ def parse_datetime(args: list, now=None):
     def p_weekday(text: str):
         result = parse_weekday(text)
         return None if result is None else result.value + 1
-    
+
     # Converts Python's monday-first weekday encoding to my sunday-first
     # encoding.
     def g_weekday(dt: datetime):
         return get_weekday(dt).value + 1
-    
+
     # if `now` was not specified, default to the current datetime
     if now is None:
         now = datetime.now()
@@ -394,13 +412,13 @@ def parse_datetime(args: list, now=None):
             while g_weekday(dt) != wd:
                 dt = add_days(dt, 1)
             continue
-        
+
         # look for AM/PM suffixed timestamps
         clocktime = parse_time_clock(arg)
         if clocktime is not None:
             h = clocktime[0]
             m = clocktime[1]
-            
+
             # if `dt` has not yet been set, use the current datetime
             if dt is None:
                 dt = now

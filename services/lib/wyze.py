@@ -42,11 +42,11 @@ class Wyze:
         self.client = None
         if debug_log:
             wyze_sdk.set_stream_logger("wyze_sdk", level=logging.DEBUG)
-    
+
     # Helper function for asserting that the current object is not logged in.
     def assert_not_authenticated(self):
         assert self.client is None, "You have already logged in to Wyze."
-    
+
     # Helper function for asserting that the current object is not logged in.
     def assert_is_authenticated(self):
         assert self.client is not None, "You have not logged in to Wyze."
@@ -56,7 +56,7 @@ class Wyze:
     def login(self):
         self.assert_not_authenticated()
         self.client = Client()
-        
+
         err = None
         for i in range(self.config.retry_attempts):
             try:
@@ -68,7 +68,7 @@ class Wyze:
                 err = e
                 time.sleep(self.config.retry_delay)
         raise err
-    
+
     # Refreshes the internal client after already logging in.
     def refresh(self):
         # attempt to log out (we don't care if this fails)
@@ -76,7 +76,7 @@ class Wyze:
             self.client.logout()
         except:
             pass
-        
+
         # reset the client and create a new one
         self.client = None
         self.login()
@@ -98,7 +98,7 @@ class Wyze:
     # Given a MAC address, this retrieves information on a specific plug.
     def get_plug(self, macaddr: str):
         self.assert_is_authenticated()
-        
+
         err = None
         for i in range(self.config.retry_attempts):
             try:
@@ -108,7 +108,7 @@ class Wyze:
                 time.sleep(self.config.retry_delay)
         raise err
 
-    
+
     # --------------------------- Device Toggling ---------------------------- #
     # Helper function for toggling switches on and off. If `power_on` is True,
     # the switch will be turned on. Otherwise, it will be turned off.

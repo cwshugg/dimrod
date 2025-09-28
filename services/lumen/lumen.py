@@ -113,14 +113,20 @@ class LumenThread(threading.Thread):
             # process the action
             if action.action == "on":
                 self.log("Found queued ON action for ID \"%s\"." % action.lid)
-                # run the service' power_on function with the action's params
-                self.service.power_on(action.lid,
-                                      color=action.color,
-                                      brightness=action.brightness)
+                try:
+                    # run the service' power_on function with the action's params
+                    self.service.power_on(action.lid,
+                                          color=action.color,
+                                          brightness=action.brightness)
+                except Exception as e:
+                    self.log("Failed to turn device \"%s\" on: %s" % (action.lid, e))
             elif action.action == "off":
                 self.log("Found queued OFF action for ID \"%s\"." % action.lid)
-                # run the service' power_off function with the action's params
-                self.service.power_off(action.lid)
+                try:
+                    # run the service' power_off function with the action's params
+                    self.service.power_off(action.lid)
+                except Exception as e:
+                    self.log("Failed to turn device \"%s\" off: %s" % (action.lid, e))
             else:
                 self.log("Found unknown action: \"%s\"." % action.action)
 
