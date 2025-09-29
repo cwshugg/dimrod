@@ -15,6 +15,8 @@ import inspect
 import importlib.util
 import json
 import copy
+import threading
+import enum
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -43,8 +45,149 @@ class SpeakerConfig(ServiceConfig):
             ConfigField("mood_timeout",     [int],      required=False,     default=1200),
             ConfigField("nla_services",     [NLAService], required=False,   default=[]),
             ConfigField("nla_dialogue_retry_count", [int], required=False,  default=5),
+            ConfigField("nla_threads",      [int],      required=False,     default=8),
         ]
 
+
+# ============================== NLA Threading =============================== #
+# An enum representing the different states a NLA queue entry can be in.
+class SpeakerNLAQueueEntryStatus(enum.Enum):
+    PENDING = 0
+    PROCESSING = 1
+    SUCCESS = 2
+    FAILURE = 3
+
+# An object used to store NLA information pushed to the queue, as well as store
+# the entry's status and result.
+class SpeakerNLAQueueEntry:
+    def __init__(self, nla_info: dict):
+        self.info = nla_info
+        self.status = SpeakerNLAQueueEntryStatus.PENDING
+        self.result = None
+
+        # give the entry a lock and a condition variable, so the caller can
+        # wait for this entry to be complete
+        self.lock = threading.Lock()
+        self.cond = threading.Condition(lock=self.lock)
+
+    def update(self, status: SpeakerNLAQueueEntryStatus, result=None):
+        self.lock.acquire()
+        self.status = status
+        if result is not None:
+            self.result = result
+        self.cond.notify()
+        self.lock.release()
+
+    def wait(self):
+        self.lock.acquire()
+        # wait as long as the entry is still sitting in the queue, or it's
+        # being currently processed by a thread
+        while self.status in [SpeakerNLAQueueEntryStatus.PENDING,
+                              SpeakerNLAQueueEntryStatus.PROCESSING]:
+            self.cond.wait()
+        self.lock.release()
+        return self.result
+
+# Represents a queue used to submit NLA endpoint actions to the NLA threads.
+class SpeakerNLAQueue:
+    # Constructor.
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.cond = threading.Condition(lock=self.lock)
+        self.queue = []
+
+    # Pushes to the queue and alerts a waiting thread.
+    def push(self, data: dict):
+        self.lock.acquire()
+        entry = SpeakerNLAQueueEntry(data)
+        self.queue.append(entry)
+        self.cond.notify()
+        self.lock.release()
+
+        return entry
+
+    # Pops from the queue, blocking if the queue is empty.
+    def pop(self):
+        self.lock.acquire()
+        while len(self.queue) == 0:
+            self.cond.wait()
+        entry = self.queue.pop(0)
+        self.lock.release()
+        return entry
+
+# Represents an individual thread used to handle NLA endpoint invocations.
+# A pool of these threads will be created by the speaker service, and will
+# repeatedly pull from the queue to execute NLA endpoint invocations.
+class SpeakerNLAThread(threading.Thread):
+    # Constructor
+    def __init__(self, service, queue: SpeakerNLAQueue):
+        super().__init__(target=self.run)
+        self.service = service
+        self.queue = queue
+
+    # Writes a log message using the speaker service's log object.
+    def log(self, msg: str):
+        ct = threading.current_thread()
+        self.service.log.write("[NLA Thread %d] %s" % (ct.native_id, msg))
+
+    # The thread's main function.
+    def run(self):
+        self.log("Spawned.")
+
+        # loop forever
+        while True:
+            # pop from the queue (this will block if the queue is empty)
+            entry = self.queue.pop()
+
+            # update the entry's status to indicate it's being processed
+            entry.update(SpeakerNLAQueueEntryStatus.PROCESSING)
+
+            # grab a few fields within the popped queue object
+            ep_id = entry.info["id"]
+            ep = entry.info["endpoint"]
+            service = entry.info["service"]
+
+            self.log("Invoking NLA endpoint \"%s\" with params: %s" % (ep_id, str(entry.info["invoke_params"])))
+
+            # open a session to the service that owns this endpoint, and
+            # attempt to log in
+            session = OracleSession(service.oracle)
+            try:
+                lr = session.login()
+                if OracleSession.get_response_status(lr) != 200:
+                    self.log("Failed to log into service \"%s\". "
+                             "Skipping this endpoint. (%s)" %
+                             (service.name, str(lr)))
+                    entry.update(SpeakerNLAQueueEntryStatus.FAILURE)
+                    continue
+            except Exception as e:
+                    self.log("Failed to log into service \"%s\". "
+                             "Skipping this endpoint. (%s)" %
+                             (service.name, str(e)))
+                    entry.update(SpeakerNLAQueueEntryStatus.FAILURE)
+                    continue
+
+            # post to the endpoint's URL; provide the message as the payload
+            try:
+                r = session.post(ep.get_url(), payload=entry.info["invoke_params"].to_json())
+
+                # make sure the invocation succeeded
+                if OracleSession.get_response_status(r) != 200:
+                    self.log("Failed to invoke NLA endpoint \"%s\": %s" %
+                             (ep_id, str(r)))
+                    entry.update(SpeakerNLAQueueEntryStatus.FAILURE)
+                    continue
+
+                # upon a successful call to the NLA endpoint, save the result
+                # to the queue entry object, and update its status to indicate
+                # a successful invocation
+                result = NLAResult.from_json(OracleSession.get_response_json(r))
+                entry.update(SpeakerNLAQueueEntryStatus.SUCCESS, result=result)
+            except Exception as e:
+                self.log("Failed to invoke NLA endpoint \"%s\": %s" %
+                         (ep_id, str(e)))
+                entry.update(SpeakerNLAQueueEntryStatus.FAILURE)
+                continue
 
 # ============================== Service Class =============================== #
 class SpeakerService(Service):
@@ -60,6 +203,15 @@ class SpeakerService(Service):
         # action-related class fields
         self.actions = None
         self.action_classes = None
+
+        # create the NLA thread queue, and spawn NLA threads
+        self.nla_queue = SpeakerNLAQueue()
+        self.nla_threads = []
+        for i in range(self.config.nla_threads):
+            t = SpeakerNLAThread(self, self.nla_queue)
+            t.start()
+            self.nla_threads.append(t)
+
 
     # Overridden main function implementation.
     def run(self):
@@ -241,49 +393,32 @@ class SpeakerService(Service):
             ep_id_str = ", ".join([ep["id"] for ep in endpoints_to_invoke])
             self.log.write("NLA Endpoints to invoke based on user message: %s" % ep_id_str)
 
-        # for each endpoint that should be invoked, invoke it and collect the
-        # result
+        # for each endpoint that should be invoked, push them to the NLA queue,
+        # to be invoked asynchronously
+        queued_entries = []
         for ep_info in endpoints_to_invoke:
-            ep_id = ep_info["id"]
-            ep = ep_info["endpoint"]
-            service = ep_info["service"]
-            self.log.write("Invoking NLA endpoint \"%s\" with params: %s" % (ep_id, str(ep_info["invoke_params"])))
+            entry = self.nla_queue.push(ep_info)
+            queued_entries.append(entry)
 
-            # open a session to the service that owns this endpoint, and
-            # attempt to log in
-            session = OracleSession(service.oracle)
-            try:
-                lr = session.login()
-                if OracleSession.get_response_status(lr) != 200:
-                    self.log.write("Failed to log into service \"%s\". "
-                                   "Skipping this endpoint. (%s)" %
-                                   (service.name, str(lr)))
-                    continue
-            except Exception as e:
-                    self.log.write("Failed to log into service \"%s\". "
-                                   "Skipping this endpoint. (%s)" %
-                                   (service.name, str(e)))
-                    continue
+        # next, wait for all entries to be completed, and gather their results
+        # into a list
+        for entry in queued_entries:
+            # wait on this entry until its status has been updated to indicate
+            # either a failure or a success
+            while entry.status not in [SpeakerNLAQueueEntryStatus.SUCCESS,
+                                       SpeakerNLAQueueEntryStatus.FAILURE]:
+                entry.wait()
 
-            # post to the endpoint's URL; provide the message as the payload
-            try:
-                r = session.post(ep.get_url(), payload=ep_info["invoke_params"].to_json())
-
-                # make sure the invocation succeeded
-                if OracleSession.get_response_status(r) != 200:
-                    self.log.write("Failed to invoke NLA endpoint \"%s\": %s" %
-                                   (ep_id, str(r)))
-                    continue
-
-                # upon a successful call to the NLA endpoint, save the endpoint
-                # information, as well as the result, to an object, and add it
-                # to the result list
-                ep_info["result"] = NLAResult.from_json(OracleSession.get_response_json(r))
-                results.append(ep_info)
-            except Exception as e:
-                self.log.write("Failed to invoke NLA endpoint \"%s\": %s" %
-                               (ep_id, str(e)))
+            # if the invocation failed, log it and skip
+            if entry.status == SpeakerNLAQueueEntryStatus.FAILURE:
+                self.log.write("Invocation of NLA endpoint \"%s\" failed." % entry.info["id"])
                 continue
+
+            # otherwise, retrieve the result and add it to the list of results
+            if entry.result is not None:
+                # add the result object to the full endpoint info dict/object
+                entry.info["result"] = entry.result
+                results.append(entry.info)
 
         return results
 
