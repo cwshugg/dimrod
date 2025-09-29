@@ -40,11 +40,14 @@ class LIFX:
         self.lights = None
         self.last_refresh = None
 
+    def refresh(self):
+        self.lifx = LifxLAN()
+
     # Takes in an error, resets the LifxLAN object (for future calls to use a
     # fresh instance, in case this helps avoid unexpected errors), then throws
     # the error.
     def handle_error(self, err):
-        self.lifx = LifxLAN()
+        self.refresh()
         raise err
 
     # Retrieves and returns a list of online light objects.
@@ -79,6 +82,7 @@ class LIFX:
                 except Exception as e:
                     err = e
                     time.sleep(self.config.retry_delay)
+                    self.refresh()
 
             # if an error occurred, handle it
             if err is not None:
@@ -108,6 +112,7 @@ class LIFX:
         except Exception as e:
             err = e
             time.sleep(self.config.retry_delay)
+            self.refresh()
 
         # if we reached here, handle the error
         self.handle_error(err)
@@ -124,6 +129,7 @@ class LIFX:
             except Exception as e:
                 err = e
                 time.sleep(self.config.retry_delay)
+                self.refresh()
         self.handle_error(err)
 
     # Toggles a light with the given fields.
@@ -140,6 +146,7 @@ class LIFX:
             except Exception as e:
                 err = e
                 time.sleep(self.config.retry_delay)
+                self.refresh()
         self.handle_error(err)
 
     def set_light_color(self, light: Light, color):
@@ -181,6 +188,7 @@ class LIFX:
             except Exception as e:
                 err = e
                 time.sleep(self.config.retry_delay)
+                self.refresh()
         self.handle_error(err)
 
     def set_light_brightness(self, light: Light, brightness: float):
