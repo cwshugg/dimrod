@@ -316,6 +316,7 @@ class SpeakerService(Service):
                         "The \"substring\" field is optional. " \
                         "If there is a specific substring (i.e. a part of the message that is *not* the full string) " \
                         "in the message that provides context for the specific endpoint, include it in the \"substring\" field.\n" \
+                        "The substring can span multiple sentences. It does not need to be bound to oke sentence. If you include a substring, please make sure it contains all possible context.\n" \
                         "If there is no specific substring, please omit the \"substring\" field entirely.\n" \
                         "If you decide that no endpoints should be invoked, respond with an empty list: []\n" \
                         "Do not include any other text in your response; only respond with the JSON object."
