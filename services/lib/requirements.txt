@@ -13,3 +13,4 @@ wyze-sdk==2.2.0
 lifxlan==1.2.8
 ynab==1.4.0
 newsapi-python==0.2.6
+garminconnect==0.2.30

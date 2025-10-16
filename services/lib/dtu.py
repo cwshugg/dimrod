@@ -242,6 +242,23 @@ def diff_in_seconds_minutes_hours(dt1, dt2):
 
     return [secs, mins, hours]
 
+# Takes in two datetimes and returns a list of datetimes, split by day within
+# the given range.
+def split_by_day(dt_start, dt_end):
+    # ensure the start is before the end
+    assert dt_start.timestamp() <= dt_end.timestamp(), \
+        "The starting datetime must be before the ending datetime"
+
+    # create a list of datetimes, one for each day in the range
+    days = []
+    current_day = set_time_beginning_of_day(dt_start)
+    last_day = set_time_beginning_of_day(dt_end)
+    last_day_timestamp = last_day.timestamp()
+    while current_day.timestamp() <= last_day_timestamp:
+        days.append(current_day)
+        current_day = add_days(current_day, 1)
+    return days
+
 # Returns True if the two datetimes share the same year.
 def has_same_year(dt1, dt2):
     return dt1.year == dt2.year
