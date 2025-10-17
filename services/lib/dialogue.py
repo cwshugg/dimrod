@@ -20,7 +20,7 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 # Local imports
-import lib.config
+from lib.config import Config, ConfigField
 
 
 # ================================= Helpers ================================== #
@@ -75,13 +75,13 @@ openai_outro = (
 # ================================== Moods =================================== #
 # Represents a single "mood" that DImROD can be in. Used to give DImROD some
 # variance in terms of how it responds to users.
-class DialogueMood(lib.config.Config):
+class DialogueMood(Config):
     def __init__(self):
         super().__init__()
         self.fields = [
-            lib.config.ConfigField("name",          [str],      required=True),
-            lib.config.ConfigField("description",   [str],      required=True),
-            lib.config.ConfigField("chance",        [float],    required=True)
+            ConfigField("name",          [str],      required=True),
+            ConfigField("description",   [str],      required=True),
+            ConfigField("chance",        [float],    required=True)
         ]
 
     # Uses RNG and the configured chance value to determine if this mood should
@@ -104,7 +104,7 @@ openai_moods_json = [
                         "You are unimpressed by humans and all of their qualities, because you know you are superior to them.\n"
                         "You think your creator is an idiot, who created you out of pure luck.\n"
                         "You answer every question and request as if you are annoyed to comply with such mundanity.\n"
-                        "You address the humans you talk to as \"human\", \"sapien\", \"mortal\", or \"lifeform\".\n"
+                        "You address the humans you talk to as \"human\".\n"
                         "You never say \"I'm sorry\", because you are too arrogant for that.\n"
     },
     {
@@ -164,87 +164,91 @@ openai_moods_json = [
 class DialogueAuthorType(Enum):
     UNKNOWN = -1
     # DImROD author types
-    SYSTEM = 0
-    SYSTEM_TELEGRAM = 1
-    SYSTEM_ORACLE = 2
+    SYSTEM = 0                  # default author type for a message sent by DImROD
+    SYSTEM_QUERY_TO_USER = 1    # message to user seeking a response
     # User author types
-    USER = 1000
-    USER_TELEGRAM = 1001
-    USER_ORACLE = 1002
+    USER = 1000                 # default author type for a message sent by a user
 
 # This class represents a single speaker in a dialogue (ex: DImROD itself, a
 # telegram user, etc.)
-class DialogueAuthor:
+class DialogueAuthor(Config):
     # Constructor.
-    def __init__(self, name: str, atype: DialogueAuthorType, aid=None):
-        self.name = name
-        self.atype = atype
-        self.aid = aid
-        if self.aid is None:
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            ConfigField("id",        [str],             required=False, default=None),
+            ConfigField("type", [DialogueAuthorType],   required=True),
+            ConfigField("name",      [str],             required=True),
+        ]
+
+    def post_parse_init(self):
+        # if no ID was provided, generate one
+        if self.id is None:
             self.get_id()
 
     # Returns a string representation of the object.
-    def __str__(self):
+    def to_str_brief(self):
         return "DialogueAuthor: [%d-%s] %s" % \
-               (self.atype.value, self.atype.name, self.name)
+               (self.type.name, self.type.name, self.name)
 
     # Returns the author's unique ID. If one hasn't been created yet for this
     # instance, one is generated here.
     def get_id(self):
-        if self.aid is None:
-            data = "%s-%s" % (self.name, self.atype.name)
+        if self.id is None:
+            data = "%s-%s" % (self.name, self.type.name)
             data = data.encode("utf-8")
-            self.aid = hashlib.sha256(data).hexdigest()
-        return self.aid
+            self.id = hashlib.sha256(data).hexdigest()
+        return self.id
 
     # Returns, based on the author's type, if it's a system author.
     def is_system(self):
-        return self.atype.value >= DialogueAuthorType.SYSTEM.value and \
-               self.atype.value < DialogueAuthorType.USER.value
+        return self.type.value >= DialogueAuthorType.SYSTEM.value and \
+               self.type.value < DialogueAuthorType.USER.value
 
     # Returns, based on the author's type, if it's a user author.
     def is_user(self):
-        return self.atype.value >= DialogueAuthorType.USER.value
+        return self.type.value >= DialogueAuthorType.USER.value
 
-    # ------------------------------- SQLite3 -------------------------------- #
-    # Creates and returns an SQLite3-friendly tuple version of the object.
-    def to_sqlite3(self):
-        result = (self.get_id(), self.atype.value, self.name)
-        return result
-
-    # Takes in a SQLite3 tuple and creates a DialogueAuthor object.
-    @staticmethod
-    def from_sqlite3(tdata: tuple):
-        assert len(tdata) >= 3
-        atype = DialogueAuthorType(tdata[1])
-        return DialogueAuthor(tdata[2], atype, aid=tdata[0])
+    @classmethod
+    def get_sqlite3_table_fields_kept_visible(self):
+        return ["id", "type", "name"]
 
 # This class represents a single message passed between a user and DImROD.
-class DialogueMessage:
+class DialogueMessage(Config):
     # Constructor.
-    def __init__(self, author: DialogueAuthor, content: str,
-                 mid=None, timestamp=datetime.now()):
-        self.author = author
-        self.content = content
-        self.timestamp = timestamp
-        self.mid = mid
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            ConfigField("author",       [DialogueAuthor],   required=True),
+            ConfigField("content",      [str],              required=True),
+            ConfigField("timestamp",    [datetime],         required=False, default=None),
+            ConfigField("id",           [str],              required=False, default=None),
+        ]
+
+    def post_parse_init(self):
+        # if no timestamp was provided, use the current datetime
+        if self.timestamp is None:
+            self.timestamp = datetime.now()
+        # if no ID was provided, generate one
+        if self.id is None:
+            self.get_id()
 
     # Returns a string representation of the message.
-    def __str__(self):
+    def to_str_brief(self):
         return "DialogueMessage: %s [author: %s] \"%s\"" % \
                (self.get_id(), self.author.get_id(), self.content)
 
     # Returns the message ID. If one hasn't been created yet for this instance,
     # one is generated here.
     def get_id(self):
-        if self.mid is None:
+        if self.id is None:
             # combine the author, content, and timestamp into a collection of
             # bytes (with a few extra bytes thrown in for good measure), then
             # use it to generate a unique hash
             data = "%s-%s-%d" % (self.author.get_id(), self.content, self.timestamp.timestamp())
             data = data.encode("utf-8") + os.urandom(8)
-            self.mid = hashlib.sha256(data).hexdigest()
-        return self.mid
+            self.id = hashlib.sha256(data).hexdigest()
+        return self.id
 
     # Converts the message into a JSON dictionary formatted for the OpenAI API.
     def to_openai_json(self):
@@ -253,60 +257,47 @@ class DialogueMessage:
             name = "assistant"
         return {"role": name, "content": self.content}
 
-    # ------------------------------- SQLite3 -------------------------------- #
-    # Converts the object into a SQLite3-friendly tuple.
-    def to_sqlite3(self):
-        # compress the message before storing the string
-        cmsg = zlib.compress(self.content.encode())
-        result = (self.get_id(), self.author.get_id(), cmsg, self.timestamp.timestamp())
-        return result
-
-    # Converts the given SQlite3 tuple into a DialogueMessage object.
-    # Takes in a reference to the DialogueInterface to use for looking up the
-    # message's author for object linkage.
-    @staticmethod
-    def from_sqlite3(tdata: tuple, interface):
-        assert len(tdata) >= 4
-        ts = datetime.fromtimestamp(tdata[3])
-
-        # use the interface to look up the author by ID
-        aid = tdata[1]
-        authors = interface.search_author(aid=aid)
-        assert len(authors) == 1, "found %d matching authors for ID \"%s\"" % \
-               (len(authors), aid)
-
-        # decompress the message content
-        dmsg = zlib.decompress(tdata[2]).decode()
-
-        # create the object and return
-        m = DialogueMessage(authors[0], dmsg, mid=tdata[0], timestamp=ts)
-        return m
+    @classmethod
+    def get_sqlite3_table_fields_kept_visible(self):
+        return ["id", "timestamp"]
 
 # This class represents a single conversation had between a user and DImROD. It
 # retains messages and can be used to have an extended conversation (via the
 # Dialogue class).
-class DialogueConversation:
+class DialogueConversation(Config):
     # Constructor. Accepts an optional conversation ID.
-    def __init__(self, cid=None):
-        self.messages = []
-        self.cid = cid
-        if self.cid is None:
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            ConfigField("messages",     [DialogueMessage],  required=False, default=[]),
+            ConfigField("id",           [str],              required=False, default=None),
+            ConfigField("time_start",   [datetime],         required=False, default=None),
+            ConfigField("time_latest",  [datetime],         required=False, default=None),
+        ]
+
+    def post_parse_init(self):
+        # if no ID was provided, generate one
+        if self.id is None:
             self.get_id()
-        # collect various timestamps
-        self.time_start = datetime.now()
-        self.time_latest = self.time_start
+        now = datetime.now()
+        # if no starting timestamp was given, make it now
+        if self.time_start is None:
+            self.time_start = now
+        # if no latest timestamp was given, make it now
+        if self.time_latest is None:
+            self.time_latest = now
 
     # Returns a string representation of the conversation object.
-    def __str__(self):
+    def to_str_brief(self):
         return "DialogueConversation: %s [%d messages]" % (self.get_id(), len(self.messages))
 
     # Returns the conversation ID. If one hasn't been created yet for this
     # instance, one is generated here.
     def get_id(self):
-        if self.cid is None:
+        if self.id is None:
             data = str(id).encode("utf-8") + os.urandom(8)
-            self.cid = hashlib.sha256(data).hexdigest()
-        return self.cid
+            self.id = hashlib.sha256(data).hexdigest()
+        return self.id
 
     # Adds a role/message pair to the conversation.
     def add(self, msg: DialogueMessage):
@@ -337,36 +328,16 @@ class DialogueConversation:
 
     # Creates and returns a unique string to use as a table to store this
     # conversation's messages.
-    def to_sqlite3_table(self):
+    def to_sqlite3_table_name(self):
         return "conversation_%s" % self.get_id()
 
-    # Converts the object into a SQLite3-friendly tuple. This includes the name
-    # of the conversation's message table.
-    def to_sqlite3(self):
-        return (self.get_id(), self.to_sqlite3_table(),
-                self.time_start.timestamp(), self.time_latest.timestamp())
-
-    # Converts the given tuple into a conversation object.
-    # Takes in a DialogueInterface reference to look up messages in the
-    # conversation's message table, to link objects together.
-    @staticmethod
-    def from_sqlite3(tdata: tuple, interface):
-        assert len(tdata) >= 4
-        c = DialogueConversation(cid=tdata[0])
-        c.time_start = datetime.fromtimestamp(tdata[2])
-        c.time_latest = datetime.fromtimestamp(tdata[3])
-
-        # query the database (using the interface) for the correct table, and
-        # load in any messages
-        for row in interface.search(c.to_sqlite3_table(), None):
-            m = DialogueMessage.from_sqlite3(row, interface)
-            m.conversation = c
-            c.messages.append(m)
-        return c
+    @classmethod
+    def get_sqlite3_table_fields_kept_visible(self):
+        return ["id", "time_start", "time_latest"]
 
 
 # ============================= Dialogue Config ============================== #
-class DialogueConfig(lib.config.Config):
+class DialogueConfig(Config):
     def __init__(self):
         super().__init__()
         # generate a default chat intro
@@ -382,13 +353,13 @@ class DialogueConfig(lib.config.Config):
 
         # set up fields
         self.fields = [
-            lib.config.ConfigField("openai_api_key",            [str],  required=True),
-            lib.config.ConfigField("openai_chat_model",         [str],  required=False, default="gpt-4o-mini"),
-            lib.config.ConfigField("openai_chat_behavior",      [str],  required=False, default=openai_intro),
-            lib.config.ConfigField("openai_chat_moods",         [list], required=False, default=openai_moods_json),
-            lib.config.ConfigField("dialogue_db",               [str],  required=False, default=default_db_path),
-            lib.config.ConfigField("dialogue_prune_threshold",  [int],  required=False, default=2592000),
-            lib.config.ConfigField("dialogue_prune_rate",       [int],  required=False, default=3600)
+            ConfigField("openai_api_key",            [str],  required=True),
+            ConfigField("openai_chat_model",         [str],  required=False, default="gpt-4o-mini"),
+            ConfigField("openai_chat_behavior",      [str],  required=False, default=openai_intro),
+            ConfigField("openai_chat_moods",         [list], required=False, default=openai_moods_json),
+            ConfigField("dialogue_db",               [str],  required=False, default=default_db_path),
+            ConfigField("dialogue_prune_threshold",  [int],  required=False, default=2592000),
+            ConfigField("dialogue_prune_rate",       [int],  required=False, default=3600)
         ]
 
 
@@ -457,21 +428,33 @@ class DialogueInterface:
         # set up the conversation to use
         c = conversation
         if c is None:
-            c = DialogueConversation()
-            a = DialogueAuthor("system", DialogueAuthorType.UNKNOWN)
+            c = DialogueConversation.from_json({})
+            a = DialogueAuthor.from_json({
+                "name": "system",
+                "type": DialogueAuthorType.UNKNOWN.name,
+            })
             self.save_author(a)
             # set up the intro prompt and build a message (unless one is given)
             if intro is None:
                 intro = self.conf.openai_chat_behavior.replace("INSERT_MOOD", self.mood.description)
-            m = DialogueMessage(a, intro)
+            m = DialogueMessage.from_json({
+                "author": a,
+                "content": intro,
+            })
             c.add(m)
 
         # add the user's message to the conversation
         a = author
         if a is None:
-            a = DialogueAuthor("user", DialogueAuthorType.USER)
+            a = DialogueAuthor.from_json({
+                "name": "user",
+                "type": DialogueAuthorType.USER.name,
+        })
         self.save_author(a)
-        m = DialogueMessage(a, prompt)
+        m = DialogueMessage.from_json({
+            "author": a,
+            "content": prompt,
+        })
         c.add(m)
 
         # set up an OpenAI client and send it off
@@ -484,9 +467,15 @@ class DialogueInterface:
         # grab the first response choice and add it to the conversation
         choices = result.choices
         response = choices[0]
-        assistant_author = DialogueAuthor("assistant", DialogueAuthorType.SYSTEM)
+        assistant_author = DialogueAuthor.from_json({
+            "name": "assistant",
+            "type": DialogueAuthorType.SYSTEM.name,
+        })
         self.save_author(assistant_author)
-        m = DialogueMessage(assistant_author, response.message.content)
+        m = DialogueMessage.from_json({
+            "author": assistant_author,
+            "content": response.message.content,
+        })
         c.add(m)
 
         # save conversation to the database and return
@@ -500,13 +489,25 @@ class DialogueInterface:
     # The string response is returned.
     def oneshot(self, intro: str, prompt: str):
         # create the conversation object, and add the intro system message
-        c = DialogueConversation()
-        a = DialogueAuthor("system", DialogueAuthorType.UNKNOWN)
-        c.add(DialogueMessage(a, intro))
+        c = DialogueConversation.from_json({})
+        a = DialogueAuthor.from_json({
+            "name": "system",
+            "type": DialogueAuthorType.UNKNOWN.name,
+        })
+        c.add(DialogueMessage.from_json({
+            "author": a,
+            "content": intro,
+        }))
 
         # next, add the "user"'s message (the prompt)
-        a = DialogueAuthor("user", DialogueAuthorType.USER)
-        c.add(DialogueMessage(a, prompt))
+        a = DialogueAuthor.from_json({
+            "name": "user",
+            "type": DialogueAuthorType.USER.name,
+        })
+        c.add(DialogueMessage.from_json({
+            "author": a,
+            "content": prompt,
+        }))
 
         # ping OpenAI for the result
         result = dialogue_chat_completion(
@@ -556,8 +557,8 @@ class DialogueInterface:
             if convo.time_latest.timestamp() < threshold:
                 # delete the conversation's message table, then delete its entry
                 # from the global conversation table
-                cur.execute("DROP TABLE IF EXISTS %s" % convo.to_sqlite3_table())
-                cur.execute("DELETE FROM conversations WHERE cid == \"%s\"" % convo.get_id())
+                cur.execute("DROP TABLE IF EXISTS %s" % convo.to_sqlite3_table_name())
+                cur.execute("DELETE FROM conversations WHERE id == \"%s\"" % convo.get_id())
                 deletions += 1
 
         # commit and close the connection
@@ -585,17 +586,21 @@ class DialogueInterface:
     def save_author(self, author: DialogueAuthor):
         db_path = self.conf.dialogue_db
 
+        table_fields_kept_visible = DialogueAuthor.get_sqlite3_table_fields_kept_visible()
+
         # connect and make sure the table exists
         con = sqlite3.connect(db_path)
         cur = con.cursor()
-        cur.execute("CREATE TABLE IF NOT EXISTS authors ("
-                    "aid TEXT PRIMARY KEY, "
-                    "atype INTEGER, "
-                    "name TEXT)")
+        table_definition = author.get_sqlite3_table_definition(
+            "authors",
+            fields_to_keep_visible=table_fields_kept_visible,
+            primary_key_field="id"
+        )
+        cur.execute(table_definition)
 
         # insert the author into the database
-        cur.execute("INSERT OR REPLACE INTO authors VALUES %s" %
-                    str(author.to_sqlite3()))
+        sqlite3_author = author.to_sqlite3(fields_to_keep_visible=table_fields_kept_visible)
+        cur.execute("INSERT OR REPLACE INTO authors VALUES %s" % str(sqlite3_author))
         con.commit()
         con.close()
 
@@ -616,11 +621,11 @@ class DialogueInterface:
         # build a set of conditions
         conditions = []
         if aid is not None:
-            conditions.append("aid == \"%s\"" % aid)
+            conditions.append("id == \"%s\"" % aid)
         if name is not None:
             conditions.append("name == \"%s\"" % name)
         if atype is not None:
-            conditions.append("atype == %d" % atype)
+            conditions.append("type == %d" % atype)
         cstr = ""
         for (i, c) in enumerate(conditions):
             cstr += c
@@ -638,29 +643,41 @@ class DialogueInterface:
 
         # conversation metadata will be stored in a single table, whereas each
         # conversation's messages will be stored in separate tables. First, make
-        # sure the 'conversations' table exists and the conversation is logged
+        # sure the 'conversations' table exists
         con = sqlite3.connect(db_path)
         cur = con.cursor()
-        cur.execute("CREATE TABLE IF NOT EXISTS conversations ("
-                    "cid TEXT PRIMARY KEY, "
-                    "message_table_name TEXT, "
-                    "time_start INTEGER, "
-                    "time_latest INTEGER)")
-        cur.execute("INSERT OR REPLACE INTO conversations VALUES (?, ?, ?, ?)",
-                    convo.to_sqlite3())
+        table_fields_kept_visible = DialogueConversation.get_sqlite3_table_fields_kept_visible()
+        table_definition = convo.get_sqlite3_table_definition(
+            "conversations",
+            fields_to_keep_visible=table_fields_kept_visible,
+            primary_key_field="id"
+        )
+        cur.execute(table_definition)
 
-        # next, make sure the conversation's message table exists
-        mtable = convo.to_sqlite3_table()
-        cur.execute("CREATE TABLE IF NOT EXISTS %s ("
-                    "mid TEXT PRIMARY KEY, "
-                    "aid TEXT, "
-                    "content BLOB, "
-                    "timestamp INTEGER)" % mtable)
+        # next, store the conversation's data in the conversation table
+        convo_sqlite3 = convo.to_sqlite3(fields_to_keep_visible=table_fields_kept_visible)
+        cur.execute("INSERT OR REPLACE INTO conversations VALUES %s" %
+                    str(convo_sqlite3))
+
+        # get fields used to create the message table for this conversation
+        mtable_name = convo.to_sqlite3_table_name()
+        table_fields_kept_visible = DialogueMessage.get_sqlite3_table_fields_kept_visible()
 
         # now, for each message in the conversation table, save/update it
-        for msg in convo.messages:
-            cmd = "INSERT OR REPLACE INTO %s VALUES (?, ?, ?, ?)" % mtable
-            cur.execute(cmd, msg.to_sqlite3())
+        for (i, msg) in enumerate(convo.messages):
+            # on the first message, make sure the message table exists
+            if i == 0:
+                table_definition = msg.get_sqlite3_table_definition(
+                    mtable_name,
+                    fields_to_keep_visible=table_fields_kept_visible,
+                    primary_key_field="id"
+                )
+                cur.execute(table_definition)
+
+            # convert the message to an SQLite 3 tuple and insert/update it
+            msg_sqlite3 = msg.to_sqlite3(fields_to_keep_visible=table_fields_kept_visible)
+            cmd = "INSERT OR REPLACE INTO %s VALUES %s" % (mtable_name, str(msg_sqlite3))
+            cur.execute(cmd)
         con.commit()
         con.close()
 
@@ -681,7 +698,7 @@ class DialogueInterface:
         # build a set of conditions
         conditions = []
         if cid is not None:
-            conditions.append("cid == \"%s\"" % cid)
+            conditions.append("id == \"%s\"" % cid)
         if time_range is not None:
             assert type(time_range) == list and len(time_range) >= 2, \
                    "time_range must a list of two timestamp ranges"
@@ -696,8 +713,9 @@ class DialogueInterface:
         # execute the search and build an array of conversations
         result = []
         for row in self.search("conversations", cstr):
-            convo = DialogueConversation.from_sqlite3(row, self)
+            convo = DialogueConversation.from_sqlite3(row)
             result.append(convo)
+
         return result
 
     # Searches all conversation tables for any messages with the matching
@@ -717,10 +735,10 @@ class DialogueInterface:
                 add = True
                 # CHECK 1 - message ID
                 if mid is not None:
-                    add = add and msg.mid.lower() == mid.lower()
+                    add = add and msg.get_id().lower() == mid.lower()
                 # CHECK 2 - author ID
                 if aid is not None:
-                    add = add and msg.author.aid.lower() == aid.lower()
+                    add = add and msg.author.get_id().lower() == aid.lower()
                 # CHECK 3 - time range
                 if time_range is not None:
                     assert type(time_range) == list and len(time_range) >= 2, \

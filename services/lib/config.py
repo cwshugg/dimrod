@@ -123,7 +123,7 @@ class Config:
                         val = items
 
                 # if the expected type is an enum, attempt to reconstruct the
-                # enum object with the integer
+                # enum object with an integer or string
                 if val is None and issubclass(types[0], Enum):
                     cls = types[0]
                     enum_val = jdata[key]
@@ -136,14 +136,14 @@ class Config:
                     else:
                         msg = "%s entry \"%s\" must be a string or integer, " \
                               "representing enum \"%s\"" % \
-                              (self.fpath if self.fpath else "json", key, cls.__name__)
+                              (self.fpath if self.fpath else "JSON", key, cls.__name__)
                         self.check(False, msg)
 
                 # if the expected type is a datetime, assume that the value
                 # provided is a string in the ISO date format
                 if val is None and types[0] == datetime:
                     msg = "%s entry \"%s\" must be a datetime value represented as an ISO string" % \
-                          (self.fpath if self.fpath else "json", key)
+                          (self.fpath if self.fpath else "JSON", key)
                     self.check(type(jdata[key]) == str, msg)
 
                     # parse as an ISO string
@@ -191,10 +191,19 @@ class Config:
                 self.extra_fields[key] = jdata[key]
                 setattr(self, key, jdata[key])
 
+        # parsing is done; call the post-parsing initialization function
+        self.post_parse_init()
+
     # A custom assertion function for the config class.
     def check(self, condition, msg):
         if not condition:
             raise Exception("Config Error: %s" % msg)
+
+    # A function that can be overridden by subclasses to perform any additional
+    # initialization after parsing succeeds. Automatically invoked after
+    # parsing.
+    def post_parse_init(self):
+        pass
 
     # Converts the config into a JSON dictionary and returns it.
     def to_json(self):
@@ -273,7 +282,7 @@ class Config:
     # All fields specified in `fields_to_keep_visible` must be simple,
     # primitive types that can be represented by SQLite3 (such as integers or
     # strings).
-    def to_sqlite3(self, fields_to_keep_visible=[]):
+    def to_sqlite3(self, fields_to_keep_visible=[], extra_fields={}):
         # encode the entire object as a hex string and store it as the first
         # field in the tuple
         result = (self.to_hex(),)
@@ -411,4 +420,10 @@ class Config:
             # set the object's field to the value and increment
             setattr(self, field.name, value)
             tuple_idx += 1
+
+    @classmethod
+    def from_sqlite3(cls, tdata: tuple, fields_kept_visible=[]):
+        c = cls()
+        c.parse_sqlite3(tdata, fields_kept_visible=fields_kept_visible)
+        return c
 

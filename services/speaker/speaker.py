@@ -536,7 +536,10 @@ class SpeakerOracle(Oracle):
                     salt = "%s-%s" % (str(aname), str(datetime.now().timestamp()))
                     salt = salt.encode("utf-8") + os.urandom(8)
                     name = "ORACLE_USER_%s" % hashlib.sha256(salt).hexdigest()
-                author = DialogueAuthor(name, DialogueAuthorType.USER_ORACLE)
+                author = DialogueAuthor.from_json({
+                    "name": name,
+                    "type": DialogueAuthorType.USER.name,
+                })
 
             # before passing anything to the dialogue library, try to parse the
             # text as a call to action. If successful, an array of messages will

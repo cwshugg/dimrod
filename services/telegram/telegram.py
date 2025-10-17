@@ -266,7 +266,7 @@ class TelegramService(Service):
             convo_id = None if "conversation_id" not in rdata else str(rdata["conversation_id"])
             return (convo_id, str(rdata["response"]))
 
-        # if the above didn't work, just return the original message
+        # if the above didn't work, return nothing
         self.log.write("Failed to get conversation from speaker: %s" %
                        OracleSession.get_response_message(r))
         return (None, None)
