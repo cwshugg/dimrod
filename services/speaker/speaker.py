@@ -485,6 +485,111 @@ class SpeakerOracle(Oracle):
     def endpoints(self):
         super().endpoints()
 
+        # An endpoint used to create a new conversation.
+        @self.server.route("/conversation/create", methods=["POST"])
+        def endpoint_conversation_create():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            # look for a conversation object in the JSON data
+            if "conversation" not in flask.g.jdata:
+                return self.make_response(msg="Missing conversation object.",
+                                          success=False, rstatus=400)
+            convo_data = flask.g.jdata["conversation"]
+
+            # parse the JSON data as a `DialogueConversation` object and
+            # attempt to save it
+            convo = None
+            try:
+                convo = DialogueConversation.from_json(convo_data)
+                self.service.dialogue.save_conversation(convo)
+            except Exception as e:
+                return self.make_response(msg="Failed to parse conversation object: %s" % e,
+                                          success=False, rstatus=400)
+
+            # return the conversation object back to the caller
+            return self.make_response(payload=convo.to_json())
+
+        # An endpoint used to retrieve the status of an existing conversation
+        @self.server.route("/conversation/get", methods=["POST"])
+        def endpoint_conversation_get():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            # look for a conversation ID in the JSON data
+            if "conversation_id" not in flask.g.jdata:
+                return self.make_response(msg="Missing conversation ID.",
+                                          success=False, rstatus=400)
+            convo_id = flask.g.jdata["conversation_id"]
+
+            # search for the conversation
+            convo = None
+            try:
+                result = self.service.dialogue.search_conversation(cid=convo_id)
+                if len(result) == 0:
+                    return self.make_response(msg="Unknown conversation ID.",
+                                              success=False, rstatus=400)
+                convo = result[0]
+            except Exception as e:
+                return self.make_response(msg="Failed to search for conversation: %s" % e,
+                                          success=False, rstatus=400)
+
+            # return the conversation object back to the caller
+            return self.make_response(payload=convo.to_json())
+
+        # An endpoint used to add a message to an existing conversation.
+        @self.server.route("/conversation/addmsg", methods=["POST"])
+        def endpoint_conversation_addmsg():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            # look for a conversation ID in the JSON data
+            if "conversation_id" not in flask.g.jdata:
+                return self.make_response(msg="Missing conversation ID.",
+                                          success=False, rstatus=400)
+            convo_id = flask.g.jdata["conversation_id"]
+
+            # search for the conversation
+            convo = None
+            try:
+                result = self.service.dialogue.search_conversation(cid=convo_id)
+                if len(result) == 0:
+                    return self.make_response(msg="Unknown conversation ID.",
+                                              success=False, rstatus=400)
+                convo = result[0]
+            except Exception as e:
+                return self.make_response(msg="Failed to search for conversation: %s" % e,
+                                          success=False, rstatus=400)
+
+            # next, look for the message data
+            if "message" not in flask.g.jdata:
+                return self.make_response(msg="Missing message object.",
+                                          success=False, rstatus=400)
+            msg_data = flask.g.jdata["message"]
+
+            # parse the JSON data as a `DialogueMessage` object and
+            # attempt to add it to the conversation
+            msg = None
+            try:
+                msg = DialogueMessage.from_json(msg_data)
+                convo.add_message(msg)
+                self.service.dialogue.save_conversation(convo)
+            except Exception as e:
+                return self.make_response(msg="Failed to save new message: %s" % e,
+                                          success=False, rstatus=400)
+
+            # return the updated conversation object back to the caller
+            return self.make_response(payload=convo.to_json())
+
         # This endpoint is used to talk with DImROD. A message is passed, along
         # with other optional metadata, and DImROD's response is returned.
         @self.server.route("/talk", methods=["POST"])
@@ -575,11 +680,22 @@ class SpeakerOracle(Oracle):
             self.service.dialogue.save_author(author)
             self.service.dialogue.save_conversation(convo)
 
-            # build a response object containing the response message,
-            # conversation ID, author info, etc.
+            # get the latest request and response messages (representing the
+            # message we just received from the caller, and the response we
+            # just generated)
+            latest_req = convo.latest_request()
+            assert latest_req is not None, "Unexpected: conversation has no latest request message"
+            latest_resp = convo.latest_response()
+            assert latest_resp is not None, "Unexpected: conversation has no latest response message"
+
+            # build a response object containing the response message, as well
+            # as the IDs associated with the request and response messages
             rdata = {
                 "conversation_id": convo.get_id(),
-                "author_id": author.get_id(),
+                "request_message_id": latest_req.get_id(),
+                "request_author_id": latest_req.author.get_id(),
+                "response_message_id": latest_resp.get_id(),
+                "response_author_id": latest_resp.author.get_id(),
                 "response": convo.latest_response().content
             }
             return self.make_response(payload=rdata)

@@ -30,7 +30,7 @@ class TaskConfig(Config):
             ConfigField("project_name", [str],  required=False, default=None),
             ConfigField("section_name", [str],  required=False, default=None),
         ]
-    
+
     # Returns the task's content. The content will either be the string
     # given in 'content', or, if 'content' is a valid file path, the
     # contents of the specified file.
@@ -53,13 +53,13 @@ class TaskJob:
         self.last_success_fpath = os.path.join(fdir, ".%s_last_success.pkl" %
                                                self.__class__.__name__.lower())
         self.init()
-    
+
     # Function that can be optionally overridden by subclasses to run
     # initialization code before any calls to the taskjob's "update()" are
     # made.
     def init(self):
         pass
-    
+
     # Function that uses the provided API objects to update any tasks, events,
     # etc. This must be implemented by subclasses.
     # Must return True if the update succeeded (some sort of update was made).
@@ -71,14 +71,14 @@ class TaskJob:
     def log(self, msg: str):
         pfx = "[%s]" % self.__class__.__name__
         self.service.log.write("%s %s" % (pfx, msg))
-    
+
     # Saves a given timestamp to disk to reference as the last time the task
     # job's update() function succeeded in adding/updating tasks or modified
     # Todoist in some way.
     def set_last_success_datetime(self, dt: datetime):
         with open(self.last_success_fpath, "wb") as fp:
             pickle.dump(dt, fp)
-    
+
     # Returns the last time the task job's update() function succeeded. The
     # value is returned from disk. Returns None if no record has been saved
     # yet.
@@ -87,13 +87,13 @@ class TaskJob:
             return None
         with open(self.last_success_fpath, "rb") as fp:
             return pickle.load(fp)
-    
+
     # Saves a given timestamp to disk to reference as the last time the task
     # job's update() function was executed (either failing or succeeding).
     def set_last_update_datetime(self, dt: datetime):
         with open(self.last_update_fpath, "wb") as fp:
             pickle.dump(dt, fp)
-    
+
     # Returns the last time the task job's update() function was executed
     # (either failing or succeeding). The value is returned from disk. Returns
     # None if no record has been saved yet.
@@ -102,7 +102,7 @@ class TaskJob:
             return None
         with open(self.last_update_fpath, "rb") as fp:
             return pickle.load(fp)
-    
+
     # Uses the stored "last update datetime" to calculate the next time this
     # taskjob should be updated. If there is no saved timestamp, then
     # datetime.now() is returned.
@@ -111,7 +111,7 @@ class TaskJob:
         if lut is None:
             return datetime.now()
         return datetime.fromtimestamp(lut.timestamp() + self.refresh_rate)
-    
+
     # Performs the same function as "get_next_update_datetime()", but instead
     # returns the number of seconds the next update time is from the given
     # datetime (which, by default, is datetime.now())
@@ -119,11 +119,11 @@ class TaskJob:
         if dt is None:
             dt = datetime.now()
         return self.get_next_update_datetime().timestamp() - dt.timestamp()
-    
+
     # Returns the name of the task job.
     def get_name(self):
         return self.__class__.__name__.lower().replace("taskjob_", "")
-    
+
     # Returns a unique identifier for this object
     def get_id(self):
         return "%s_%s" % (self.get_name(), id(self))

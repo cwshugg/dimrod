@@ -29,6 +29,7 @@ from lib.todoist import Todoist, TodoistConfig
 from lib.google.google_calendar import GoogleCalendar, GoogleCalendarConfig
 from lib.oracle import OracleSession, OracleSessionConfig
 from lib.dialogue import DialogueConfig
+from lib.wyze import WyzeConfig
 
 # Service imports
 from task import TaskJob
@@ -149,12 +150,13 @@ class TaskmasterConfig(ServiceConfig):
         self.fields += [
             ConfigField("todoist",          [TodoistConfig], required=True),
             ConfigField("google_calendar",  [GoogleCalendarConfig], required=True),
-            ConfigField("refresh_rate",     [int], required=False, default=300),
-            ConfigField("worker_threads",   [int], required=False, default=8),
-            ConfigField("lumen",            [OracleSessionConfig], required=True),
-            ConfigField("telegram",         [OracleSessionConfig], required=True),
-            ConfigField("speaker",          [OracleSessionConfig], required=True),
-            ConfigField("dialogue",         [DialogueConfig],      required=True),
+            ConfigField("refresh_rate",     [int], required=False,  default=300),
+            ConfigField("worker_threads",   [int], required=False,  default=8),
+            ConfigField("lumen",            [OracleSessionConfig],  required=True),
+            ConfigField("telegram",         [OracleSessionConfig],  required=True),
+            ConfigField("speaker",          [OracleSessionConfig],  required=True),
+            ConfigField("dialogue",         [DialogueConfig],       required=True),
+            ConfigField("wyze",             [WyzeConfig],           required=True),
         ]
 
 class TaskmasterService(Service):
