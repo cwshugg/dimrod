@@ -485,6 +485,161 @@ class SpeakerOracle(Oracle):
     def endpoints(self):
         super().endpoints()
 
+        # An endpoint used to retrieve the status of an existing message
+        @self.server.route("/message/get", methods=["POST"])
+        def endpoint_message_get():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            # look for a message ID in the JSON data
+            if "message_id" not in flask.g.jdata:
+                return self.make_response(msg="Missing message ID.",
+                                          success=False, rstatus=400)
+            message_id = flask.g.jdata["message_id"]
+
+            # search for the message
+            msg = None
+            convo = None
+            try:
+                result = self.service.dialogue.search_message(mid=message_id)
+                if len(result) == 0:
+                    return self.make_response(msg="Unknown message ID.",
+                                              success=False, rstatus=404)
+                (msg, convo) = result[0]
+            except Exception as e:
+                return self.make_response(msg="Failed to retrieve message: %s" % e,
+                                          success=False, rstatus=400)
+
+            # return the message, and the conversation ID, back to the caller
+            pyld = {
+                "message": msg.to_json(),
+                "conversation_id": convo.get_id(),
+            }
+            return self.make_response(payload=pyld)
+
+        # An endpoint used to search for messages.
+        @self.server.route("/message/search", methods=["POST"])
+        def endpoint_message_search():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            # gather up all search parameters
+            message_id = None
+            if "message_id" in flask.g.jdata:
+                message_id = flask.g.jdata["message_id"]
+            author_id = None
+            if "author_id" in flask.g.jdata:
+                author_id = flask.g.jdata["author_id"]
+            # TODO - add `time_range`
+            keywords = []
+            if "keywords" in flask.g.jdata:
+                keywords = flask.g.jdata["keywords"]
+            telegram_chat_id = None
+            if "telegram_chat_id" in flask.g.jdata:
+                telegram_chat_id = flask.g.jdata["telegram_chat_id"]
+            telegram_message_id = None
+            if "telegram_message_id" in flask.g.jdata:
+                telegram_message_id = flask.g.jdata["telegram_message_id"]
+
+            # search for matching messages
+            pyld = []
+            try:
+                result = self.service.dialogue.search_message(
+                    mid=message_id,
+                    aid=author_id,
+                    # TODO - add `time_range`
+                    keywords=keywords,
+                    telegram_chat_id=telegram_chat_id,
+                    telegram_message_id=telegram_message_id,
+                )
+                if len(result) == 0:
+                    return self.make_response(msg="No matching messages found",
+                                              success=False, rstatus=404)
+
+                # for each result, convert the message object and conversation
+                # object to JSON, and append them to the payload (which we'll
+                # return to the caller)
+                for (msg, convo) in result:
+                    entry = {
+                        "message": msg.to_json(),
+                        "conversation_id": convo.get_id(),
+                    }
+                    pyld.append(entry)
+            except Exception as e:
+                return self.make_response(msg="Failed to search for message: %s" % e,
+                                          success=False, rstatus=400)
+
+            # return the message, and the conversation ID, back to the caller
+            return self.make_response(payload=pyld)
+
+        # An endpoint used to update an existing message.
+        @self.server.route("/message/update", methods=["POST"])
+        def endpoint_message_update():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            # look for a message ID in the data
+            if "message_id" not in flask.g.jdata:
+                return self.make_response(msg="Missing message ID.",
+                                          success=False, rstatus=400)
+            message_id = flask.g.jdata["message_id"]
+
+            # look for a telegram chat ID (optional)
+            telegram_chat_id = None
+            if "telegram_chat_id" in flask.g.jdata:
+                telegram_chat_id = str(flask.g.jdata["telegram_chat_id"])
+
+            # look for a telegram message ID (optional)
+            telegram_message_id = None
+            if "telegram_message_id" in flask.g.jdata:
+                telegram_message_id = str(flask.g.jdata["telegram_message_id"])
+
+            # TODO - add other fields to update, such as `content`,
+            # `timestamp`, `author`, etc.
+
+            # first, look for the message (and corresponding conversation) the
+            # provided message is referring to
+            msg = None
+            convo = None
+            try:
+                result = self.service.dialogue.search_message(mid=message_id)
+                if len(result) == 0:
+                    return self.make_response(msg="Unknown message ID.",
+                                              success=False, rstatus=404)
+                (msg, convo) = result[0]
+            except Exception as e:
+                return self.make_response(msg="Failed to search for messages to update: %s" % e,
+                                          success=False, rstatus=400)
+
+            # update the message object's fields, depending on what was
+            # provided
+            if telegram_chat_id is not None:
+                msg.telegram_chat_id = telegram_chat_id
+            if telegram_message_id is not None:
+                msg.telegram_message_id = telegram_message_id
+            # TODO - add other fields to update, such as `content`,
+            # `timestamp`, `author`, etc.
+
+            # save the message to the database; this will overwrite the
+            # previous entry for this message ID
+            try:
+                self.service.dialogue.save_message(msg, cid=convo.get_id())
+            except Exception as e:
+                return self.make_response(msg="Failed to update message: %s" % e,
+                                          success=False, rstatus=400)
+
+            # return the message object back to the caller
+            return self.make_response(payload=msg.to_json())
+
         # An endpoint used to create a new conversation.
         @self.server.route("/conversation/create", methods=["POST"])
         def endpoint_conversation_create():
@@ -534,7 +689,7 @@ class SpeakerOracle(Oracle):
                 result = self.service.dialogue.search_conversation(cid=convo_id)
                 if len(result) == 0:
                     return self.make_response(msg="Unknown conversation ID.",
-                                              success=False, rstatus=400)
+                                              success=False, rstatus=404)
                 convo = result[0]
             except Exception as e:
                 return self.make_response(msg="Failed to search for conversation: %s" % e,
@@ -542,6 +697,36 @@ class SpeakerOracle(Oracle):
 
             # return the conversation object back to the caller
             return self.make_response(payload=convo.to_json())
+
+        # An endpoint used to determine the last update a conversation had.
+        @self.server.route("/conversation/get_last_update", methods=["POST"])
+        def endpoint_conversation_get_last_update():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            # look for a conversation ID in the JSON data
+            if "conversation_id" not in flask.g.jdata:
+                return self.make_response(msg="Missing conversation ID.",
+                                          success=False, rstatus=400)
+            convo_id = flask.g.jdata["conversation_id"]
+
+            # search for the conversation
+            convo = None
+            try:
+                result = self.service.dialogue.search_conversation(cid=convo_id)
+                if len(result) == 0:
+                    return self.make_response(msg="Unknown conversation ID.",
+                                              success=False, rstatus=404)
+                convo = result[0]
+            except Exception as e:
+                return self.make_response(msg="Failed to search for conversation: %s" % e,
+                                          success=False, rstatus=400)
+
+            # return the conversation object back to the caller
+            return self.make_response(payload=convo.latest_message().to_json())
 
         # An endpoint used to add a message to an existing conversation.
         @self.server.route("/conversation/addmsg", methods=["POST"])
@@ -564,7 +749,7 @@ class SpeakerOracle(Oracle):
                 result = self.service.dialogue.search_conversation(cid=convo_id)
                 if len(result) == 0:
                     return self.make_response(msg="Unknown conversation ID.",
-                                              success=False, rstatus=400)
+                                              success=False, rstatus=404)
                 convo = result[0]
             except Exception as e:
                 return self.make_response(msg="Failed to search for conversation: %s" % e,

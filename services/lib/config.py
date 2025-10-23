@@ -298,8 +298,9 @@ class Config:
             if issubclass(val.__class__, Enum):
                 val = val.value
 
-            # make sure the value is a primitive type
-            assert type(val) in [int, float, str, bool, datetime], \
+            # make sure the value is a primitive type, or None (which is `NULL`)
+            # in SQLite3)
+            assert type(val) in [int, float, str, bool, datetime] or val is None, \
                    "only primitive types can be placed into a SQLite3 tuple for a %s object " \
                    "(found type: %s)" % \
                    (__class__.__name__, str(type(val)))
@@ -315,6 +316,28 @@ class Config:
             result += (val,)
 
         return result
+
+    # Converts the SQLite3 tuple representation of the object to a string that
+    # can be safely inserted into SQLite3 commands.
+    def to_sqlite3_str(self, fields_to_keep_visible=[], extra_fields={}):
+        tdata = self.to_sqlite3(fields_to_keep_visible=fields_to_keep_visible,
+                                extra_fields=extra_fields)
+
+        # convert each tuple entry to a string representation
+        str_entries = []
+        for entry in tdata:
+            if entry is None:
+                # append NULL for all None values
+                str_entries.append("NULL")
+            elif type(entry) == str:
+                # wrap the string in single quotes, and escape any embedded
+                # single quotes by turning them into two single quotes ('')
+                str_entries.append("'%s'" % entry.replace("'", "''"))
+            else:
+                str_entries.append(str(entry))
+
+        # join everything together and return
+        return "(" + ", ".join(str_entries) + ")"
 
     # Creates a SQLite `CREATE TABLE` statement used to store this type of
     # object, bearing in mind the same `fields_to_keep_visible` as described
@@ -345,15 +368,25 @@ class Config:
                    __class__.__name__
             val = getattr(self, name)
 
+            # make sure this field has a corresponding `ConfigField` object
+            field = self.get_field(name)
+            assert field is not None, \
+                "the field \"%s\" does not have a defined ConfigField object" % name
+
+            # retrieve the type of the field
+            val_type = field.types[0]
+            if val is not None:
+                val_type = type(val)
+
             # determine the correct SQLite3 type to be used for this data type
             sqlite3_type = "BLOB"
-            if type(val) == str:
+            if val_type == str:
                 sqlite3_type = "TEXT"
-            elif type(val) in [int, bool]:
+            elif val_type in [int, bool]:
                 sqlite3_type = "INTEGER"
-            elif type(val) == float:
+            elif val_type == float:
                 sqlite3_type = "REAL"
-            elif type(val) == datetime:
+            elif val_type == datetime:
                 # we'll convert datetime objects to ISO strings when storing
                 # them in a tuple
                 sqlite3_type = "INTEGER"

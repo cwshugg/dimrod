@@ -223,6 +223,8 @@ class DialogueMessage(Config):
             ConfigField("content",      [str],              required=True),
             ConfigField("timestamp",    [datetime],         required=False, default=None),
             ConfigField("id",           [str],              required=False, default=None),
+            ConfigField("telegram_chat_id", [str],          required=False, default=None),
+            ConfigField("telegram_message_id", [str],       required=False, default=None),
         ]
 
     def post_parse_init(self):
@@ -259,7 +261,7 @@ class DialogueMessage(Config):
 
     @classmethod
     def get_sqlite3_table_fields_kept_visible(self):
-        return ["id", "timestamp"]
+        return ["id", "timestamp", "telegram_chat_id", "telegram_message_id"]
 
 # This class represents a single conversation had between a user and DImROD. It
 # retains messages and can be used to have an extended conversation (via the
@@ -273,6 +275,7 @@ class DialogueConversation(Config):
             ConfigField("id",           [str],              required=False, default=None),
             ConfigField("time_start",   [datetime],         required=False, default=None),
             ConfigField("time_latest",  [datetime],         required=False, default=None),
+            ConfigField("telegram_chat_id", [str],          required=False, default=None),
         ]
 
     def post_parse_init(self):
@@ -318,6 +321,12 @@ class DialogueConversation(Config):
                 return m
         return None
 
+    # Returns the latest message in the conversation.
+    def latest_message(self):
+        if len(self.messages) == 0:
+            return None
+        return self.messages[-1]
+
     # Converts the conversation's messages to a JSON dictionary suitable for
     # OpenAI's API.
     def to_openai_json(self):
@@ -326,14 +335,15 @@ class DialogueConversation(Config):
             result.append(m.to_openai_json())
         return result
 
-    # Creates and returns a unique string to use as a table to store this
-    # conversation's messages.
-    def to_sqlite3_table_name(self):
-        return "conversation_%s" % self.get_id()
+    # Creates and returns a unique string to use as a table to store messages
+    # for a specific conversation. The conversation ID is required.
+    @classmethod
+    def to_sqlite3_table_name(self, cid: str):
+        return "conversation_%s" % cid
 
     @classmethod
     def get_sqlite3_table_fields_kept_visible(self):
-        return ["id", "time_start", "time_latest"]
+        return ["id", "time_start", "time_latest", "telegram_chat_id"]
 
 
 # ============================= Dialogue Config ============================== #
@@ -557,7 +567,7 @@ class DialogueInterface:
             if convo.time_latest.timestamp() < threshold:
                 # delete the conversation's message table, then delete its entry
                 # from the global conversation table
-                cur.execute("DROP TABLE IF EXISTS %s" % convo.to_sqlite3_table_name())
+                cur.execute("DROP TABLE IF EXISTS %s" % DialogueConversation.to_sqlite3_table_name(convo.get_id()))
                 cur.execute("DELETE FROM conversations WHERE id == \"%s\"" % convo.get_id())
                 deletions += 1
 
@@ -599,7 +609,7 @@ class DialogueInterface:
         cur.execute(table_definition)
 
         # insert the author into the database
-        sqlite3_author = author.to_sqlite3(fields_to_keep_visible=table_fields_kept_visible)
+        sqlite3_author = author.to_sqlite3_str(fields_to_keep_visible=table_fields_kept_visible)
         cur.execute("INSERT OR REPLACE INTO authors VALUES %s" % str(sqlite3_author))
         con.commit()
         con.close()
@@ -655,12 +665,12 @@ class DialogueInterface:
         cur.execute(table_definition)
 
         # next, store the conversation's data in the conversation table
-        convo_sqlite3 = convo.to_sqlite3(fields_to_keep_visible=table_fields_kept_visible)
+        convo_sqlite3 = convo.to_sqlite3_str(fields_to_keep_visible=table_fields_kept_visible)
         cur.execute("INSERT OR REPLACE INTO conversations VALUES %s" %
                     str(convo_sqlite3))
 
         # get fields used to create the message table for this conversation
-        mtable_name = convo.to_sqlite3_table_name()
+        mtable_name = DialogueConversation.to_sqlite3_table_name(convo.get_id())
         table_fields_kept_visible = DialogueMessage.get_sqlite3_table_fields_kept_visible()
 
         # now, for each message in the conversation table, save/update it
@@ -675,7 +685,7 @@ class DialogueInterface:
                 cur.execute(table_definition)
 
             # convert the message to an SQLite 3 tuple and insert/update it
-            msg_sqlite3 = msg.to_sqlite3(fields_to_keep_visible=table_fields_kept_visible)
+            msg_sqlite3 = msg.to_sqlite3_str(fields_to_keep_visible=table_fields_kept_visible)
             cmd = "INSERT OR REPLACE INTO %s VALUES %s" % (mtable_name, str(msg_sqlite3))
             cur.execute(cmd)
         con.commit()
@@ -718,9 +728,86 @@ class DialogueInterface:
 
         return result
 
+    # Saves the provided message into its appropriate conversation table.
+    def save_message(self, msg: DialogueMessage, cid=None):
+        db_path = self.conf.dialogue_db
+
+        # query for the conversation; it must already exist
+        convos = self.search_conversation(cid=cid)
+        convos_len = len(convos)
+        if convos_len == 0:
+            raise Exception("Unknown conversation ID: \"%s\"" % cid)
+        assert convos_len == 1, "Multiple conversations found with ID: \"%s\"" % cid
+        convo = convos[0]
+
+        # determine the specific table
+        mtable_name = DialogueConversation.to_sqlite3_table_name(convo.get_id())
+        table_fields_kept_visible = DialogueMessage.get_sqlite3_table_fields_kept_visible()
+
+        # make sure the table exists
+        table_definition = msg.get_sqlite3_table_definition(
+            mtable_name,
+            fields_to_keep_visible=table_fields_kept_visible,
+            primary_key_field="id"
+        )
+        con = sqlite3.connect(db_path)
+        cur = con.cursor()
+        cur.execute(table_definition)
+
+        # convert the message to an SQLite3 tuple and insert/update it
+        msg_sqlite3 = msg.to_sqlite3_str(fields_to_keep_visible=table_fields_kept_visible)
+        cmd = "INSERT OR REPLACE INTO %s VALUES %s" % (mtable_name, str(msg_sqlite3))
+        cur.execute(cmd)
+
+        # commit and close
+        con.commit()
+        con.close()
+
+        # now that we have the message object updated (which lives in its
+        # conversation-specific database), we also need to update the
+        # conversation object as well. Why?
+        #
+        # When we serialize a conversation object, it contains the current
+        # state of its messages. This means, when we load it back from SQLite3
+        # and re-parse the encoded JSON, it will have the old message data. So,
+        # we need to update the corresponding message object within `convo` and
+        # save that as well.
+        #
+        # Iterate through the conversation object and replace the message
+        # object.
+        message_was_replaced = False
+        for (i, m) in enumerate(convo.messages):
+            if m.get_id() == msg.get_id():
+                convo.messages[i] = msg
+                message_was_replaced = True
+                break
+        # if the message did NOT already exist, add it to the end of the
+        # conversation's messages
+        if not message_was_replaced:
+            convo.messages.append(msg)
+        # save the updated conversation object
+        self.save_conversation(convo)
+
+        # determine if we need to prune the database
+        now = datetime.now()
+        prune_threshold = now.timestamp() - self.conf.dialogue_prune_rate
+        if self.last_prune.timestamp() < prune_threshold:
+            self.prune()
+
     # Searches all conversation tables for any messages with the matching
-    # parameters. Reeturns a list of DialogueMessage objects.
-    def search_message(self, mid=None, aid=None, time_range=None, keywords=[]):
+    # parameters. Reeturns a list of tuples containing:
+    #
+    #   (DialogueMessage, DialogueConversation)
+    #
+    # Where the `DialogueConversation` object corresponds to the conversation
+    # that the message belongs to.
+    def search_message(self,
+                       mid=None,
+                       aid=None,
+                       time_range=None,
+                       keywords=[],
+                       telegram_chat_id=None,
+                       telegram_message_id=None):
         db_path = self.conf.dialogue_db
         if not os.path.isfile(db_path):
             return []
@@ -751,8 +838,15 @@ class DialogueInterface:
                     for word in keywords:
                         add = add and word.lower() in msg.content.lower()
 
+                # CHECK 5 - telegram chat ID
+                if telegram_chat_id is not None:
+                    add = add and msg.telegram_chat_id == telegram_chat_id
+                # CHECK 6 - telegram message ID
+                if telegram_message_id is not None:
+                    add = add and msg.telegram_message_id == telegram_message_id
+
                 # add to the resulting list if all conditions pass
                 if add:
-                    result.append(msg)
+                    result.append((msg, convo))
         return result
 

@@ -64,7 +64,6 @@ class TelegramConfig(ServiceConfig):
             ConfigField("bot_conversation_timeout", [int],      required=False, default=900),
             ConfigField("bot_menu_db",              [str],      required=False, default=None),
             ConfigField("bot_menu_db_refresh_rate", [int],      required=False, default=60),
-            ConfigField("bot_message_map", [TelegramMessageMap], required=False, default=None),
             ConfigField("lumen",    [OracleSessionConfig],      required=True),
             ConfigField("warden",   [OracleSessionConfig],      required=True),
             ConfigField("notif",    [OracleSessionConfig],      required=True),
@@ -149,17 +148,8 @@ class TelegramService(Service):
                                         ".telegram_bot_menus.db")
         self.menu_db = MenuDatabase(menu_db_path)
 
-        # set up a message map database object
-        if self.config.bot_message_map is None:
-            self.config.bot_message_map = TelegramMessageMapConfig.from_json({
-                "db_path": os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                        ".telegram_bot_message_map.db")
-            })
-        self.msgmap = TelegramMessageMap(self.config.bot_message_map)
-
         # set up a menu thread to manage the database asynchronously
         self.menu_thread = TelegramService_MenuThread(self)
-        self.menu_thread.start()
 
     # ------------------------------- Helpers -------------------------------- #
     # Sets up a new TeleBot instance.
@@ -277,6 +267,63 @@ class TelegramService(Service):
         self.log.write("Failed to get conversation from speaker: %s" %
                        OracleSession.get_response_message(r))
         return None
+
+    # Searches for a message object and returns a list of matches.
+    def dialogue_message_search(self,
+                                message_id=None,
+                                telegram_message_id=None,
+                                telegram_chat_id=None):
+        speaker = self.get_speaker_session()
+        if speaker is None:
+            self.log.write("Failed to connect to the speaker.")
+            return (None, None)
+
+        # build a payload to pass to the speaker
+        pyld = {}
+        if message_id is not None:
+            pyld["message_id"] = message_id
+        if telegram_message_id is not None:
+            pyld["telegram_message_id"] = telegram_message_id
+        if telegram_chat_id is not None:
+            pyld["telegram_chat_id"] = telegram_chat_id
+
+        # ping the /message/search endpoint
+        r = speaker.post("/message/search", payload=pyld)
+        if OracleSession.get_response_success(r):
+            return OracleSession.get_response_json(r)
+
+        # if the above didn't work, return nothing
+        self.log.write("Failed to search messages from speaker: %s" %
+                       OracleSession.get_response_message(r))
+        return None
+
+    # Updates the message pointed at by `message_id` with the given parameters.
+    def dialogue_message_update(self,
+                                message_id: str,
+                                telegram_message_id=None,
+                                telegram_chat_id=None):
+        speaker = self.get_speaker_session()
+        if speaker is None:
+            self.log.write("Failed to connect to the speaker.")
+            return (None, None)
+
+        # build a payload to pass to the speaker
+        pyld = {"message_id": message_id}
+        if telegram_message_id is not None:
+            pyld["telegram_message_id"] = telegram_message_id
+        if telegram_chat_id is not None:
+            pyld["telegram_chat_id"] = telegram_chat_id
+
+        # ping the /message/search endpoint
+        r = speaker.post("/message/update", payload=pyld)
+        if OracleSession.get_response_success(r):
+            return OracleSession.get_response_json(r)
+
+        # if the above didn't work, return nothing
+        self.log.write("Failed to search messages from speaker: %s" %
+                       OracleSession.get_response_message(r))
+        return None
+
 
     # ------------------------------ Messaging ------------------------------- #
     # Helper function for properly formatting and sanitizing text to be used in
@@ -473,6 +520,9 @@ class TelegramService(Service):
     def run(self):
         super().run()
 
+        # start up auxiliary threads
+        self.menu_thread.start()
+
         # Generic message handler.
         @self.bot.message_handler()
         def bot_handle_message(message):
@@ -496,18 +546,51 @@ class TelegramService(Service):
                 return
 
             # if a matching command wasn't found, we'll interpret it as a chat
-            # message to dimrod. First, look for an existing conversation object
-            # for this specific chat. If one exists, AND it hasn't been too long
-            # since it was last touched, we'll use it
+            # message to DImROD.
+
+            # is this message in response to another? If so, look for a message
+            # mapping for the previous message
             convo_id = None
             chat_id = str(message.chat.id)
-            if chat_id in self.chat_conversations:
-                timediff = now.timestamp() - self.chat_conversations[chat_id]["timestamp"].timestamp()
-                if timediff < self.config.bot_conversation_timeout:
-                    convo_id = self.chat_conversations[chat_id]["conversation_id"]
-                else:
-                    self.log.write("Conversation for chat \"%s\" has expired." % chat_id)
+            if hasattr(message, "reply_to_message") and \
+               message.reply_to_message is not None:
+                rtmsg = message.reply_to_message
 
+                # search for a message mapped to the reply-to-message's
+                # telegram message ID
+                messages = self.dialogue_message_search(
+                    telegram_message_id=str(rtmsg.message_id),
+                )
+
+                # if a result was found, get the conversation ID from the
+                # message and save it
+                if messages is not None:
+                    messages_len = len(messages)
+                    if messages_len > 0:
+                        if messages_len > 1:
+                            self.log.write("Unexpectedly found more than one message "
+                                           "matching telegram message ID \"%s\". "
+                                           "Using the first one." %
+                                           str(rtmsg.message_id))
+                        convo_id = messages[0]["conversation_id"]
+
+                        # replace the converation ID in the local conversatoin
+                        # record, so the current conversation for this telegram
+                        # chat is replaced with this one
+                        self.chat_conversations[chat_id] = {
+                            "conversation_id": convo_id,
+                            "timestamp": datetime.now()
+                        }
+            # otherwise, look for an active conversation ID for this telegram
+            # chat, and use that conversation ID instead
+            else:
+                chat_id = str(message.chat.id)
+                if chat_id in self.chat_conversations:
+                    timediff = now.timestamp() - self.chat_conversations[chat_id]["timestamp"].timestamp()
+                    if timediff < self.config.bot_conversation_timeout:
+                        convo_id = self.chat_conversations[chat_id]["conversation_id"]
+                    else:
+                        self.log.write("Conversation for chat \"%s\" has expired." % chat_id)
             # next, pass the message (and conversation ID, if we found one) to
             # the dialogue interface
             try:
@@ -523,47 +606,28 @@ class TelegramService(Service):
                 # send the response, and capture the returned message object
                 rmessage = self.send_message(message.chat.id, response, parse_mode="HTML")
 
-                # if speaker IDs (conversation ID, author ID, message ID) are
-                # returned, then the speaker service saved a conversation and
-                # assigned IDs to the messages. Save a mapping of this to our
-                # Telegram-side message map
                 if "conversation_id" in talkdata:
-                    assert "request_message_id" in talkdata and \
-                           "request_author_id" in talkdata and \
-                           "response_message_id" in talkdata and \
-                           "response_author_id" in talkdata, \
-                           "Incomplete speaker message data returned."
-                    convo_id = talkdata["conversation_id"]
-
-                    # two mappings are needed: one for the request message, and
-                    # one for the response message
-                    request_mapping = TelegramMessageMapEntry.from_json({
-                        "telegram_chat_id": str(message.chat.id),
-                        "telegram_message_id": str(message.id),
-                        "speaker_conversation_id": convo_id,
-                        "speaker_message_id": talkdata["request_message_id"],
-                        "speaker_author_id": talkdata["request_author_id"],
-                        "timestamp": now,
-                    })
-                    rnow = datetime.now() # <-- time at which response was generated
-                    response_mapping = TelegramMessageMapEntry.from_json({
-                        "telegram_chat_id": str(rmessage.chat.id),
-                        "telegram_message_id": str(rmessage.id),
-                        "speaker_conversation_id": convo_id,
-                        "speaker_message_id": talkdata["response_message_id"],
-                        "speaker_author_id": talkdata["response_author_id"],
-                        "timestamp": rnow,
-                    })
-
-                    # save the mappings to the message map database
-                    self.msgmap.insert(request_mapping)
-                    self.msgmap.insert(response_mapping)
+                    # update both the request message (the user's message) and
+                    # the response message (the message we generated) to
+                    # includethe telegram chat ID and their corresponding
+                    # telegram message IDs. This will let us query for them
+                    # later by the telegram message ID
+                    self.dialogue_message_update(
+                        talkdata["request_message_id"],
+                        telegram_message_id=str(message.id),
+                        telegram_chat_id=str(message.chat.id)
+                    )
+                    self.dialogue_message_update(
+                        talkdata["response_message_id"],
+                        telegram_message_id=str(rmessage.id),
+                        telegram_chat_id=str(rmessage.chat.id)
+                    )
 
                     # add the conversation record to the local, temporary
                     # conversation table (this is used to track, and timeout,
                     # active conversations)
                     self.chat_conversations[chat_id] = {
-                        "conversation_id": convo_id,
+                        "conversation_id": talkdata["conversation_id"],
                         "timestamp": datetime.now()
                     }
 
@@ -729,171 +793,6 @@ class TelegramService_MenuThread(threading.Thread):
 
             # sleep for the configured time
             time.sleep(self.service.config.bot_menu_db_refresh_rate)
-
-
-
-# ------------- Telegram Message to Speaker Conversation Mapping ------------- #
-# The `Speaker` service maintains a database of conversations.
-# This service (`Telegram`) occasionally asks `Speaker` to store message data
-# in its conversation database. In order to know if a specific Telegram message
-# is part of a `Speaker` dialogue conversation, we need to maintain a mapping
-# of Telegram message IDs to `Speaker` conversation IDs and message IDs.
-
-# An object representing a single mapping between a Telegram message and a
-# Speaker conversation/message.
-class TelegramMessageMapEntry(Config):
-    def __init__(self):
-        super().__init__()
-        self.fields = [
-            ConfigField("telegram_chat_id",         [str],  required=True),
-            ConfigField("telegram_message_id",      [str],  required=True),
-            ConfigField("speaker_conversation_id",  [str],  required=False, default=None),
-            ConfigField("speaker_message_id",       [str],  required=False, default=None),
-            ConfigField("speaker_author_id",        [str],  required=False, default=None),
-            ConfigField("timestamp",                [datetime], required=False, default=None),
-        ]
-
-# Represents a configuration for the `TelegramMessageMap` object.
-class TelegramMessageMapConfig(Config):
-    def __init__(self):
-        super().__init__()
-        self.fields = [
-            ConfigField("db_path",                  [str],  required=True),
-        ]
-
-# An object used to maintain a SQLite3 database containing
-# `TelegramMessageMapEntry` objects.
-class TelegramMessageMap:
-    def __init__(self, config: TelegramMessageMapConfig):
-        self.config = config
-        self.db_fields_to_keep_visible = [
-            "telegram_chat_id",
-            "telegram_message_id",
-            "speaker_conversation_id",
-            "speaker_message_id",
-            "speaker_author_id",
-        ]
-        self.db_table_name = "map"
-
-    # Helper function that initializes the main table within the SQLite3
-    # database.
-    def init_table(self, mapping: TelegramMessageMapEntry, connection=None):
-        con = connection
-        if connection is None:
-            con = sqlite3.connect(self.config.db_path)
-
-        cur = con.cursor()
-        table_definition = mapping.get_sqlite3_table_definition(
-            self.db_table_name,
-            fields_to_keep_visible=self.db_fields_to_keep_visible,
-            primary_key_field="telegram_message_id",
-        )
-        cur.execute(table_definition)
-        con.commit()
-
-        if connection is None:
-            con.close()
-
-    # Inserts the provided mapping into the database.
-    def insert(self, mapping: TelegramMessageMapEntry):
-        con = sqlite3.connect(self.config.db_path)
-        cur = con.cursor()
-        self.init_table(mapping, connection=con)
-
-        # insert/replace the mapping
-        mapping_sqlite3 = mapping.to_sqlite3(fields_to_keep_visible=self.db_fields_to_keep_visible)
-        cur.execute("INSERT OR REPLACE INTO %s VALUES %s" %
-                    (self.db_table_name, str(mapping_sqlite3)))
-        con.commit()
-        con.close()
-
-    # Performs a search of the database and returns tuples in a list.
-    def search(self, condition: str):
-        # build a SELECT command
-        cmd = "SELECT * FROM %s" % self.db_table_name
-        if condition is not None and len(condition) > 0:
-            cmd += " WHERE %s" % condition
-
-        # connect, query, and return
-        con = sqlite3.connect(self.config.db_path)
-        cur = con.cursor()
-        result = cur.execute(cmd)
-        return result
-
-    # Returns the mapping for the provided Telegram message ID, or `None` if no
-    # mapping exists.
-    def search_by_telegram_message_id(self, telegram_message_id: str):
-        condition = "telegram_message_id == \"%s\"" % telegram_message_id
-        results = self.search(condition)
-
-        # make sure there are either 0, or exactly 1 match
-        results_len = len(results)
-        if results_len == 0:
-            return None
-        assert results_len == 1, \
-            "Multiple entries found for the same Telegram message ID (\"%s\")" % telegram_message_id
-
-        # return the first result (there should only be one)
-        return TelegramMessageMapEntry.from_sqlite3(results[0])
-
-    # Returns a list of all mappings that have the provided chat ID. If no
-    # mappings exist, an empty list is returned.
-    def search_by_telegram_chat_id(self, telegram_chat_id: str):
-        condition = "telegram_chat_id == \"%s\"" % telegram_chat_id
-        results = []
-        for row in self.search(condition):
-            results.append(TelegramMessageMapEntry.from_sqlite3(row))
-        return results
-
-    # Returns the mapping for the provided Speaker message ID, or `None` if no
-    # mapping exists.
-    def search_by_speaker_message_id(self, speaker_message_id: str):
-        condition = "speaker_message_id == \"%s\"" % speaker_message_id
-        results = self.search(condition)
-
-        # make sure there are either 0, or exactly 1 match
-        results_len = len(results)
-        if results_len == 0:
-            return None
-        assert results_len == 1, \
-            "Multiple entries found for the same Speaker message ID (\"%s\")" % speaker_message_id
-
-        # return the first result (there should only be one)
-        return TelegramMessageMapEntry.from_sqlite3(results[0])
-
-    # Returns a list of all mappings that have the provided Speaker
-    # conversation ID. If no mappings exist, an empty list is returned.
-    def search_by_speaker_conversation_id(self, speaker_conversation_id: str):
-        condition = "speaker_conversation_id == \"%s\"" % speaker_conversation_id
-        results = []
-        for row in self.search(condition):
-            results.append(TelegramMessageMapEntry.from_sqlite3(row))
-        return results
-
-    # Returns a list of all mappings that have the provided Speaker
-    # author ID. If no mappings exist, an empty list is returned.
-    def search_by_speaker_author_id(self, speaker_author_id: str):
-        condition = "speaker_author_id == \"%s\"" % speaker_author_id
-        results = []
-        for row in self.search(condition):
-            results.append(TelegramMessageMapEntry.from_sqlite3(row))
-        return results
-
-    # Deletes the mapping for the specific Telegram message ID.
-    def delete_by_telegram_message_id(self, telegram_message_id: str):
-        con = sqlite3.connect(self.config.db_path)
-        cur = con.cursor()
-        cur.execute("DELETE FROM %s WHERE telegram_message_id == \"%s\"" % (self.db_table_name, telegram_message_id))
-        con.commit()
-        con.close()
-
-    # Deletes the mapping for the specific Speaker message ID.
-    def delete_by_speaker_message_id(self, speaker_message_id: str):
-        con = sqlite3.connect(self.config.db_path)
-        cur = con.cursor()
-        cur.execute("DELETE FROM %s WHERE speaker_message_id == \"%s\"" % (self.db_table_name, speaker_message_id))
-        con.commit()
-        con.close()
 
 
 # ============================== Service Oracle ============================== #
