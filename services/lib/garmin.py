@@ -126,30 +126,65 @@ class Garmin:
         assert self.client is not None, \
             "Not logged into Garmin Connect; please call one of the login methods first"
 
+    # ------------------------------- Helpers -------------------------------- #
+    # Helper function (mostly for debugging) that returns a list of all
+    # functions that can be invoked through the inner Garmin client.
+    def get_all_inner_functions(self):
+        self.check_logged_in()
+        results = []
+        for entry in dir(self.client):
+            if callable(getattr(self.client, entry)) and not entry.startswith("_"):
+                results.append(entry)
+        return results
+
+    # Generic function to help check for errors in returned Garmin API results.
+    # The provided result object is passed through this function and returned.
+    def check_errors(self, result):
+        # look for an error message
+        errmsg = None
+        if hasattr(result, "errorMessage") and result.errorMessage is not None:
+            errmsg = str(result.errorMessage)
+
+        # look for a status code
+        status_code = None
+        if hasattr(result, "statusCode"):
+            status_code = result.statusCodea
+            if status_code == 200:
+                return result
+
+            # put together an error message
+            msg = "Garmin API error (code %d)" % status_code
+            if errmsg is not None:
+                msg += ": %s" % errmsg
+            raise Exception(msg)
+
+        return result
+
+
     # ------------------------------ Interface ------------------------------- #
     # Returns the full name of the Garmin account owner.
     def get_full_name(self):
         self.check_logged_in()
-        return self.client.get_full_name()
+        return self.check_errors(self.client.get_full_name())
 
     # Returns an object containing data on the device that was used last.
     def get_device_last_used(self):
         self.check_logged_in()
-        return self.client.get_device_last_used()
+        return self.check_errors(self.client.get_device_last_used())
 
     # Returns a list of objects containing device data.
     def get_devices(self):
         self.check_logged_in()
-        return self.client.get_devices()
+        return self.check_errors(self.client.get_devices())
 
     # Returns a list of objects containing step data; one object for each day
     # in the specified range.
     def get_steps_per_day(self, start_date: datetime, end_date: datetime):
         self.check_logged_in()
-        return self.client.get_daily_steps(
+        return self.check_errors(self.client.get_daily_steps(
             dtu.format_yyyymmdd(start_date),
             dtu.format_yyyymmdd(end_date),
-        )
+        ))
 
     # Returns a list of objects containing data on the number of floors/stories
     # climbed.
@@ -162,13 +197,45 @@ class Garmin:
 
         results = []
         for day in days:
-            results.append(self.client.get_floors(dtu.format_yyyymmdd(day)))
+            results.append(self.check_errors(self.client.get_floors(dtu.format_yyyymmdd(day))))
         return results
+
+    # Returns a list of activities for a specific day.
+    def get_activities_for_day(self, dt: datetime):
+        self.check_logged_in()
+        result = self.client.get_activities_fordate(dtu.format_yyyymmdd(dt))
+        self.check_errors(result)
+
+        # Extract the activity object list from the result object
+        activities = result["ActivitiesForDay"]["payload"]
+        return activities
+
+    # Returns a list of activities across a span of days.
+    # The returned list is in sorted order, where the earliest activity
+    # appears first in the list
+    def get_activities_for_day_range(self, start_date: datetime, end_date: datetime):
+        self.check_logged_in()
+        return self.check_errors(self.client.get_activities_by_date(
+            dtu.format_yyyymmdd(start_date),
+            dtu.format_yyyymmdd(end_date),
+            sortorder="asc"
+        ))
+
+    # Returns heart rate data for the given date.
+    def get_heart_rate_for_day(self, dt: datetime):
+        self.check_logged_in()
+        return self.check_errors(self.client.get_heart_rates(dtu.format_yyyymmdd(dt)))
+
+    # Returns sleep data for the given date.
+    def get_sleep_for_day(self, dt: datetime):
+        self.check_logged_in()
+        return self.check_errors(self.client.get_sleep_data(dtu.format_yyyymmdd(dt)))
 
 
 # ================================ TEST CODE ================================= #
 import lib.dtu as dtu
 from datetime import datetime
+import json
 
 config = GarminConfig.from_json({
     "account_email": os.getenv("GARMIN_EMAIL", ""),
@@ -188,9 +255,9 @@ if lwt != GarminLoginStatus.SUCCESS:
         print("LOGIN WITH 2FA: %s" % str(lw2))
 
 # SHOW ALL FUNCTIONS
-for entry in dir(g.client):
-    if callable(getattr(g.client, entry)) and not entry.startswith("_"):
-        print("FUNCTION: %s" % entry)
+print("ALL INNER API FUNCTIONS:")
+for entry in g.get_all_inner_functions():
+    print("  - %s" % entry)
 
 device_info = g.get_device_last_used()
 print("DEVICE LAST USED: %s" % device_info)
@@ -214,4 +281,16 @@ for day in steps:
 #print("FLOORS FROM %s TO %s:" % (dtu.format_yyyymmdd(steps_start), dtu.format_yyyymmdd(steps_end)))
 #for floor in floors:
 #    print("  - %s: ascended %d, descended %d" % (floor["calendarDate"], floor["totalFloors"]))
+
+activities = g.get_activities_for_day(dtu.add_days(steps_start, 4))
+print("ACTIVITIES: %s" % activities)
+
+activities = g.get_activities_for_day_range(steps_start, steps_end)
+print("ACTIVITIES (%s - %s): %s" % (steps_start, steps_end, activities))
+
+hr = g.get_heart_rate_for_day(dtu.add_days(dtu.add_days(steps_end, -1)))
+print("HEART RATE DATA: %s" % hr)
+
+hr = g.get_sleep_for_day(dtu.add_days(dtu.add_days(steps_end, -1)))
+print("SLEEP DATA: %s" % json.dumps(hr, indent=4))
 
