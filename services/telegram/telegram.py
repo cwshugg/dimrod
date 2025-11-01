@@ -27,6 +27,8 @@ from lib.config import Config, ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle, OracleSession, OracleSessionConfig
 from lib.cli import ServiceCLI
+from lib.dialogue import DialogueConversation, DialogueMessage, \
+                         DialogueAuthor, DialogueAuthorType
 from lib.google.google_calendar import GoogleCalendarConfig
 from lib.ynab import YNABConfig
 from lib.news import NewsAPIConfig, NewsAPIQueryArticles
@@ -324,6 +326,46 @@ class TelegramService(Service):
                        OracleSession.get_response_message(r))
         return None
 
+    # Creates a new conversation.
+    def dialogue_conversation_create(self, convo: DialogueConversation):
+        speaker = self.get_speaker_session()
+        if speaker is None:
+            self.log.write("Failed to connect to the speaker.")
+            return (None, None)
+
+        # build a payload to pass to the speaker and ping the
+        # `/conversation/create` endpoint
+        pyld = {"conversation": convo.to_json()}
+        r = speaker.post("/conversation/create", payload=pyld)
+        if OracleSession.get_response_success(r):
+            return OracleSession.get_response_json(r)
+
+        # if the above didn't work, return nothing
+        self.log.write("Failed to create a conversation with speaker: %s" %
+                       OracleSession.get_response_message(r))
+        return None
+
+    def dialogue_conversation_addmsg(self, convo_id: str, msg: DialogueMessage):
+        speaker = self.get_speaker_session()
+        if speaker is None:
+            self.log.write("Failed to connect to the speaker.")
+            return (None, None)
+
+        # build a payload to pass to the speaker and ping the
+        # `/conversation/addmsg` endpoint
+        pyld = {
+            "conversation_id": convo_id,
+            "message": msg.to_json()
+        }
+        r = speaker.post("/conversation/addmsg", payload=pyld)
+        if OracleSession.get_response_success(r):
+            return OracleSession.get_response_json(r)
+
+        # if the above didn't work, return nothing
+        self.log.write("Failed to add a message to conversation \"%s\" with speaker: %s" %
+                       (convo_id,
+                       OracleSession.get_response_message(r)))
+        return None
 
     # ------------------------------ Messaging ------------------------------- #
     # Helper function for properly formatting and sanitizing text to be used in
@@ -414,6 +456,37 @@ class TelegramService(Service):
                 self.refresh()
                 time.sleep(self.config.bot_error_retry_delay)
         self.log.write("Failed to delete message. Giving up.")
+
+    # Sends a message that is intended to pose a question (and ask for a
+    # response from) the user. The message is sent, and a conversation is sent
+    # to Speaker for storage. The details of the conversation are returned, so
+    # the caller can check in for a response later.
+    def send_question(self, chat_id, question: str, parse_mode=None):
+        # send the message, and receive the telegram message object
+        message = self.send_message(chat_id, question, parse_mode=parse_mode)
+
+        # create a `DialogueConversation` object to represent this question
+        now = datetime.now()
+        convo = DialogueConversation.from_json({
+            "messages": [
+                DialogueMessage.from_json({
+                    "author": DialogueAuthor.from_json({
+                        "type": DialogueAuthorType.SYSTEM_QUERY_TO_USER.value,
+                        "name": "telegram_questioner",
+                    }),
+                    "content": question,
+                    "telegram_chat_id": str(chat_id),
+                    "telegram_message_id": str(message.id),
+                }).to_json()
+            ],
+            "time_start": now.isoformat(),
+            "time_latest": now.isoformat(),
+            "telegram_chat_id": str(chat_id),
+        })
+        convo_data = self.dialogue_conversation_create(convo)
+
+        # return the conversation object that was returned by Speaker
+        return DialogueConversation.from_json(convo_data)
 
     # Builds and sends a menu of buttons.
     def send_menu(self, chat_id, m: Menu,
@@ -551,6 +624,7 @@ class TelegramService(Service):
             # is this message in response to another? If so, look for a message
             # mapping for the previous message
             convo_id = None
+            convo_is_system_query = False
             chat_id = str(message.chat.id)
             if hasattr(message, "reply_to_message") and \
                message.reply_to_message is not None:
@@ -572,15 +646,23 @@ class TelegramService(Service):
                                            "matching telegram message ID \"%s\". "
                                            "Using the first one." %
                                            str(rtmsg.message_id))
-                        convo_id = messages[0]["conversation_id"]
+                        first_message_data = messages[0]
+                        first_message = DialogueMessage.from_json(first_message_data["message"])
+                        convo_id = first_message_data["conversation_id"]
 
-                        # replace the converation ID in the local conversatoin
-                        # record, so the current conversation for this telegram
-                        # chat is replaced with this one
-                        self.chat_conversations[chat_id] = {
-                            "conversation_id": convo_id,
-                            "timestamp": datetime.now()
-                        }
+                        # is the message a system query type?
+                        if first_message.author.type in [DialogueAuthorType.SYSTEM_QUERY_TO_USER,
+                                                         DialogueAuthorType.USER_ANSWER_TO_QUERY]:
+                            convo_is_system_query = True
+                        # if the message is a normal message, we want to
+                        # replace the conversation ID in the local conversation
+                        # record, such that this particular telegram chat's
+                        # current conversation is replaced with this one
+                        else:
+                            self.chat_conversations[chat_id] = {
+                                "conversation_id": convo_id,
+                                "timestamp": datetime.now()
+                            }
             # otherwise, look for an active conversation ID for this telegram
             # chat, and use that conversation ID instead
             else:
@@ -591,8 +673,31 @@ class TelegramService(Service):
                         convo_id = self.chat_conversations[chat_id]["conversation_id"]
                     else:
                         self.log.write("Conversation for chat \"%s\" has expired." % chat_id)
-            # next, pass the message (and conversation ID, if we found one) to
-            # the dialogue interface
+
+            # is the conversation a system query to the user? If so, we'll
+            # simply update the conversation to include this new message, and
+            # react to the message
+            if convo_is_system_query:
+                # put together a message object to use to update the system
+                # query conversation
+                answer_msg = DialogueMessage.from_json({
+                    "author": DialogueAuthor.from_json({
+                        "type": DialogueAuthorType.USER_ANSWER_TO_QUERY.value,
+                        "name": "telegram_answerer",
+                    }),
+                    "content": message.text,
+                    "telegram_chat_id": str(chat_id),
+                    "telegram_message_id": str(message.id),
+                })
+                self.dialogue_conversation_addmsg(convo_id, answer_msg)
+
+                # add a reaction to the message, so the user knows we processed
+                # the message
+                self.react_to_message(chat_id, message.id, emoji="👍")
+                return
+
+            # if it's a normal message, pass the message (and conversation ID,
+            # if we found one) to the dialogue interface
             try:
                 talkdata = self.dialogue_talk(message, conversation_id=convo_id)
 
@@ -640,7 +745,6 @@ class TelegramService(Service):
 
                 # raise the exception
                 raise e
-
 
         # Callback for any menu buttons that are pressed.
         @self.bot.callback_query_handler(func=lambda call: True)
@@ -998,6 +1102,39 @@ class TelegramOracle(Oracle):
             self.service.remove_message_reactions(chat_id,
                                                   flask.g.jdata["message_id"])
             return self.make_response(msg="Message reactions deleted successfully.")
+
+        # Endpoint used to instruct the bot to send a message.
+        @self.server.route("/bot/send/question", methods=["POST"])
+        def endpoint_bot_send_question():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No JSON data provided.")
+
+            # look for a "text" field in the JSON data
+            if "text" not in flask.g.jdata:
+                return self.make_response(success=False,
+                                          msg="No message text provided.")
+
+            # make sure we have a chat ID to work with
+            chat_id = self.resolve_chat_id(flask.g.jdata)
+            if chat_id is None:
+                return self.make_response(success=False,
+                                          msg="No chat or user provided.")
+
+            # parse the parse mode (optional)
+            pmode = "HTML"
+            if "parse_mode" in flask.g.jdata:
+                pmode = str(flask.g.jdata["parse_mode"])
+
+            # send the message and respond
+            convo = self.service.send_question(
+                chat_id,
+                flask.g.jdata["text"],
+                parse_mode=pmode
+            )
+            return self.make_response(payload=convo.to_json())
 
         # Endpoint used to instruct the bot to send a message with a menu (a
         # series of buttons) attached.

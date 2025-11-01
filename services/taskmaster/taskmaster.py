@@ -120,10 +120,10 @@ class TaskmasterThread(threading.Thread):
 
             # attempt to execute the queued taskjob
             try:
-                is_success = j.update(self.service.get_todoist(),
-                                      self.service.get_gcal())
                 now = datetime.now()
                 j.set_last_update_datetime(now)
+                is_success = j.update(self.service.get_todoist(),
+                                      self.service.get_gcal())
 
                 # if the task succeeded, save the timestamp to disk
                 if is_success:

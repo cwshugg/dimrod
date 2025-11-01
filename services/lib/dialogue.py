@@ -168,6 +168,7 @@ class DialogueAuthorType(Enum):
     SYSTEM_QUERY_TO_USER = 1    # message to user seeking a response
     # User author types
     USER = 1000                 # default author type for a message sent by a user
+    USER_ANSWER_TO_QUERY = 1001 # user answering a `SYSTEM_QUERY_TO_USER` message
 
 # This class represents a single speaker in a dialogue (ex: DImROD itself, a
 # telegram user, etc.)

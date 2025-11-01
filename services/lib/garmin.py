@@ -43,9 +43,10 @@ class GarminConfig(Config):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("account_email",        [str],  required=True),
-            ConfigField("account_password",     [str],  required=True),
-            ConfigField("auth_tokenstore_dir",  [str],  required=False, default=garminconnect_default_token_dir),
+            ConfigField("account_email",            [str],  required=True),
+            ConfigField("account_password",         [str],  required=True),
+            ConfigField("auth_2fa_telegram_chat",   [str],  required=True),
+            ConfigField("auth_tokenstore_dir",      [str],  required=False, default=garminconnect_default_token_dir),
         ]
 
 # Main class for interacting with Garmin Connect.
@@ -233,64 +234,64 @@ class Garmin:
 
 
 # ================================ TEST CODE ================================= #
-import lib.dtu as dtu
-from datetime import datetime
-import json
-
-config = GarminConfig.from_json({
-    "account_email": os.getenv("GARMIN_EMAIL", ""),
-    "account_password": os.getenv("GARMIN_PASSWORD", ""),
-})
-g = Garmin(config)
-
-lwt = g.login_with_tokenstore()
-print("LOGIN WITH TOKEN STORE: %s" % str(lwt))
-
-if lwt != GarminLoginStatus.SUCCESS:
-    lwc = g.login_with_credentials()
-    print("LOGIN WITH CREDENTIALS: %s" % str(lwc))
-    if lwc == GarminLoginStatus.NEED_2FA:
-        code = input("Enter 2FA code: ")
-        lw2 = g.login_with_2fa(code)
-        print("LOGIN WITH 2FA: %s" % str(lw2))
-
-# SHOW ALL FUNCTIONS
-print("ALL INNER API FUNCTIONS:")
-for entry in g.get_all_inner_functions():
-    print("  - %s" % entry)
-
-device_info = g.get_device_last_used()
-print("DEVICE LAST USED: %s" % device_info)
-
-devices = g.get_devices()
-print("DEVICES:")
-for device in devices:
-    print("  - %s (%s)" % (device.get("displayName", "???"), device.get("deviceId", "???")))
-
-now = datetime.now()
-steps_start = dtu.add_weeks(now, -1)
-steps_end = now
-steps = g.get_steps_per_day(steps_start, steps_end)
-print("STEPS FROM %s TO %s:" % (dtu.format_yyyymmdd(steps_start), dtu.format_yyyymmdd(steps_end)))
-for day in steps:
-    print("  - %s: %d" % (day["calendarDate"], day["totalSteps"]))
-
-#floors_start = steps_start
-#floors_end = steps_end
-#floors = g.get_floors_per_day(floors_start, floors_end)
-#print("FLOORS FROM %s TO %s:" % (dtu.format_yyyymmdd(steps_start), dtu.format_yyyymmdd(steps_end)))
-#for floor in floors:
-#    print("  - %s: ascended %d, descended %d" % (floor["calendarDate"], floor["totalFloors"]))
-
-activities = g.get_activities_for_day(dtu.add_days(steps_start, 4))
-print("ACTIVITIES: %s" % activities)
-
-activities = g.get_activities_for_day_range(steps_start, steps_end)
-print("ACTIVITIES (%s - %s): %s" % (steps_start, steps_end, activities))
-
-hr = g.get_heart_rate_for_day(dtu.add_days(dtu.add_days(steps_end, -1)))
-print("HEART RATE DATA: %s" % hr)
-
-hr = g.get_sleep_for_day(dtu.add_days(dtu.add_days(steps_end, -1)))
-print("SLEEP DATA: %s" % json.dumps(hr, indent=4))
+#import lib.dtu as dtu
+#from datetime import datetime
+#import json
+#
+#config = GarminConfig.from_json({
+#    "account_email": os.getenv("GARMIN_EMAIL", ""),
+#    "account_password": os.getenv("GARMIN_PASSWORD", ""),
+#})
+#g = Garmin(config)
+#
+#lwt = g.login_with_tokenstore()
+#print("LOGIN WITH TOKEN STORE: %s" % str(lwt))
+#
+#if lwt != GarminLoginStatus.SUCCESS:
+#    lwc = g.login_with_credentials()
+#    print("LOGIN WITH CREDENTIALS: %s" % str(lwc))
+#    if lwc == GarminLoginStatus.NEED_2FA:
+#        code = input("Enter 2FA code: ")
+#        lw2 = g.login_with_2fa(code)
+#        print("LOGIN WITH 2FA: %s" % str(lw2))
+#
+## SHOW ALL FUNCTIONS
+#print("ALL INNER API FUNCTIONS:")
+#for entry in g.get_all_inner_functions():
+#    print("  - %s" % entry)
+#
+#device_info = g.get_device_last_used()
+#print("DEVICE LAST USED: %s" % device_info)
+#
+#devices = g.get_devices()
+#print("DEVICES:")
+#for device in devices:
+#    print("  - %s (%s)" % (device.get("displayName", "???"), device.get("deviceId", "???")))
+#
+#now = datetime.now()
+#steps_start = dtu.add_weeks(now, -1)
+#steps_end = now
+#steps = g.get_steps_per_day(steps_start, steps_end)
+#print("STEPS FROM %s TO %s:" % (dtu.format_yyyymmdd(steps_start), dtu.format_yyyymmdd(steps_end)))
+#for day in steps:
+#    print("  - %s: %d" % (day["calendarDate"], day["totalSteps"]))
+#
+##floors_start = steps_start
+##floors_end = steps_end
+##floors = g.get_floors_per_day(floors_start, floors_end)
+##print("FLOORS FROM %s TO %s:" % (dtu.format_yyyymmdd(steps_start), dtu.format_yyyymmdd(steps_end)))
+##for floor in floors:
+##    print("  - %s: ascended %d, descended %d" % (floor["calendarDate"], floor["totalFloors"]))
+#
+#activities = g.get_activities_for_day(dtu.add_days(steps_start, 4))
+#print("ACTIVITIES: %s" % activities)
+#
+#activities = g.get_activities_for_day_range(steps_start, steps_end)
+#print("ACTIVITIES (%s - %s): %s" % (steps_start, steps_end, activities))
+#
+#hr = g.get_heart_rate_for_day(dtu.add_days(dtu.add_days(steps_end, -1)))
+#print("HEART RATE DATA: %s" % hr)
+#
+#hr = g.get_sleep_for_day(dtu.add_days(dtu.add_days(steps_end, -1)))
+#print("SLEEP DATA: %s" % json.dumps(hr, indent=4))
 

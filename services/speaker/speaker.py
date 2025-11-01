@@ -766,7 +766,7 @@ class SpeakerOracle(Oracle):
             msg = None
             try:
                 msg = DialogueMessage.from_json(msg_data)
-                convo.add_message(msg)
+                convo.add(msg)
                 self.service.dialogue.save_conversation(convo)
             except Exception as e:
                 return self.make_response(msg="Failed to save new message: %s" % e,

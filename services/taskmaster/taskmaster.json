@@ -50,5 +50,13 @@
     "dialogue":
     {
         "openai_api_key": "YOUR_OPENAI_API_KEY"
+    },
+
+    "wyze":
+    {
+        "email": "YOUR_WYZE_EMAIL",
+        "password": "YOUR_WYZE_PASSWORD",
+        "api_key_id": "YOUR_WYZE_API_KEY_ID",
+        "api_key": "YOUR_WYZE_API_KEY"
     }
 }
