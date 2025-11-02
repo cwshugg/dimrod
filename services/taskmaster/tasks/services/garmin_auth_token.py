@@ -80,7 +80,7 @@ class TaskJob_Services_GarminAuthToken(TaskJob_Services):
 
             # at this point, we know logging in with 2FA succeeded; send a
             # message to tell the user authentication succeeded
-            msg = "Successfully generated a new Garmin API auth token. Thanks!"
+            msg = "🔓 Successfully generated a new Garmin API auth token. Thanks!"
             self.send_message(self.garmin_config.auth_2fa_telegram_chat, msg)
 
         return True
@@ -150,7 +150,6 @@ class TaskJob_Services_GarminAuthToken(TaskJob_Services):
 
             # otherwise, sleep for a time and try again. Cycle through the poll
             # times, so we check less frequently as time goes on
-            print(self.auth_2fa_poll_timings)
             poll_time = self.auth_2fa_poll_time_default
             if poll_idx < poll_array_len:
                 poll_time = self.auth_2fa_poll_timings[poll_idx]
