@@ -710,6 +710,8 @@ class TelegramService(Service):
 
                 # send the response, and capture the returned message object
                 rmessage = self.send_message(message.chat.id, response, parse_mode="HTML")
+                if rmessage is None:
+                    raise Exception("Failed to send response message.")
 
                 if "conversation_id" in talkdata:
                     # update both the request message (the user's message) and

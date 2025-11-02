@@ -9,7 +9,7 @@ import logging
 
 # Garmin imports
 import garminconnect
-from garth.exc import GarthHTTPError
+from garth.exc import GarthHTTPError, GarthException
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -18,6 +18,7 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.config import Config, ConfigField
+import lib.dtu as dtu
 
 # Silence logging from garminconnect
 logging.getLogger("garminconnect").setLevel(logging.CRITICAL)
@@ -111,6 +112,8 @@ class Garmin:
                 return GarminLoginStatus.BAD_2FA_CODE
             else:
                 return GarminLoginStatus.FAILURE
+        except GarthException as e:
+            return GarminLoginStatus.FAILURE
 
     # Attempts to log in with an existing token.
     def login_with_tokenstore(self):
@@ -178,17 +181,44 @@ class Garmin:
         self.check_logged_in()
         return self.check_errors(self.client.get_devices())
 
-    # Returns a list of objects containing step data; one object for each day
-    # in the specified range.
-    def get_steps_per_day(self, start_date: datetime, end_date: datetime):
+    # Returns a list of objects containing the TOTAL step count for a day; one
+    # object for each day in the specified range.
+    def get_steps_total_per_day(self, start_date: datetime, end_date: datetime):
         self.check_logged_in()
         return self.check_errors(self.client.get_daily_steps(
             dtu.format_yyyymmdd(start_date),
             dtu.format_yyyymmdd(end_date),
         ))
 
+    # Returns a list of objects containing data on the number of steps taken
+    # throughout a day, for each day in the specified range.
+    #
+    # NOTE: This function calls the Garmin API once per day in the specified
+    # range, so it may take a while to complete if the range is large. It may
+    # also quickly hit the rate limit if you requeset too many.
+    #
+    # A list of thees objects is returned for each call to the inner function:
+    #
+    # {
+    #     "startGMT": "2025-11-02T05:00:00.0",
+    #     "endGMT": "2025-11-02T05:15:00.0",
+    #     "steps": 22,
+    #     "pushes": 0,
+    #     "primaryActivityLevel": "sedentary",
+    #     "activityLevelConstant": true
+    # }
+    def get_steps_per_day(self, start_date: datetime, end_date: datetime):
+        self.check_logged_in()
+        days = dtu.split_by_day(start_date, end_date)
+
+        results = []
+        for day in days:
+            results.append(self.check_errors(self.client.get_steps_data(dtu.format_yyyymmdd(day))))
+        return results
+
     # Returns a list of objects containing data on the number of floors/stories
     # climbed.
+    #
     # NOTE: This function calls the Garmin API once per day in the specified
     # range, so it may take a while to complete if the range is large. It may
     # also quickly hit the rate limit if you requeset too many.
@@ -231,67 +261,4 @@ class Garmin:
     def get_sleep_for_day(self, dt: datetime):
         self.check_logged_in()
         return self.check_errors(self.client.get_sleep_data(dtu.format_yyyymmdd(dt)))
-
-
-# ================================ TEST CODE ================================= #
-#import lib.dtu as dtu
-#from datetime import datetime
-#import json
-#
-#config = GarminConfig.from_json({
-#    "account_email": os.getenv("GARMIN_EMAIL", ""),
-#    "account_password": os.getenv("GARMIN_PASSWORD", ""),
-#})
-#g = Garmin(config)
-#
-#lwt = g.login_with_tokenstore()
-#print("LOGIN WITH TOKEN STORE: %s" % str(lwt))
-#
-#if lwt != GarminLoginStatus.SUCCESS:
-#    lwc = g.login_with_credentials()
-#    print("LOGIN WITH CREDENTIALS: %s" % str(lwc))
-#    if lwc == GarminLoginStatus.NEED_2FA:
-#        code = input("Enter 2FA code: ")
-#        lw2 = g.login_with_2fa(code)
-#        print("LOGIN WITH 2FA: %s" % str(lw2))
-#
-## SHOW ALL FUNCTIONS
-#print("ALL INNER API FUNCTIONS:")
-#for entry in g.get_all_inner_functions():
-#    print("  - %s" % entry)
-#
-#device_info = g.get_device_last_used()
-#print("DEVICE LAST USED: %s" % device_info)
-#
-#devices = g.get_devices()
-#print("DEVICES:")
-#for device in devices:
-#    print("  - %s (%s)" % (device.get("displayName", "???"), device.get("deviceId", "???")))
-#
-#now = datetime.now()
-#steps_start = dtu.add_weeks(now, -1)
-#steps_end = now
-#steps = g.get_steps_per_day(steps_start, steps_end)
-#print("STEPS FROM %s TO %s:" % (dtu.format_yyyymmdd(steps_start), dtu.format_yyyymmdd(steps_end)))
-#for day in steps:
-#    print("  - %s: %d" % (day["calendarDate"], day["totalSteps"]))
-#
-##floors_start = steps_start
-##floors_end = steps_end
-##floors = g.get_floors_per_day(floors_start, floors_end)
-##print("FLOORS FROM %s TO %s:" % (dtu.format_yyyymmdd(steps_start), dtu.format_yyyymmdd(steps_end)))
-##for floor in floors:
-##    print("  - %s: ascended %d, descended %d" % (floor["calendarDate"], floor["totalFloors"]))
-#
-#activities = g.get_activities_for_day(dtu.add_days(steps_start, 4))
-#print("ACTIVITIES: %s" % activities)
-#
-#activities = g.get_activities_for_day_range(steps_start, steps_end)
-#print("ACTIVITIES (%s - %s): %s" % (steps_start, steps_end, activities))
-#
-#hr = g.get_heart_rate_for_day(dtu.add_days(dtu.add_days(steps_end, -1)))
-#print("HEART RATE DATA: %s" % hr)
-#
-#hr = g.get_sleep_for_day(dtu.add_days(dtu.add_days(steps_end, -1)))
-#print("SLEEP DATA: %s" % json.dumps(hr, indent=4))
 

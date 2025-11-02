@@ -29,15 +29,15 @@ class Location:
             assert self.has_address(), \
                    "If you did not provide latitude and longitude values for " \
                    "a Location, you must provide an address."
-    
+
     # Returns True if the location has an address.
     def has_address(self):
         return self.address is not None and len(self.address) > 0
-    
+
     # Returns True if the location has a latitude and longitude coordinates.
     def has_coordinates(self):
         return self.latitude is not None and self.longitude is not None
-    
+
     # Returns either the object's internal latitude/longitude values, or
     # performs a lookup of the location's address to retrieve the correct
     # values.
@@ -54,7 +54,22 @@ class Location:
         return [loc.latitude, loc.longitude]
 
 
-# ========================= Sunrise/Sunset Retrieval ========================= #
+
+# ============================= Helper Functions ============================= #
+# By default, we'll use Raleigh, NC as the location.
+LOCATION_DEFAULT = Location(latitude=35.786168069281715, longitude=-78.68165659384003)
+
+# Gets and returns the appropriate timezone object for the provided location.
+def get_timezone(loc: Location = None):
+    if loc is None:
+        loc = LOCATION_DEFAULT
+
+    # get the location's coordinates, and use it to find the correct timezone
+    [lat, lng] = loc.get_coordinates()
+    tzname = timezonefinder.TimezoneFinder().timezone_at(lng=lng, lat=lat)
+    tz = pytz.timezone(tzname)
+    return tz
+
 # Helper for the `get_sunrise()` and `get_sunset()` functions that retrieves
 # and returns *both* the sunrise and sunset for the given datetime. A Location
 # object can be specified; it defaults to Raleigh, NC.
@@ -67,7 +82,7 @@ class Location:
 def get_sunrise_sunset(loc: Location = None, dt: datetime = None):
     # if no location was provided, default to Raleigh
     if loc is None:
-        loc = Location(latitude=35.786168069281715, longitude=-78.68165659384003)
+        loc = LOCATION_DEFAULT
     # if no datetime was provided, default to now
     if dt is None:
         dt = datetime.now()

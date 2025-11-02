@@ -311,7 +311,7 @@ class TaskmasterService(Service):
             for ld in taskjob_launch_data:
                 tj = ld["taskjob"]
                 now = datetime.now()
-                seconds_until_update = tj.get_next_update_datetime_relative(now)
+                seconds_until_update = max(0, tj.get_next_update_datetime_relative(now))
 
                 # update the closest update time, if applicable
                 if closest_update_time_seconds is None or \

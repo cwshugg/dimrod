@@ -11,17 +11,18 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 # Service imports
-from task import TaskConfig
-from tasks.services.base import *
+from task import TaskConfig, TaskJob
 import lib.dtu as dtu
-from lib.garmin import GarminConfig, Garmin, GarminLoginStatus
+from lib.oracle import OracleSession
+from lib.garmin.garmin import GarminConfig, Garmin, GarminLoginStatus
+from lib.garmin.database import GarminDatabaseConfig, GarminDatabase
 from lib.dialogue import DialogueConversation, DialogueMessage, \
                          DialogueAuthorType
 
-# A taskjob that routinely checks my Garmin API token for validity.
-class TaskJob_Services_GarminAuthToken(TaskJob_Services):
+# Base class for all Garmin-based taskjobs.
+class TaskJob_Garmin(TaskJob):
     def init(self):
-        self.refresh_rate = 3600 * 6 # run every few hours
+        self.refresh_rate = 3600 * 4 # by default, refresh every few hours
 
         # Garmin 2FA tokens timeout after 30 minutes. We will repeatedly wait
         # for a new message to arrive until the timeout is reached
@@ -34,17 +35,49 @@ class TaskJob_Services_GarminAuthToken(TaskJob_Services):
 
         # look for a local config file containing garmin info, with which we'll
         # set up a Garmin API object
-        config_fpath = os.path.join(fdir, __file__.replace(".py", ".json"))
+        fdir = os.path.dirname(os.path.realpath(__file__))
+        config_fname = "garmin.json"
+        config_fpath = os.path.join(fdir, config_fname)
         self.garmin_config = GarminConfig.from_file(config_fpath)
 
+        # set up a path to use for storing Garmin data in a database
+        self.db_config_fname = "garmin_database.json"
+        self.db_config_fpath = os.path.join(fdir, self.db_config_fname)
+
+    # Update function to be overridden by subclasses.
     def update(self, todoist, gcal):
+        pass
+
+    # Loads the database config object and creates (and returns) a
+    # `GarminDatabase` object.
+    def get_database(self):
+        db_config = GarminDatabaseConfig.from_file(self.db_config_fpath)
+        return GarminDatabase(db_config)
+
+    # Retrieves an authenticated Garmin client.
+    # If retrieving the client fails, this object's refresh rate is updated to
+    # try again sooner, and `None` if returned.
+    def get_client(self):
+        g = self.authenticate()
+        if g is not None:
+            return g
+
+        self.log("Failed to authenticate with Garmin API. "
+                 "Will retry in %d seconds." % self.refresh_rate)
+        return None
+
+    # Performs authentication with Garmin (including handling 2FA, if
+    # necessary).
+    #
+    # Returns the authenticated Garmin object, or `None` on failure.
+    def authenticate(self):
         # attempt to log in with an existing, local token store. If this
         # succeeded, then the token is still valid and no further action is
         # needed
         g = Garmin(self.garmin_config)
         lwt = g.login_with_tokenstore()
         if lwt == GarminLoginStatus.SUCCESS:
-            return False
+            return g
 
         # if that failed, attempt to log in with credentials
         self.log("Failed to log into Garmin API with existing auth token. "
@@ -67,7 +100,7 @@ class TaskJob_Services_GarminAuthToken(TaskJob_Services):
             answer = self.wait_for_question(convo)
             if answer is None:
                 self.log("Did not receive 2FA code in time.")
-                return False
+                return None
 
             auth_2fa_code = answer.strip()
             self.log("Received 2FA code: %s" % auth_2fa_code)
@@ -76,14 +109,14 @@ class TaskJob_Services_GarminAuthToken(TaskJob_Services):
             lw2 = g.login_with_2fa(auth_2fa_code)
             if lw2 != GarminLoginStatus.SUCCESS:
                 self.log("Failed to log into Garmin API with 2FA code: %s" % lw2)
-                return False
+                return None
 
             # at this point, we know logging in with 2FA succeeded; send a
             # message to tell the user authentication succeeded
             msg = "🔓 Successfully generated a new Garmin API auth token. Thanks!"
             self.send_message(self.garmin_config.auth_2fa_telegram_chat, msg)
 
-        return True
+        return g
 
     # Creates and returns an authenticated OracleSession with the telegram bot.
     def get_telegram_session(self):

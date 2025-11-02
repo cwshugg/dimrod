@@ -19,6 +19,7 @@ dimrod*.service
 
 # databases
 *.db
+*.db-journal
 
 # output files
 *.out
