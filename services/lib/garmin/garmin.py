@@ -183,7 +183,7 @@ class Garmin:
 
     # Returns a list of objects containing the TOTAL step count for a day; one
     # object for each day in the specified range.
-    def get_steps_total_per_day(self, start_date: datetime, end_date: datetime):
+    def get_steps_total_for_day_range(self, start_date: datetime, end_date: datetime):
         self.check_logged_in()
         return self.check_errors(self.client.get_daily_steps(
             dtu.format_yyyymmdd(start_date),
@@ -207,7 +207,7 @@ class Garmin:
     #     "primaryActivityLevel": "sedentary",
     #     "activityLevelConstant": true
     # }
-    def get_steps_per_day(self, start_date: datetime, end_date: datetime):
+    def get_steps_for_day_range(self, start_date: datetime, end_date: datetime):
         self.check_logged_in()
         days = dtu.split_by_day(start_date, end_date)
 
@@ -216,19 +216,23 @@ class Garmin:
             results.append(self.check_errors(self.client.get_steps_data(dtu.format_yyyymmdd(day))))
         return results
 
+    def get_floors_for_day(self, dt: datetime):
+        self.check_logged_in()
+        return self.check_errors(self.client.get_floors(dtu.format_yyyymmdd(dt)))
+
     # Returns a list of objects containing data on the number of floors/stories
     # climbed.
     #
     # NOTE: This function calls the Garmin API once per day in the specified
     # range, so it may take a while to complete if the range is large. It may
     # also quickly hit the rate limit if you requeset too many.
-    def get_floors_per_day(self, start_date: datetime, end_date: datetime):
+    def get_floors_for_day_range(self, start_date: datetime, end_date: datetime):
         self.check_logged_in()
         days = dtu.split_by_day(start_date, end_date)
 
         results = []
         for day in days:
-            results.append(self.check_errors(self.client.get_floors(dtu.format_yyyymmdd(day))))
+            results.append(self.get_floors_for_day(day))
         return results
 
     # Returns a list of activities for a specific day.
@@ -261,4 +265,56 @@ class Garmin:
     def get_sleep_for_day(self, dt: datetime):
         self.check_logged_in()
         return self.check_errors(self.client.get_sleep_data(dtu.format_yyyymmdd(dt)))
+
+    # Returns sleep data for each day specified in the given date range.
+    #
+    # NOTE: This function calls the Garmin API once per day in the specified
+    # range, so it may take a while to complete if the range is large. It may
+    # also quickly hit the rate limit if you requeset too many.
+    def get_sleep_for_day_range(self, start_date: datetime, end_date: datetime):
+        self.check_logged_in()
+        days = dtu.split_by_day(start_date, end_date)
+
+        results = []
+        for day in days:
+            results.append(self.get_sleep_for_day(day))
+        return results
+
+    # Retrieves VO2Max data for the provided day.
+    #
+    # Example object returned by this function:
+    #
+    # [
+    #     {
+    #         "userId": 6199854,
+    #         "generic":
+    #         {
+    #             "calendarDate": "2020-11-04",
+    #             "vo2MaxPreciseValue": 54.2,
+    #             "vo2MaxValue": 54.0,
+    #             "fitnessAge": 20,
+    #             "fitnessAgeDescription": 2,
+    #             "maxMetCategory": 0
+    #         },
+    #         "cycling": null,
+    #         "heatAltitudeAcclimation": null
+    #     }
+    # ]
+    def get_vo2max_for_day(self, dt: datetime):
+        self.check_logged_in()
+        return self.check_errors(self.client.get_max_metrics(dtu.format_yyyymmdd(dt)))
+
+    # Returns VO2Max data for each day specified in the given date range.
+    #
+    # NOTE: This function calls the Garmin API once per day in the specified
+    # range, so it may take a while to complete if the range is large. It may
+    # also quickly hit the rate limit if you requeset too many.
+    def get_vo2max_for_day_range(self, start_date: datetime, end_date: datetime):
+        self.check_logged_in()
+        days = dtu.split_by_day(start_date, end_date)
+
+        results = []
+        for day in days:
+            results.append(self.get_vo2max_for_day(day))
+        return results
 

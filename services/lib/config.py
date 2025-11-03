@@ -290,8 +290,8 @@ class Config:
         # any `fields_to_keep_visible` are added as additional tuple entries
         for name in fields_to_keep_visible:
             assert hasattr(self, name), \
-                   "a field that doesn't belong to %s was specified" % \
-                   __class__.__name__
+                   "a field that doesn't belong to %s was specified: \"%s\"" % \
+                   (self.__class__.__name__, name)
             val = getattr(self, name)
 
             # if the value is an enum, convert it to an integer
@@ -364,8 +364,8 @@ class Config:
         fields_to_keep_visible_len = len(fields_to_keep_visible)
         for (i, name) in enumerate(fields_to_keep_visible):
             assert hasattr(self, name), \
-                   "a field that doesn't belong to %s was specified" % \
-                   __class__.__name__
+                   "a field that doesn't belong to %s was specified: \"%s\"" % \
+                   (self.__class__.__name__, name)
             val = getattr(self, name)
 
             # make sure this field has a corresponding `ConfigField` object
