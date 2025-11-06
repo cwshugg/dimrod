@@ -261,6 +261,20 @@ class Garmin:
         self.check_logged_in()
         return self.check_errors(self.client.get_heart_rates(dtu.format_yyyymmdd(dt)))
 
+    # Returns heart rate data for each day specified in the given date range.
+    #
+    # NOTE: This function calls the Garmin API once per day in the specified
+    # range, so it may take a while to complete if the range is large. It may
+    # also quickly hit the rate limit if you requeset too many.
+    def get_heart_rate_for_day_range(self, start_date: datetime, end_date: datetime):
+        self.check_logged_in()
+        days = dtu.split_by_day(start_date, end_date)
+
+        results = []
+        for day in days:
+            results.append(self.get_heart_rate_for_day(day))
+        return results
+
     # Returns sleep data for the given date.
     def get_sleep_for_day(self, dt: datetime):
         self.check_logged_in()

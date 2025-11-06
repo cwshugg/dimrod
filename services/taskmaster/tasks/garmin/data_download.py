@@ -46,11 +46,10 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
         tz = lu.get_timezone()
 
         successful_data_writes = 0
-        successful_data_writes += self.download_vo2max(g, db, tz)
         successful_data_writes += self.download_sleep(g, db, tz)
         successful_data_writes += self.download_steps(g, db, tz)
+        successful_data_writes += self.download_vo2max(g, db, tz)
 
-        # TODO - vo2max
         # TODO - activities
         # TODO - heart rate
 
@@ -85,17 +84,24 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
 
     # ------------------------------ Step Data ------------------------------- #
     # Determines the timerange to download step data for.
-    def get_timerange_steps(self):
+    def get_timerange_steps(self, db: GarminDatabase):
         now = datetime.now()
         timerange_end = now
-        last_success = self.get_last_success_datetime()
-        timerange_start = last_success
-        if last_success is None:
+
+        # look for the latest entry in the database. We'll use this as a basis
+        # for how far back to start downloading data
+        last_entry = db.search_steps_latest()
+        timerange_start = None
+        if last_entry is None:
             # if we've never successfully downloaded data before, reach back
             # very far, so we can download everything the Garmin API has
             #
             # (this case should only happen on the very first run of this)
             timerange_start = dtu.add_seconds(now, -1 * self.reachback_steps)
+        else:
+            # if we have a last entry, move back a few days to ensure we
+            # capture any recent updates to existing entries
+            timerange_start = dtu.add_days(last_entry.time_start, -2)
 
         return [timerange_start, timerange_end]
 
@@ -105,7 +111,7 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
                        g: Garmin,
                        db: GarminDatabase,
                        timezone):
-        (timerange_start, timerange_end) = self.get_timerange_steps()
+        (timerange_start, timerange_end) = self.get_timerange_steps(db)
         day_chunks = self.get_day_chunks(timerange_start, timerange_end)
 
         # iterate through each chunk and retrieve the steps data for that range
@@ -150,17 +156,24 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
 
     # ------------------------------ Sleep Data ------------------------------ #
     # Determines the timerange to download sleep data for.
-    def get_timerange_sleep(self):
+    def get_timerange_sleep(self, db: GarminDatabase):
         now = datetime.now()
         timerange_end = now
-        last_success = self.get_last_success_datetime()
-        timerange_start = last_success
-        if last_success is None:
+
+        # look for the latest entry in the database. We'll use this as a basis
+        # for how far back to start downloading data
+        last_entry = db.search_sleep_latest()
+        timerange_start = None
+        if last_entry is None:
             # if we've never successfully downloaded data before, reach back
             # very far, so we can download everything the Garmin API has
             #
             # (this case should only happen on the very first run of this)
             timerange_start = dtu.add_seconds(now, -1 * self.reachback_sleep)
+        else:
+            # if we have a last entry, move back a few days to ensure we
+            # capture any recent updates to existing entries
+            timerange_start = dtu.add_days(last_entry.time_start, -2)
 
         return [timerange_start, timerange_end]
 
@@ -170,7 +183,7 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
                        g: Garmin,
                        db: GarminDatabase,
                        timezone):
-        (timerange_start, timerange_end) = self.get_timerange_sleep()
+        (timerange_start, timerange_end) = self.get_timerange_sleep(db)
         day_chunks = self.get_day_chunks(timerange_start, timerange_end)
 
         successful_data_writes = 0
@@ -211,17 +224,24 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
 
     # ----------------------------- VO2Max Data ------------------------------ #
     # Determines the timerange to download vo2max data for.
-    def get_timerange_vo2max(self):
+    def get_timerange_vo2max(self, db: GarminDatabase):
         now = datetime.now()
         timerange_end = now
-        last_success = self.get_last_success_datetime()
-        timerange_start = last_success
-        if last_success is None:
+
+        # look for the latest entry in the database. We'll use this as a basis
+        # for how far back to start downloading data
+        last_entry = db.search_vo2max_latest()
+        timerange_start = None
+        if last_entry is None:
             # if we've never successfully downloaded data before, reach back
             # very far, so we can download everything the Garmin API has
             #
             # (this case should only happen on the very first run of this)
             timerange_start = dtu.add_seconds(now, -1 * self.reachback_vo2max)
+        else:
+            # if we have a last entry, move back a few days to ensure we
+            # capture any recent updates to existing entries
+            timerange_start = dtu.add_days(last_entry.timestamp, -2)
 
         return [timerange_start, timerange_end]
 
@@ -231,7 +251,7 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
                        g: Garmin,
                        db: GarminDatabase,
                        timezone):
-        (timerange_start, timerange_end) = self.get_timerange_vo2max()
+        (timerange_start, timerange_end) = self.get_timerange_vo2max(db)
         day_chunks = self.get_day_chunks(timerange_start, timerange_end)
 
         successful_data_writes = 0

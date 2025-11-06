@@ -330,6 +330,25 @@ class GarminDatabase:
         result = cur.execute(cmd)
         return result
 
+    # Executes a search using `ORDER BY` to retrieve entries without needing a
+    # specific condition to identify them.
+    def search_order_by(self,
+                        table: str,
+                        order_by_column: str,
+                        desc: bool = False,
+                        limit: int = None):
+        cmd = "SELECT * FROM %s ORDER BY %s" % (table, order_by_column)
+        if desc:
+            cmd += " DESC"
+        if limit is not None:
+            cmd += " LIMIT %d" % limit
+
+        # connect, query, and return
+        con = sqlite3.connect(self.config.db_path)
+        cur = con.cursor()
+        result = cur.execute(cmd)
+        return result
+
     # ------------------------------ Step Data ------------------------------- #
     # Inserts the provided entry into the database.
     def save_steps(self, entry: GarminDatabaseStepsEntry):
@@ -385,6 +404,20 @@ class GarminDatabase:
             entry = GarminDatabaseStepsEntry.from_sqlite3_row(row)
             entries.append(entry)
         return entries
+
+    # Returns the entry with the latest `time_end` timestamp, or `None` if
+    # there are no entries.
+    def search_steps_latest(self):
+        result = self.search_order_by(
+            self.table_steps_name,
+            order_by_column="time_end",
+            desc=True,
+            limit=1,
+        )
+        for row in result:
+            entry = GarminDatabaseStepsEntry.from_sqlite3(row)
+            return entry
+        return None
 
     # ------------------------------ Step Data ------------------------------- #
     # Inserts the provided entry into the database.
@@ -442,6 +475,20 @@ class GarminDatabase:
             entries.append(entry)
         return entries
 
+    # Returns the entry with the latest `time_end` timestamp, or `None` if
+    # there are no entries.
+    def search_sleep_latest(self):
+        result = self.search_order_by(
+            self.table_sleep_name,
+            order_by_column="time_end",
+            desc=True,
+            limit=1,
+        )
+        for row in result:
+            entry = GarminDatabaseSleepEntry.from_sqlite3(row)
+            return entry
+        return None
+
     # ----------------------------- VO2Max Data ------------------------------ #
     # Inserts the provided entry into the database.
     def save_vo2max(self, entry: GarminDatabaseVO2MaxEntry):
@@ -497,4 +544,18 @@ class GarminDatabase:
             entry = GarminDatabaseVO2MaxEntry.from_sqlite3_row(row)
             entries.append(entry)
         return entries
+
+    # Returns the entry with the latest timestamp, or `None` if there are no
+    # entries.
+    def search_vo2max_latest(self):
+        result = self.search_order_by(
+            self.table_vo2max_name,
+            order_by_column="timestamp",
+            desc=True,
+            limit=1,
+        )
+        for row in result:
+            entry = GarminDatabaseVO2MaxEntry.from_sqlite3(row)
+            return entry
+        return None
 
