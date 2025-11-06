@@ -336,8 +336,21 @@ class GarminDatabase:
         self.table_sleep_name = "sleep"
         self.table_vo2max_name = "vo2max"
 
+    # Determines if a table exists in the database.
+    def table_exists(self, table: str) -> bool:
+        con = sqlite3.connect(self.config.db_path)
+        cur = con.cursor()
+        result = cur.execute("SELECT 1 FROM sqlite_master WHERE type == 'table' AND name == '%s';" % table)
+        table_exists = result.fetchone() is not None
+        con.close()
+        return table_exists
+
     # Performs a search of the database and returns tuples in a list.
     def search(self, table: str, condition: str):
+        # if the table doesn't exist, return an empty list
+        if not self.table_exists(table):
+            return []
+
         # build a SELECT command
         cmd = "SELECT * FROM %s" % table
         if condition is not None and len(condition) > 0:
@@ -356,6 +369,11 @@ class GarminDatabase:
                         order_by_column: str,
                         desc: bool = False,
                         limit: int = None):
+        # if the table doesn't exist, return an empty list
+        if not self.table_exists(table):
+            return []
+
+        # build a SELECT command
         cmd = "SELECT * FROM %s ORDER BY %s" % (table, order_by_column)
         if desc:
             cmd += " DESC"
