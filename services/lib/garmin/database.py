@@ -319,6 +319,84 @@ class GarminDatabaseVO2MaxEntry(GarminDatabaseEntryBase):
         return ["id", "timestamp", "vo2max", "fitness_age"]
 
 
+# ============================= Heart Rate Data ============================== #
+# Represents a single timestamped heart rate data point.
+class GarminDatabaseHeartRateEntry(GarminDatabaseEntryBase):
+    def __init__(self):
+        super().__init__()
+        self.fields += [
+            ConfigField("timestamp", [datetime], required=True),
+            ConfigField("heartrate", [int], required=True),
+        ]
+
+    @classmethod
+    def from_garmin_list(cls, ldata: list, tz=None):
+        # the data is provided like so:
+        #
+        #    [1762059600000, 73]
+        assert len(ldata) == 2, "Invalid Garmin heart rate list data length; " \
+                                "expected two entries: a timestamp and a heart rate value"
+
+        # parse the timestamp and apply the timezone
+        timestamp = datetime.fromtimestamp(ldata[0] / 1000.0, tz=timezone.utc)
+        if tz is not None:
+            timestamp = timestamp.astimezone(tz=tz)
+
+        # create an object by providing it with a JSON structure it can parse
+        entry = cls.from_json({
+            "timestamp": timestamp.isoformat(),
+            "heartrate": ldata[1],
+        })
+        entry.get_id() # <-- generate the object's ID string
+        return entry
+
+    @classmethod
+    def sqlite3_fields_to_keep_visible(cls):
+        return ["id", "timestamp", "heartrate"]
+
+# Represents a single database entry for Garmin daily heart rate summary.
+class GarminDatabaseHeartRateSummaryEntry(GarminDatabaseEntryBase):
+    def __init__(self):
+        super().__init__()
+        self.fields += [
+            ConfigField("timestamp",            [datetime], required=True),
+            ConfigField("heartrate_min",        [int],      required=False, default=None),
+            ConfigField("heartrate_max",        [int],      required=False, default=None),
+            ConfigField("heartrate_resting",    [int],      required=False, default=None),
+            ConfigField("heartrate_resting_avg_last_7days", [int], required=False, default=None),
+        ]
+
+    @classmethod
+    def from_garmin_json(cls, jdata: dict, tz=None):
+        # parse the calendar date as a datetime; by default, set to UTC
+        timestamp = datetime.strptime(jdata["calendarDate"], "%Y-%m-%d")
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+
+        # if a timezone was given, assign it to the calendar date
+        if tz is not None:
+            timestamp = timestamp.replace(tzinfo=tz)
+
+        # create an object by providing it with a JSON structure it can parse
+        entry = cls.from_json({
+            "timestamp": timestamp.isoformat(),
+            "heartrate_min": jdata.get("minHeartRate", None),
+            "heartrate_max": jdata.get("maxHeartRate", None),
+            "heartrate_resting": jdata.get("restingHeartRate", None),
+            "heartrate_resting_avg_last_7days": jdata.get("lastSevenDaysAvgRestingHeartRate", None),
+        })
+        entry.get_id() # <-- generate the object's ID string
+        return entry
+
+    @classmethod
+    def sqlite3_fields_to_keep_visible(cls):
+        return [
+            "id",
+            "timestamp",
+            "heartrate_min",
+            "heartrate_max",
+            "heartrate_resting",
+        ]
+
 # ============================= Database Objects ============================= #
 # A configuration object for a database.
 class GarminDatabaseConfig(Config):
@@ -335,6 +413,8 @@ class GarminDatabase:
         self.table_steps_name = "steps"
         self.table_sleep_name = "sleep"
         self.table_vo2max_name = "vo2max"
+        self.table_heart_rate_summary_name = "heart_rate_summary"
+        self.table_heart_rate = "heart_rate"
 
     # Determines if a table exists in the database.
     def table_exists(self, table: str) -> bool:
@@ -593,6 +673,146 @@ class GarminDatabase:
         )
         for row in result:
             entry = GarminDatabaseVO2MaxEntry.from_sqlite3(row)
+            return entry
+        return None
+
+    # ----------------------- Heart Rate Summary Data ------------------------ #
+    # Inserts the provided entry into the database.
+    def save_heart_rate_summary(self, entry: GarminDatabaseHeartRateSummaryEntry):
+        # connect and make sure the table exists
+        con = sqlite3.connect(self.config.db_path)
+        cur = con.cursor()
+        table_fields_kept_visible = GarminDatabaseHeartRateSummaryEntry.sqlite3_fields_to_keep_visible()
+        table_definition = entry.get_sqlite3_table_definition(
+            self.table_heart_rate_summary_name,
+            fields_to_keep_visible=table_fields_kept_visible,
+            primary_key_field="id"
+        )
+        cur.execute(table_definition)
+
+        # insert the steps entry into the database
+        sqlite3_obj = entry.to_sqlite3_str(fields_to_keep_visible=table_fields_kept_visible)
+        cur.execute("INSERT OR REPLACE INTO %s VALUES %s" %
+                    (self.table_heart_rate_summary_name, str(sqlite3_obj)))
+        con.commit()
+        con.close()
+
+    # Searches for step entries with the given entry ID.
+    # Returns None if no entry was found, or the matching entry object.
+    def search_heart_rate_summary_by_id(self, entry_id: str):
+        condition = "id == '%s'" % entry_id
+        result = self.search(self.table_heart_rate_summary_name, condition)
+
+        # iterate through the returned entries and convert them to objects
+        entry = None
+        entry_count = 0
+        for row in result:
+            entry = GarminDatabaseHeartRateSummaryEntry.from_sqlite3_row(row)
+            entry_count += 1
+
+        # if we had more than one match, there is an issue with the database;
+        # ID strings should be unique
+        assert entry_count <= 1, \
+               "Database error: multiple heart rate summary entries found with the same ID: \"%s\"" % \
+               entry_id
+        return entry
+
+    # Searches for heart rate entries within the given time range.
+    def search_heart_rate_summary_by_day(self, timestamp: datetime):
+        condition = "timestamp >= %.f AND timestamp <= %.f" % (
+            dtu.set_time_beginning_of_day(timestamp),
+            dtu.set_time_end_of_day(timestamp),
+        )
+        result = self.search(self.table_heart_rate_summary_name, condition)
+
+        # iterate through the returned entries and convert them to objects
+        entries = []
+        for row in result:
+            entry = GarminDatabaseHeartRateSummaryEntry.from_sqlite3_row(row)
+            entries.append(entry)
+        return entries
+
+    # Returns the entry with the latest timestamp, or `None` if there are no
+    # entries.
+    def search_heart_rate_summary_latest(self):
+        result = self.search_order_by(
+            self.table_heart_rate_summary_name,
+            order_by_column="timestamp",
+            desc=True,
+            limit=1,
+        )
+        for row in result:
+            entry = GarminDatabaseHeartRateSummaryEntry.from_sqlite3(row)
+            return entry
+        return None
+
+    # --------------------------- Heart Rate Data ---------------------------- #
+    # Inserts the provided entry into the database.
+    def save_heart_rate(self, entry: GarminDatabaseHeartRateEntry):
+        # connect and make sure the table exists
+        con = sqlite3.connect(self.config.db_path)
+        cur = con.cursor()
+        table_fields_kept_visible = GarminDatabaseHeartRateEntry.sqlite3_fields_to_keep_visible()
+        table_definition = entry.get_sqlite3_table_definition(
+            self.table_heart_rate_name,
+            fields_to_keep_visible=table_fields_kept_visible,
+            primary_key_field="id"
+        )
+        cur.execute(table_definition)
+
+        # insert the steps entry into the database
+        sqlite3_obj = entry.to_sqlite3_str(fields_to_keep_visible=table_fields_kept_visible)
+        cur.execute("INSERT OR REPLACE INTO %s VALUES %s" %
+                    (self.table_heart_rate_name, str(sqlite3_obj)))
+        con.commit()
+        con.close()
+
+    # Searches for entries with the given entry ID.
+    # Returns None if no entry was found, or the matching entry object.
+    def search_heart_rate_by_id(self, entry_id: str):
+        condition = "id == '%s'" % entry_id
+        result = self.search(self.table_heart_rate_name, condition)
+
+        # iterate through the returned entries and convert them to objects
+        entry = None
+        entry_count = 0
+        for row in result:
+            entry = GarminDatabaseHeartRateEntry.from_sqlite3_row(row)
+            entry_count += 1
+
+        # if we had more than one match, there is an issue with the database;
+        # ID strings should be unique
+        assert entry_count <= 1, \
+               "Database error: multiple heart rate entries found with the same ID: \"%s\"" % \
+               entry_id
+        return entry
+
+    # Searches for heart rate entries within the given time range.
+    def search_heart_rate_by_day(self, timestamp: datetime):
+        condition = "timestamp >= %.f AND timestamp <= %.f" % (
+            dtu.set_time_beginning_of_day(timestamp),
+            dtu.set_time_end_of_day(timestamp),
+        )
+        result = self.search(self.table_heart_rate_name, condition)
+
+        # iterate through the returned entries and convert them to objects
+        entries = []
+        for row in result:
+            entry = GarminDatabaseHeartRateEntry.from_sqlite3_row(row)
+            entries.append(entry)
+        return entries
+
+    # Returns the entry with the latest timestamp, or `None` if there are no
+    # entries.
+    def search_heart_rate_latest(self):
+        result = self.search_order_by(
+            self.table_heart_rate_name,
+            order_by_column="timestamp",
+            desc=True,
+            limit=1,
+        )
+        for row in result:
+            entry = GarminDatabaseHeartRateEntry.from_sqlite3(row)
             return entry
         return None
 

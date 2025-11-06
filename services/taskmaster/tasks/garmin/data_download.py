@@ -15,7 +15,9 @@ from task import TaskConfig
 from tasks.garmin.base import *
 from lib.garmin.database import GarminDatabaseStepsEntry, \
                                 GarminDatabaseSleepEntry, \
-                                GarminDatabaseVO2MaxEntry
+                                GarminDatabaseVO2MaxEntry, \
+                                GarminDatabaseHeartRateSummaryEntry, \
+                                GarminDatabaseHeartRateEntry
 import lib.dtu as dtu
 import lib.lu as lu
 
@@ -30,6 +32,7 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
         self.reachback_steps = 86400 * (365 / 2)    # 6 months
         self.reachback_sleep = 86400 * (365 * 5)    # 5 years
         self.reachback_vo2max = 86400 * (365 * 5)    # 5 years
+        self.reachback_heart_rate = 86400 * (365 * 5)    # 5 years
 
     def update(self, todoist, gcal):
         # get an authenticated garmin client
@@ -46,6 +49,7 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
         tz = lu.get_timezone()
 
         successful_data_writes = 0
+        successful_data_writes += self.download_heart_rate(g, db, tz)
         successful_data_writes += self.download_sleep(g, db, tz)
         successful_data_writes += self.download_vo2max(g, db, tz)
         successful_data_writes += self.download_steps(g, db, tz)
@@ -282,6 +286,118 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
                     successful_data_writes += 1
             except Exception as e:
                 self.log("Failed to retrieve Garmin vo2max data for range %s - %s: %s" %
+                         (dtu.format_yyyymmdd(chunk[0]),
+                          dtu.format_yyyymmdd(chunk[1]),
+                          e))
+
+            # wait a bit between API calls, to avoid rate limiting
+            time.sleep(self.api_call_delay)
+
+        return successful_data_writes
+
+    # --------------------------- Heart Rate Data ---------------------------- #
+    # Determines the timerange to download heart rate data for.
+    def get_timerange_heart_rate(self, db: GarminDatabase):
+        now = datetime.now()
+        timerange_end = now
+
+        # look for the latest entry in the database. We'll use this as a basis
+        # for how far back to start downloading data
+        last_entry = db.search_heart_rate_summary_latest()
+        timerange_start = None
+        if last_entry is None:
+            # if we've never successfully downloaded data before, reach back
+            # very far, so we can download everything the Garmin API has
+            #
+            # (this case should only happen on the very first run of this)
+            timerange_start = dtu.add_seconds(now, -1 * self.reachback_heart_rate)
+        else:
+            # if we have a last entry, move back a few days to ensure we
+            # capture any recent updates to existing entries
+            timerange_start = dtu.add_days(last_entry.timestamp, -2)
+
+        return [timerange_start, timerange_end]
+
+    # Downloads heart rate data.
+    # Returns the number of writes made to the database.
+    def download_heart_rate(self,
+                            g: Garmin,
+                            db: GarminDatabase,
+                            tz):
+        (timerange_start, timerange_end) = self.get_timerange_heart_rate(db)
+        day_chunks = self.get_day_chunks(timerange_start, timerange_end)
+
+        successful_data_writes = 0
+        for chunk in day_chunks:
+            chunk_start = chunk[0]
+            chunk_end = chunk[1]
+
+            # heart rate data is downloaded from a single API call, but then
+            # split into two separate tables in the local garmin database:
+            #
+            # 1. a table of timestamped heart rate values
+            # 2. a table of daily heart rate summaries (min, max, resting, etc.)
+
+            try:
+                data = g.get_heart_rate_for_day_range(chunk_start, chunk_end)
+                # iterate through each entry in the data and save it
+                for hr_data in data:
+                    # first, attempt to parse a heart rate summary object. If
+                    # it fails, skip this one
+                    summary_obj = None
+                    try:
+                        summary_obj = GarminDatabaseHeartRateSummaryEntry.from_garmin_json(hr_data, tz=tz)
+
+                        # if the object is missing all three metrics, just skip it
+                        if (summary_obj.heartrate_min is None and
+                            summary_obj.heartrate_max is None and
+                            summary_obj.heartrate_resting is None):
+                            continue
+                    except Exception as e:
+                        # ----- TODO FIXME ----- #
+                        raise e
+                        # ----- TODO FIXME ----- #
+                        #self.log("Failed to parse Garmin heart rate summary data entry: %s. Skipping" % e)
+                        continue
+
+                    # write the summary entry to the database
+                    db.save_heart_rate_summary(summary_obj)
+                    self.log("Saved Garmin heart rate summary data: %s: " \
+                             "Min HR: %s, Max HR: %s, Resting HR: %s" %
+                             (dtu.format_yyyymmdd_hhmmss_12h(summary_obj.timestamp),
+                              summary_obj.heartrate_min,
+                              summary_obj.heartrate_max,
+                              summary_obj.heartrate_resting))
+
+                    # next, attempt to look for (and parse) a list of
+                    # timestamped heart rate values
+                    hr_objs = []
+                    if "heartRateValues" in hr_data and hr_data["heartRateValues"] is not None:
+                        hr_value_data = hr_data["heartRateValues"]
+                        for hr_value_entry in hr_value_data:
+                            try:
+                                hr_obj = GarminDatabaseHeartRateEntry.from_garmin_list(hr_value_entry, tz=tz)
+                                hr_objs.append(hr_obj)
+                            except Exception as e:
+                                # ----- TODO FIXME ----- #
+                                raise e
+                                # ----- TODO FIXME ----- #
+                                #self.log("Failed to parse Garmin heart rate data entry: %s. Skipping" % e)
+                                continue
+
+                    # write each of the heart rate value entries to the database
+                    for hr_obj in hr_objs:
+                        db.save_heart_rate(hr_obj)
+                        self.log("Saved Garmin heart rate summary data: %s: %d BPM" %
+                                 (dtu.format_yyyymmdd_hhmmss_12h(hr_obj.timestamp),
+                                  hr_obj.heartrate)),
+
+                    successful_data_writes += 1
+            except Exception as e:
+                # ----- TODO FIXME ----- #
+                raise e
+                # ----- TODO FIXME ----- #
+                self.log("Failed to retrieve Garmin heart rate data for range %s - %s: %s" %
                          (dtu.format_yyyymmdd(chunk[0]),
                           dtu.format_yyyymmdd(chunk[1]),
                           e))
