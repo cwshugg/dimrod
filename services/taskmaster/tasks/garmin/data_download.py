@@ -47,8 +47,8 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
 
         successful_data_writes = 0
         successful_data_writes += self.download_sleep(g, db, tz)
-        successful_data_writes += self.download_steps(g, db, tz)
         successful_data_writes += self.download_vo2max(g, db, tz)
+        successful_data_writes += self.download_steps(g, db, tz)
 
         # TODO - activities
         # TODO - heart rate
@@ -110,7 +110,7 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
     def download_steps(self,
                        g: Garmin,
                        db: GarminDatabase,
-                       timezone):
+                       tz):
         (timerange_start, timerange_end) = self.get_timerange_steps(db)
         day_chunks = self.get_day_chunks(timerange_start, timerange_end)
 
@@ -130,17 +130,18 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
                         # try to parse an object from the Garmin data; skip it
                         # on failure
                         try:
-                            obj = GarminDatabaseStepsEntry.from_garmin_json(entry, timezone=timezone)
+                            obj = GarminDatabaseStepsEntry.from_garmin_json(entry, tz=tz)
                         except Exception as e:
                             #self.log("Failed to parse Garmin steps data entry: %s. Skipping" % e)
                             continue
 
                         # write the entry to the database
                         db.save_steps(obj)
-                        self.log("Saved Garmin steps data: %s - %s: %d steps" %
-                                 (obj.time_start.isoformat(),
-                                  obj.time_end.isoformat(),
-                                  obj.step_count))
+                        self.log("Saved Garmin steps data: %s - %s: %d steps (%s)" %
+                                 (dtu.format_yyyymmdd_hhmmss_12h(obj.time_start),
+                                  dtu.format_yyyymmdd_hhmmss_12h(obj.time_end),
+                                  obj.step_count,
+                                  obj.activity_level))
 
                         successful_data_writes += 1
             except Exception as e:
@@ -182,7 +183,7 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
     def download_sleep(self,
                        g: Garmin,
                        db: GarminDatabase,
-                       timezone):
+                       tz):
         (timerange_start, timerange_end) = self.get_timerange_sleep(db)
         day_chunks = self.get_day_chunks(timerange_start, timerange_end)
 
@@ -198,7 +199,7 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
                     # attempt to parse the sleep entry object. If it fails, skip
                     obj = None
                     try:
-                        obj = GarminDatabaseSleepEntry.from_garmin_json(sleep_data, timezone=timezone)
+                        obj = GarminDatabaseSleepEntry.from_garmin_json(sleep_data, tz=tz)
                     except Exception as e:
                         #self.log("Failed to parse Garmin sleep data entry: %s. Skipping" % e)
                         continue
@@ -206,8 +207,8 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
                     # write the entry to the database
                     db.save_sleep(obj)
                     self.log("Saved Garmin sleep data: %s - %s: %.2f hours of sleep" %
-                             (obj.time_start.isoformat(),
-                              obj.time_end.isoformat(),
+                             (dtu.format_yyyymmdd_hhmmss_12h(obj.time_start),
+                              dtu.format_yyyymmdd_hhmmss_12h(obj.time_end),
                               float(float(obj.sleep_time_total_seconds) / 3600.0)))
 
                     successful_data_writes += 1
@@ -250,7 +251,7 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
     def download_vo2max(self,
                        g: Garmin,
                        db: GarminDatabase,
-                       timezone):
+                       tz):
         (timerange_start, timerange_end) = self.get_timerange_vo2max(db)
         day_chunks = self.get_day_chunks(timerange_start, timerange_end)
 
@@ -266,7 +267,7 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
                     # attempt to parse the vo2max entry object. If it fails, skip
                     obj = None
                     try:
-                        obj = GarminDatabaseVO2MaxEntry.from_garmin_json(vo2max_data, timezone=timezone)
+                        obj = GarminDatabaseVO2MaxEntry.from_garmin_json(vo2max_data, tz=tz)
                     except Exception as e:
                         #self.log("Failed to parse Garmin vo2max data entry: %s. Skipping" % e)
                         continue
@@ -274,7 +275,7 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
                     # write the entry to the database
                     db.save_vo2max(obj)
                     self.log("Saved Garmin vo2max data: %s: VO2Max: %.2f, Fitness Age: %d" %
-                             (obj.timestamp.isoformat(),
+                             (dtu.format_yyyymmdd_hhmmss_12h(obj.timestamp),
                               obj.vo2max,
                               obj.fitness_age))
 

@@ -4,7 +4,7 @@
 import os
 import sys
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 import sqlite3
 import hashlib
 
@@ -62,12 +62,20 @@ class GarminDatabaseStepsEntry(GarminDatabaseEntryBase):
         ]
 
     @classmethod
-    def from_garmin_json(cls, jdata: dict, timezone=None):
+    def from_garmin_json(cls, jdata: dict, tz=None):
+        # parse the times and attach a UTC timezone (since these are in GMT).
+        # `strptime` won't be aware of the timezone due to the format the
+        # string comes in, so we have to set UTC manually
         time_start = datetime.strptime(jdata["startGMT"], "%Y-%m-%dT%H:%M:%S.%f")
         time_end = datetime.strptime(jdata["endGMT"], "%Y-%m-%dT%H:%M:%S.%f")
-        if timezone is not None:
-            time_start = time_start.astimezone(tz=timezone)
-            time_end = time_end.astimezone(tz=timezone)
+        time_start = time_start.replace(tzinfo=timezone.utc)
+        time_end = time_end.replace(tzinfo=timezone.utc)
+
+        # if a timezone was given, convert the UTC-based timestamp to this
+        # timezone
+        if tz is not None:
+            time_start = time_start.astimezone(tz=tz)
+            time_end = time_end.astimezone(tz=tz)
 
         # create an object by providing it with a JSON structure it can parse
         entry = cls.from_json({
@@ -96,12 +104,20 @@ class GarminDatabaseSleepMovementEntry(GarminDatabaseEntryBase):
         ]
 
     @classmethod
-    def from_garmin_json(cls, jdata: dict, timezone=None):
+    def from_garmin_json(cls, jdata: dict, tz=None):
+        # parse the times and attach a UTC timezone (since these are in GMT).
+        # `strptime` won't be aware of the timezone due to the format the
+        # string comes in, so we have to set UTC manually
         time_start = datetime.strptime(jdata["startGMT"], "%Y-%m-%dT%H:%M:%S.%f")
         time_end = datetime.strptime(jdata["endGMT"], "%Y-%m-%dT%H:%M:%S.%f")
-        if timezone is not None:
-            time_start = time_start.astimezone(tz=timezone)
-            time_end = time_end.astimezone(tz=timezone)
+        time_start = time_start.replace(tzinfo=timezone.utc)
+        time_end = time_end.replace(tzinfo=timezone.utc)
+
+        # if a timezone was given, convert the UTC-based timestamp to this
+        # timezone
+        if tz is not None:
+            time_start = time_start.astimezone(tz=tz)
+            time_end = time_end.astimezone(tz=tz)
 
         # create an object by providing it with a JSON structure it can parse
         entry = cls.from_json({
@@ -125,10 +141,10 @@ class GarminDatabaseSleepHeartRateEntry(GarminDatabaseEntryBase):
         ]
 
     @classmethod
-    def from_garmin_json(cls, jdata: dict, timezone=None):
-        timestamp = datetime.fromtimestamp(jdata["startGMT"] / 1000.0)
-        if timezone is not None:
-            timestamp = timestamp.astimezone(tz=timezone)
+    def from_garmin_json(cls, jdata: dict, tz=None):
+        timestamp = datetime.fromtimestamp(jdata["startGMT"] / 1000.0, tz=timezone.utc)
+        if tz is not None:
+            timestamp = timestamp.astimezone(tz=tz)
 
         # create an object by providing it with a JSON structure it can parse
         entry = cls.from_json({
@@ -163,7 +179,7 @@ class GarminDatabaseSleepEntry(GarminDatabaseEntryBase):
         ]
 
     @classmethod
-    def from_garmin_json(cls, jdata: dict, timezone=None):
+    def from_garmin_json(cls, jdata: dict, tz=None):
         dto = jdata["dailySleepDTO"]
 
         # if the start or ending time is not defined, refuse to parse
@@ -171,11 +187,11 @@ class GarminDatabaseSleepEntry(GarminDatabaseEntryBase):
            dto["sleepEndTimestampGMT"] is None:
             raise ValueError("Cannot parse Garmin sleep data without valid start/end times")
 
-        time_start = datetime.fromtimestamp(dto["sleepStartTimestampGMT"] / 1000.0)
-        time_end = datetime.fromtimestamp(dto["sleepEndTimestampGMT"] / 1000.0)
-        if timezone is not None:
-            time_start = time_start.astimezone(tz=timezone)
-            time_end = time_end.astimezone(tz=timezone)
+        time_start = datetime.fromtimestamp(dto["sleepStartTimestampGMT"] / 1000.0, tz=timezone.utc)
+        time_end = datetime.fromtimestamp(dto["sleepEndTimestampGMT"] / 1000.0, tz=timezone.utc)
+        if tz is not None:
+            time_start = time_start.astimezone(tz=tz)
+            time_end = time_end.astimezone(tz=tz)
 
         # create an object by providing it with a JSON structure it can parse
         json_data = {
@@ -201,7 +217,7 @@ class GarminDatabaseSleepEntry(GarminDatabaseEntryBase):
             for mentry in mdata:
                 movement_entry = GarminDatabaseSleepMovementEntry.from_garmin_json(
                     mentry,
-                    timezone=timezone
+                    tz=tz
                 )
                 movement_entries.append(movement_entry.to_json())
             json_data["movement"] = movement_entries
@@ -220,7 +236,7 @@ class GarminDatabaseSleepEntry(GarminDatabaseEntryBase):
                 # parse the heartrate data into an entry object
                 hr_entry = GarminDatabaseSleepHeartRateEntry.from_garmin_json(
                     hre,
-                    timezone=timezone
+                    tz=tz
                 )
                 hr_entries.append(hr_entry.to_json())
             json_data["heartrate"] = hr_entries
@@ -261,7 +277,7 @@ class GarminDatabaseVO2MaxEntry(GarminDatabaseEntryBase):
         ]
 
     @classmethod
-    def from_garmin_json(cls, jdata: dict, timezone=None):
+    def from_garmin_json(cls, jdata: dict, tz=None):
         # if the provided JSON object is a list, grab the first value
         if type(jdata) == list:
             assert len(jdata) > 0, "Garmin VO2Max JSON data is empty"
@@ -272,10 +288,13 @@ class GarminDatabaseVO2MaxEntry(GarminDatabaseEntryBase):
         assert "generic" in jdata, "Garmin VO2Max JSON data missing \"generic\" field"
         gdata = jdata["generic"]
 
-        # from within, get the calendar date and parse it as a datetime
+        # parse the calendar date as a datetime; by default, set to UTC
         timestamp = datetime.strptime(gdata["calendarDate"], "%Y-%m-%d")
-        if timezone is not None:
-            timestamp = timestamp.astimezone(tz=timezone)
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+
+        # if a timezone was given, assign it to the calendar date
+        if tz is not None:
+            timestamp = timestamp.replace(tzinfo=tz)
 
         # get the vo2max value (prefer the precise value, but if it's not
         # present, get the non-precise value
