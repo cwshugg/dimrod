@@ -55,7 +55,6 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
         successful_data_writes += self.download_steps(g, db, tz)
 
         # TODO - activities
-        # TODO - heart rate
 
         # if we successfully wrote any data, return to indicate success.
         # Otherwise, return failure
@@ -354,9 +353,6 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
                             summary_obj.heartrate_resting is None):
                             continue
                     except Exception as e:
-                        # ----- TODO FIXME ----- #
-                        raise e
-                        # ----- TODO FIXME ----- #
                         #self.log("Failed to parse Garmin heart rate summary data entry: %s. Skipping" % e)
                         continue
 
@@ -379,24 +375,18 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
                                 hr_obj = GarminDatabaseHeartRateEntry.from_garmin_list(hr_value_entry, tz=tz)
                                 hr_objs.append(hr_obj)
                             except Exception as e:
-                                # ----- TODO FIXME ----- #
-                                raise e
-                                # ----- TODO FIXME ----- #
                                 #self.log("Failed to parse Garmin heart rate data entry: %s. Skipping" % e)
                                 continue
 
                     # write each of the heart rate value entries to the database
                     for hr_obj in hr_objs:
                         db.save_heart_rate(hr_obj)
-                        self.log("Saved Garmin heart rate summary data: %s: %d BPM" %
+                        self.log("Saved Garmin heart rate data: %s: %d BPM" %
                                  (dtu.format_yyyymmdd_hhmmss_12h(hr_obj.timestamp),
                                   hr_obj.heartrate)),
 
                     successful_data_writes += 1
             except Exception as e:
-                # ----- TODO FIXME ----- #
-                raise e
-                # ----- TODO FIXME ----- #
                 self.log("Failed to retrieve Garmin heart rate data for range %s - %s: %s" %
                          (dtu.format_yyyymmdd(chunk[0]),
                           dtu.format_yyyymmdd(chunk[1]),

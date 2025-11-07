@@ -414,7 +414,7 @@ class GarminDatabase:
         self.table_sleep_name = "sleep"
         self.table_vo2max_name = "vo2max"
         self.table_heart_rate_summary_name = "heart_rate_summary"
-        self.table_heart_rate = "heart_rate"
+        self.table_heart_rate_name = "heart_rate"
 
     # Determines if a table exists in the database.
     def table_exists(self, table: str) -> bool:
