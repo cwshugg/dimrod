@@ -38,9 +38,9 @@ class TaskJob_Household_Holiday_Lights(TaskJob_Household):
 
     # Returns True if the given datetime is the holiday season.
     def is_holiday_season(self, dt: datetime):
-        # if it's the last half of september through the first half of
-        # Thanksgiving, we'll return true, so the halloween lights can be
-        # turned on
+        # if it's the last half of september through
+        # november, we'll return true, so the halloween
+        # lights can be turned on
         is_late_september = dt.month == 9 and dt.day >= 15
         if is_late_september:
             return True
@@ -49,17 +49,13 @@ class TaskJob_Household_Holiday_Lights(TaskJob_Household):
         if is_october:
             return True
 
-        is_early_november = dt.month == 11 and dt.day <= 15
-        if is_early_november:
+        is_november = dt.month == 11
+        if is_november:
             return True
 
-        # otherwise, if it's the last week of November through early January,
-        # return true, so the Christmas lights can be turned on
-        thanksgiving_day = dtu.get_thanksgiving_day(dt.year)
-        is_late_november = dt.month == 11 and dt.day >= thanksgiving_day.day
-        if is_late_november:
-            return True
-
+        # otherwise, if it's December through early
+        # January, return true, so the Christmas lights
+        # can be turned on
         is_december = dt.month == 12
         if is_december:
             return True
