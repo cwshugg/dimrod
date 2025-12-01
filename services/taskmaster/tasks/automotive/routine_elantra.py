@@ -71,3 +71,13 @@ class TaskJob_Automotive_Routine_Maintenance_Elantra_60k(TaskJob_Automotive_Rout
         self.trigger_months = [2, 3]
         self.trigger_days = range(1, 11)
 
+class TaskJob_Automotive_Routine_Maintenance_Elantra_80k(TaskJob_Automotive_Routine_Maintenance):
+    def init(self):
+        self.car_name = "Elantra"
+        self.title = "80k-Mile Car Maintenance - %s" % self.car_name
+        content_fname = "%s_80k.md" % __file__.replace(".py", "")
+        self.content = os.path.join(fdir, content_fname)
+        self.trigger_years = list(range(2026, 2199, 7))
+        self.trigger_months = [4, 5]
+        self.trigger_days = range(1, 11)
+
