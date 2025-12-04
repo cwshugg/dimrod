@@ -23,8 +23,8 @@
 0     */4 *   *   * /home/provolone/chs/scripts/restart-service.sh lumen
 # WARDEN: Wednesday afternoons at 12:30pm
 30    12  *   *   3 /home/provolone/chs/scripts/restart-service.sh warden
-# TELEGRAM: Every morning at 4:00am
-0     4   *   *   * /home/provolone/chs/scripts/restart-service.sh telegram
+# TELEGRAM: Every 2 hour
+0     */2 *   *   * /home/provolone/chs/scripts/restart-service.sh telegram
 # NOTIF: Sunday mornings at 4:00am
 0     4   *   *   0 /home/provolone/chs/scripts/restart-service.sh notif
 # SPEAKER: Tuesday mornings at 4:00am
