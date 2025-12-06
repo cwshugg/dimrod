@@ -35,10 +35,16 @@ class GarminDatabaseEntryBase(Config):
             hash_str = self.__class__.__name__ + "|"
             if self.get_field("time_start") is not None and \
                self.get_field("time_end") is not None:
-                hash_str += "%s-%s" % (self.time_start.isoformat(),
-                                       self.time_end.isoformat())
+                # convert the timestamps to UTC before generating the ID
+                tstart_utc = self.time_start.astimezone(tz=timezone.utc)
+                tend_utc = self.time_end.astimezone(tz=timezone.utc)
+
+                hash_str += "%s-%s" % (tstart_utc.isoformat(),
+                                       tend_utc.isoformat())
             elif self.get_field("timestamp") is not None:
-                hash_str += "%s" % (self.timestamp.isoformat())
+                # convert the timestamp to UTC before generating the ID
+                t_utc = self.timestamp.astimezone(tz=timezone.utc)
+                hash_str += "%s" % (t_utc.isoformat())
             else:
                 assert False, "Cannot generate ID for GarminDatabaseEntryBase without `time_start`/`time_end` or `timestamp` fields."
 
@@ -397,6 +403,239 @@ class GarminDatabaseHeartRateSummaryEntry(GarminDatabaseEntryBase):
             "heartrate_resting",
         ]
 
+
+# ============================== Activity Data =============================== #
+# Represents a single exercise set entry for a strength training activity.
+class GarminDatabaseExerciseSetEntry(GarminDatabaseEntryBase):
+    def __init__(self):
+        super().__init__()
+        self.fields += [
+            ConfigField("category",         [str],      required=False, default=None),
+            ConfigField("reps",             [int],      required=False, default=None),
+            ConfigField("sets",             [int],      required=False, default=None),
+            ConfigField("weight_max",       [int],      required=False, default=None),
+            ConfigField("volume",           [int],      required=False, default=None),
+            ConfigField("duration",         [float],    required=False, default=None),
+        ]
+
+    @classmethod
+    def from_garmin_json(cls, jdata: dict, tz=None):
+        entry = cls.from_json({
+            "category": jdata.get("category", None),
+            "reps": jdata.get("reps", None),
+            "sets": jdata.get("sets", None),
+            "weight_max": jdata.get("maxWeight", None),
+            "volume": jdata.get("volume", None),
+            "duration": jdata.get("duration", None),
+        })
+        entry.get_id() # <-- generate the object's ID string
+        return entry
+
+    # Overridden to generate an ID based on other fields.
+    # This ID isn't necessarily unique, but it's good enough for my purposes.
+    def get_id(self):
+        hash_str = self.__class__.__name__ + "|" + \
+                   str(self.category) + "|" + \
+                   str(self.reps) + "|" + \
+                   str(self.sets) + "|" + \
+                   str(self.weight_max) + "|" + \
+                   str(self.volume) + "|" + \
+                   str(self.duration)
+        data = hash_str.encode("utf-8")
+        self.id = hashlib.sha256(data).hexdigest()
+        return self.id
+
+
+# Represents a single database entry for Garmin activity data.
+class GarminDatabaseActivityEntry(GarminDatabaseEntryBase):
+    def __init__(self):
+        super().__init__()
+        self.fields += [
+            ConfigField("time_start",       [datetime], required=True),
+            ConfigField("time_end",         [datetime], required=True),
+            ConfigField("activity_id",      [str],      required=True),
+            ConfigField("name",             [str],      required=False, default=None),
+            ConfigField("activity_type",    [str],      required=False, default=None),
+            ConfigField("event_type",       [str],      required=False, default=None),
+            ConfigField("distance",         [float],    required=False, default=None),
+            ConfigField("duration_total",   [float],    required=False, default=None),
+            ConfigField("duration_moving",  [float],    required=False, default=None),
+            ConfigField("elevation_gain",   [float],    required=False, default=None),
+            ConfigField("elevation_loss",   [float],    required=False, default=None),
+            ConfigField("elevation_min",    [float],    required=False, default=None),
+            ConfigField("elevation_max",    [float],    required=False, default=None),
+            ConfigField("speed_avg",        [float],    required=False, default=None),
+            ConfigField("speed_max",        [float],    required=False, default=None),
+            ConfigField("speed_vertical_max", [float],  required=False, default=None),
+            ConfigField("latitude_start",   [float],    required=False, default=None),
+            ConfigField("longitude_start",  [float],    required=False, default=None),
+            ConfigField("latitude_end",     [float],    required=False, default=None),
+            ConfigField("longitude_end",    [float],    required=False, default=None),
+            ConfigField("calories",         [float],    required=False, default=None),
+            ConfigField("heartrate_avg",    [float],    required=False, default=None),
+            ConfigField("heartrate_max",    [float],    required=False, default=None),
+            ConfigField("heartrate_time_in_zone1", [float], required=False, default=None),
+            ConfigField("heartrate_time_in_zone2", [float], required=False, default=None),
+            ConfigField("heartrate_time_in_zone3", [float], required=False, default=None),
+            ConfigField("heartrate_time_in_zone4", [float], required=False, default=None),
+            ConfigField("heartrate_time_in_zone5", [float], required=False, default=None),
+            ConfigField("cycling_cadence_rpm_avg", [float], required=False, default=None),
+            ConfigField("cycling_cadence_rpm_max", [float], required=False, default=None),
+            ConfigField("laps",             [int],      required=False, default=None),
+            ConfigField("power_avg",        [float],    required=False, default=None),
+            ConfigField("power_max",        [float],    required=False, default=None),
+            ConfigField("power_norm",       [float],    required=False, default=None),
+            ConfigField("power_max_avg_1sec", [int],    required=False, default=None),
+            ConfigField("power_max_avg_2sec", [int],    required=False, default=None),
+            ConfigField("power_max_avg_5sec", [int],    required=False, default=None),
+            ConfigField("power_max_avg_10sec", [int],   required=False, default=None),
+            ConfigField("power_max_avg_20sec", [int],   required=False, default=None),
+            ConfigField("power_max_avg_30sec", [int],   required=False, default=None),
+            ConfigField("power_max_avg_60sec", [int],   required=False, default=None),
+            ConfigField("power_max_avg_120sec", [int],  required=False, default=None),
+            ConfigField("power_max_avg_300sec", [int],  required=False, default=None),
+            ConfigField("power_max_avg_600sec", [int],  required=False, default=None),
+            ConfigField("power_max_avg_1200sec", [int], required=False, default=None),
+            ConfigField("power_max_avg_1800sec", [int], required=False, default=None),
+            ConfigField("power_time_in_zone1", [float], required=False, default=None),
+            ConfigField("power_time_in_zone2", [float], required=False, default=None),
+            ConfigField("power_time_in_zone3", [float], required=False, default=None),
+            ConfigField("power_time_in_zone4", [float], required=False, default=None),
+            ConfigField("power_time_in_zone5", [float], required=False, default=None),
+            ConfigField("power_time_in_zone6", [float], required=False, default=None),
+            ConfigField("power_time_in_zone7", [float], required=False, default=None),
+            ConfigField("sets_total",       [int],      required=False, default=None),
+            ConfigField("sets_active",      [int],      required=False, default=None),
+            ConfigField("reps_total",       [int],      required=False, default=None),
+            ConfigField("exercise_sets",    [GarminDatabaseExerciseSetEntry], required=False, default=None),
+        ]
+
+    @classmethod
+    def from_garmin_json(cls, jdata: dict, tz=None):
+        # if the provided JSON object is a list, grab the first value
+        if type(jdata) == list:
+            assert len(jdata) > 0, "Garmin activity JSON data is empty"
+            jdata = jdata[0]
+
+        time_start = datetime.strptime(jdata["startTimeGMT"], "%Y-%m-%d %H:%M:%S")
+        time_start = time_start.replace(tzinfo=timezone.utc)
+        time_end = None
+
+        # some older activities don't come with an endtime. If that's the case,
+        # we'll come up with one
+        if "endTimeGMT" not in jdata or jdata["endTimeGMT"] is None:
+            # look for a duration value to add to the start time
+            duration = jdata.get("elapsedDuration", None)
+            if duration is None:
+                duration = jdata.get("duration", None)
+            assert duration is not None, "Garmin activity JSON data missing end time or duration"
+
+            # add the duration to the start time
+            time_end = dtu.add_seconds(time_start, int(duration))
+        else:
+            # or, just parse the provided ending time
+            time_end = datetime.strptime(jdata["endTimeGMT"], "%Y-%m-%d %H:%M:%S")
+            time_end = time_end.replace(tzinfo=timezone.utc)
+
+        # if a timezone was given, convert the UTC-based timestamp to this
+        # timezone
+        if tz is not None:
+            time_start = time_start.astimezone(tz=tz)
+            time_end = time_end.astimezone(tz=tz)
+
+        # try to determine the activity type
+        activity_type = None
+        if "activityType" in jdata:
+            if "typeKey" in jdata["activityType"]:
+                activity_type = jdata["activityType"]["typeKey"]
+
+        # try to determine the event type
+        event_type = None
+        if "eventType" in jdata:
+            if "typeKey" in jdata["eventType"]:
+                event_type = jdata["eventType"]["typeKey"]
+
+        # were exercise sets provided? If so, parse them
+        exercise_sets = None
+        if "summarizedExerciseSets" in jdata and \
+           jdata["summarizedExerciseSets"] is not None and \
+           len(jdata["summarizedExerciseSets"]) > 0:
+            exercise_sets = []
+            for eset in jdata["summarizedExerciseSets"]:
+                eset_entry = GarminDatabaseExerciseSetEntry.from_garmin_json(
+                    eset,
+                    tz=tz
+                )
+                exercise_sets.append(eset_entry.to_json())
+
+        # create an object by providing it with a JSON structure it can parse
+        entry = cls.from_json({
+            "time_start": time_start.isoformat(),
+            "time_end": time_end.isoformat(),
+            "activity_id": str(jdata["activityId"]),
+            "name": jdata.get("activityName", None),
+            "activity_type": activity_type,
+            "event_type": event_type,
+            "distance": jdata.get("distance", None),
+            "duration_total": jdata.get("elapsedDuration", None),
+            "duration_moving": jdata.get("movingDuration", None),
+            "elevation_gain": jdata.get("elevationGain", None),
+            "elevation_loss": jdata.get("elevationLoss", None),
+            "elevation_min": jdata.get("minElevation", None),
+            "elevation_max": jdata.get("maxElevation", None),
+            "speed_avg": jdata.get("averageSpeed", None),
+            "speed_max": jdata.get("maxSpeed", None),
+            "speed_vertical_max": jdata.get("maxVerticalSpeed", None),
+            "latitude_start": jdata.get("startLatitude", None),
+            "longitude_start": jdata.get("startLongitude", None),
+            "latitude_end": jdata.get("endLatitude", None),
+            "longitude_end": jdata.get("endLongitude", None),
+            "calories": jdata.get("calories", None),
+            "heartrate_avg": jdata.get("averageHR", None),
+            "heartrate_max": jdata.get("maxHR", None),
+            "heartrate_time_in_zone1": jdata.get("hrTimeInZone_1", None),
+            "heartrate_time_in_zone2": jdata.get("hrTimeInZone_2", None),
+            "heartrate_time_in_zone3": jdata.get("hrTimeInZone_3", None),
+            "heartrate_time_in_zone4": jdata.get("hrTimeInZone_4", None),
+            "heartrate_time_in_zone5": jdata.get("hrTimeInZone_5", None),
+            "cycling_cadence_rpm_avg": jdata.get("averageBikingCadenceInRevPerMinute", None),
+            "cycling_cadence_rpm_max": jdata.get("maxBikingCadenceInRevPerMinute", None),
+            "laps": jdata.get("lapCount", None),
+            "power_avg": jdata.get("avgPower", None),
+            "power_max": jdata.get("maxPower", None),
+            "power_norm": jdata.get("normPower", None),
+            "power_max_avg_1sec": jdata.get("maxAvgPower_1", None),
+            "power_max_avg_2sec": jdata.get("maxAvgPower_2", None),
+            "power_max_avg_5sec": jdata.get("maxAvgPower_5", None),
+            "power_max_avg_10sec": jdata.get("maxAvgPower_10", None),
+            "power_max_avg_20sec": jdata.get("maxAvgPower_20", None),
+            "power_max_avg_30sec": jdata.get("maxAvgPower_30", None),
+            "power_max_avg_60sec": jdata.get("maxAvgPower_60", None),
+            "power_max_avg_120sec": jdata.get("maxAvgPower_120", None),
+            "power_max_avg_300sec": jdata.get("maxAvgPower_300", None),
+            "power_max_avg_600sec": jdata.get("maxAvgPower_600", None),
+            "power_max_avg_1200sec": jdata.get("maxAvgPower_1200", None),
+            "power_max_avg_1800sec": jdata.get("maxAvgPower_1800", None),
+            "power_time_in_zone1": jdata.get("powerTimeInZone_1", None),
+            "power_time_in_zone2": jdata.get("powerTimeInZone_2", None),
+            "power_time_in_zone3": jdata.get("powerTimeInZone_3", None),
+            "power_time_in_zone4": jdata.get("powerTimeInZone_4", None),
+            "power_time_in_zone5": jdata.get("powerTimeInZone_5", None),
+            "power_time_in_zone6": jdata.get("powerTimeInZone_6", None),
+            "power_time_in_zone7": jdata.get("powerTimeInZone_7", None),
+            "sets_total": jdata.get("totalSets", None),
+            "sets_active": jdata.get("activeSets", None),
+            "reps_total": jdata.get("totalReps", None),
+            "exercise_sets": exercise_sets,
+        })
+        entry.get_id() # <-- generate the object's ID string
+        return entry
+
+    @classmethod
+    def sqlite3_fields_to_keep_visible(cls):
+        return ["id", "time_start", "time_end", "activity_type", "event_type"]
+
+
 # ============================= Database Objects ============================= #
 # A configuration object for a database.
 class GarminDatabaseConfig(Config):
@@ -415,6 +654,7 @@ class GarminDatabase:
         self.table_vo2max_name = "vo2max"
         self.table_heart_rate_summary_name = "heart_rate_summary"
         self.table_heart_rate_name = "heart_rate"
+        self.table_activity_name = "activities"
 
     # Determines if a table exists in the database.
     def table_exists(self, table: str) -> bool:
@@ -767,6 +1007,33 @@ class GarminDatabase:
         con.commit()
         con.close()
 
+    def save_heart_rate_bulk(self, entries: list[GarminDatabaseHeartRateEntry]):
+        # connect and make sure the table exists
+        con = sqlite3.connect(self.config.db_path)
+        cur = con.cursor()
+        table_fields_kept_visible = GarminDatabaseHeartRateEntry.sqlite3_fields_to_keep_visible()
+        table_definition = entries[0].get_sqlite3_table_definition(
+            self.table_heart_rate_name,
+            fields_to_keep_visible=table_fields_kept_visible,
+            primary_key_field="id"
+        )
+        cur.execute(table_definition)
+
+        # build a long command that includes each entry provided
+        cmd = "INSERT OR REPLACE INTO %s VALUES " % self.table_heart_rate_name
+        entries_len = len(entries)
+        for (i, entry) in enumerate(entries):
+            sqlite3_str = entry.to_sqlite3_str(fields_to_keep_visible=table_fields_kept_visible)
+            cmd += "%s" % str(sqlite3_str)
+
+            # add a comma when necessary
+            if i < entries_len - 1:
+                cmd += ", "
+
+        cur.execute(cmd)
+        con.commit()
+        con.close()
+
     # Searches for entries with the given entry ID.
     # Returns None if no entry was found, or the matching entry object.
     def search_heart_rate_by_id(self, entry_id: str):
@@ -813,6 +1080,76 @@ class GarminDatabase:
         )
         for row in result:
             entry = GarminDatabaseHeartRateEntry.from_sqlite3(row)
+            return entry
+        return None
+
+    # ---------------------------- Activity Data ----------------------------- #
+    # Inserts the provided entry into the database.
+    def save_activity(self, entry: GarminDatabaseActivityEntry):
+        # connect and make sure the table exists
+        con = sqlite3.connect(self.config.db_path)
+        cur = con.cursor()
+        table_fields_kept_visible = GarminDatabaseActivityEntry.sqlite3_fields_to_keep_visible()
+        table_definition = entry.get_sqlite3_table_definition(
+            self.table_activity_name,
+            fields_to_keep_visible=table_fields_kept_visible,
+            primary_key_field="id"
+        )
+        cur.execute(table_definition)
+
+        # insert the entry into the database
+        sqlite3_obj = entry.to_sqlite3_str(fields_to_keep_visible=table_fields_kept_visible)
+        cur.execute("INSERT OR REPLACE INTO %s VALUES %s" %
+                    (self.table_activity_name, str(sqlite3_obj)))
+        con.commit()
+        con.close()
+
+    # Searches for step entries with the given entry ID.
+    # Returns None if no entry was found, or the matching entry object.
+    def search_activity_by_id(self, entry_id: str):
+        condition = "id == '%s'" % entry_id
+        result = self.search(self.table_activity_name, condition)
+
+        # iterate through the returned entries and convert them to objects
+        entry = None
+        entry_count = 0
+        for row in result:
+            entry = GarminDatabaseActivityEntry.from_sqlite3_row(row)
+            entry_count += 1
+
+        # if we had more than one match, there is an issue with the database;
+        # ID strings should be unique
+        assert entry_count <= 1, \
+               "Database error: multiple activity entries found with the same ID: \"%s\"" % \
+               entry_id
+        return entry
+
+    # Searches for activity entries within the given time range.
+    def search_activity_by_day(self, timestamp: datetime):
+        condition = "time_start >= %.f AND time_start <= %.f" % (
+            dtu.set_time_beginning_of_day(timestamp),
+            dtu.set_time_end_of_day(timestamp),
+        )
+        result = self.search(self.table_activity_name, condition)
+
+        # iterate through the returned entries and convert them to objects
+        entries = []
+        for row in result:
+            entry = GarminDatabaseActivityEntry.from_sqlite3_row(row)
+            entries.append(entry)
+        return entries
+
+    # Returns the entry with the latest timestamp, or `None` if there are no
+    # entries.
+    def search_activity_latest(self):
+        result = self.search_order_by(
+            self.table_activity_name,
+            order_by_column="time_start",
+            desc=True,
+            limit=1,
+        )
+        for row in result:
+            entry = GarminDatabaseActivityEntry.from_sqlite3(row)
             return entry
         return None
 

@@ -17,7 +17,8 @@ from lib.garmin.database import GarminDatabaseStepsEntry, \
                                 GarminDatabaseSleepEntry, \
                                 GarminDatabaseVO2MaxEntry, \
                                 GarminDatabaseHeartRateSummaryEntry, \
-                                GarminDatabaseHeartRateEntry
+                                GarminDatabaseHeartRateEntry, \
+                                GarminDatabaseActivityEntry
 import lib.dtu as dtu
 import lib.lu as lu
 
@@ -29,10 +30,11 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
 
         # define various "reachbacks" for when we retrieve all past data for
         # the first time
-        self.reachback_steps = 86400 * (365 / 2)    # 6 months
-        self.reachback_sleep = 86400 * (365 * 5)    # 5 years
-        self.reachback_vo2max = 86400 * (365 * 5)    # 5 years
-        self.reachback_heart_rate = 86400 * (365 * 5)    # 5 years
+        self.reachback_steps = 86400 * (365 / 2)        # 6 months
+        self.reachback_sleep = 86400 * (365 * 5)        # 5 years
+        self.reachback_vo2max = 86400 * (365 * 5)       # 5 years
+        self.reachback_heart_rate = 86400 * (365 * 5)   # 5 years
+        self.reachback_activity = 86400 * (365 * 12)    # 12 years
 
     def update(self, todoist, gcal):
         # get an authenticated garmin client
@@ -49,12 +51,13 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
         tz = lu.get_timezone()
 
         successful_data_writes = 0
+        successful_data_writes += self.download_activity(g, db, tz)
         successful_data_writes += self.download_heart_rate(g, db, tz)
         successful_data_writes += self.download_sleep(g, db, tz)
         successful_data_writes += self.download_vo2max(g, db, tz)
         successful_data_writes += self.download_steps(g, db, tz)
 
-        # TODO - activities
+        # TODO - update individual heart rate entries to be inserted all in one SQL command; implement
 
         # if we successfully wrote any data, return to indicate success.
         # Otherwise, return failure
@@ -379,11 +382,24 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
                                 continue
 
                     # write each of the heart rate value entries to the database
-                    for hr_obj in hr_objs:
-                        db.save_heart_rate(hr_obj)
-                        self.log("Saved Garmin heart rate data: %s: %d BPM" %
-                                 (dtu.format_yyyymmdd_hhmmss_12h(hr_obj.timestamp),
-                                  hr_obj.heartrate)),
+                    hr_objs_len = len(hr_objs)
+                    if hr_objs_len == 0:
+                        continue
+                    db.save_heart_rate_bulk(hr_objs)
+
+                    # calculate a few stats to log
+                    timestamp_first = hr_objs[0].timestamp
+                    timestamp_last = hr_objs[-1].timestamp
+                    hr_min = min([hr_obj.heartrate for hr_obj in hr_objs])
+                    hr_max = max([hr_obj.heartrate for hr_obj in hr_objs])
+                    hr_avg = sum([hr_obj.heartrate for hr_obj in hr_objs]) / hr_objs_len
+                    self.log("Saved Garmin heart rate data points: %s - %s: " \
+                             "Min HR: %d, Max HR: %d, Avg HR: %d" %
+                             (dtu.format_yyyymmdd_hhmmss_12h(timestamp_first),
+                              dtu.format_yyyymmdd_hhmmss_12h(timestamp_last),
+                              hr_min,
+                              hr_max,
+                              hr_avg))
 
                     successful_data_writes += 1
             except Exception as e:
@@ -397,3 +413,70 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
 
         return successful_data_writes
 
+    # ---------------------------- Activity Data ----------------------------- #
+    # Determines the timerange to download activity data for.
+    def get_timerange_activity(self, db: GarminDatabase):
+        now = datetime.now()
+        timerange_end = now
+
+        # look for the latest entry in the database. We'll use this as a basis
+        # for how far back to start downloading data
+        last_entry = db.search_activity_latest()
+        timerange_start = None
+        if last_entry is None:
+            # if we've never successfully downloaded data before, reach back
+            # very far, so we can download everything the Garmin API has
+            #
+            # (this case should only happen on the very first run of this)
+            timerange_start = dtu.add_seconds(now, -1 * self.reachback_activity)
+        else:
+            # if we have a last entry, move back a few days to ensure we
+            # capture any recent updates to existing entries
+            timerange_start = dtu.add_days(last_entry.time_start, -2)
+
+        return [timerange_start, timerange_end]
+
+    # Downloads activity data.
+    # Returns the number of writes made to the database.
+    def download_activity(self,
+                          g: Garmin,
+                          db: GarminDatabase,
+                          tz):
+        (timerange_start, timerange_end) = self.get_timerange_activity(db)
+        day_chunks = self.get_day_chunks(timerange_start, timerange_end)
+
+        successful_data_writes = 0
+        for chunk in day_chunks:
+            chunk_start = chunk[0]
+            chunk_end = chunk[1]
+
+            try:
+                data = g.get_activities_for_day_range(chunk_start, chunk_end)
+                # iterate through each entry in the data and save it
+                for activity_data in data:
+                    # attempt to parse the activity entry object. If it fails, skip
+                    obj = None
+                    try:
+                        obj = GarminDatabaseActivityEntry.from_garmin_json(activity_data, tz=tz)
+                    except Exception as e:
+                        continue
+
+                    # write the entry to the database
+                    db.save_activity(obj)
+                    self.log("Saved Garmin activity data: %s - %s:%s%s" %
+                             (dtu.format_yyyymmdd_hhmmss_12h(obj.time_start),
+                              dtu.format_yyyymmdd_hhmmss_12h(obj.time_end),
+                              "" if obj.activity_type is None else " %s" % obj.activity_type,
+                              "" if obj.name is None else " - \"%s\"" % obj.name))
+
+                    successful_data_writes += 1
+            except Exception as e:
+                self.log("Failed to retrieve Garmin activity data for range %s - %s: %s" %
+                         (dtu.format_yyyymmdd(chunk[0]),
+                          dtu.format_yyyymmdd(chunk[1]),
+                          e))
+
+            # wait a bit between API calls, to avoid rate limiting
+            time.sleep(self.api_call_delay)
+
+        return successful_data_writes

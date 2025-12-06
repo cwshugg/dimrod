@@ -283,7 +283,13 @@ class TaskmasterService(Service):
                 # compute the amount of time, from now, that this taskjob
                 # needs to wait before updating again
                 now = datetime.now()
-                seconds_until_update = tj.get_next_update_datetime_relative(now)
+                seconds_until_update = None
+                try:
+                    seconds_until_update = tj.get_next_update_datetime_relative(now)
+                except Exception as e:
+                    self.log.write("Failed to compute next update time for taskjob \"%s\" (skipping): %s" %
+                                   (tj.get_name(), e))
+                    continue
 
                 # if it's time to update the taskjob, we'll submit it to the
                 # queue for processing by the worker threads
