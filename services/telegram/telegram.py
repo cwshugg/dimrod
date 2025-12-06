@@ -870,6 +870,7 @@ class TelegramService(Service):
                     self.log.write(line)
                 self.log.write("Waiting for a short time and restarting...")
                 time.sleep(5)
+                self.refresh()
 
 # A class instantiated by the main `TelegramService` class whose job is to
 # routinely examine and prune the database of Telegram menus.
