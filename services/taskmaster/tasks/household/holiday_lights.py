@@ -139,7 +139,10 @@ class TaskJob_Household_Holiday_Lights(TaskJob_Household):
 
             # does this light's tags match up with the holiday theme? If so,
             # add it to the list
-            if light.match_tags("holiday"):
+            #
+            # (but don't include the christmas tree)
+            if light.match_tags("holiday") and \
+               not (light.match_tags("tree") and light.match_tags("christmas")):
                 lights.append(Light(lconf))
 
         return lights
