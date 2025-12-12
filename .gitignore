@@ -37,3 +37,6 @@ adapt-parser
 services/taskmaster/tasks/*.md
 services/taskmaster/tasks/*.json
 
+# MAC address vendor cache file
+.mac_vendors.txt
+

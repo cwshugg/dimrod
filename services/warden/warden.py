@@ -11,6 +11,7 @@ import socket
 import ipaddress
 import time
 from datetime import datetime
+from mac_vendor_lookup import BaseMacLookup, MacLookup
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -24,8 +25,8 @@ from lib.oracle import Oracle
 from lib.cli import ServiceCLI
 
 # Service imports
-from device import Device, DeviceConfig
-from client import Client
+from device import KnownDeviceConfig, DeviceHardwareAddress, \
+                   DeviceNetworkAddress, Device
 
 
 # =============================== Config Class =============================== #
@@ -35,12 +36,13 @@ class WardenConfig(ServiceConfig):
         super().__init__()
         # create lumen-specific fields to append to the existing service fields
         fields = [
-            ConfigField("devices",          [list],     required=True),
+            ConfigField("known_devices",    [KnownDeviceConfig], required=True),
             ConfigField("refresh_rate",     [int],      required=False,     default=120),
             ConfigField("ping_timeout",     [float],    required=False,     default=0.25),
             ConfigField("ping_tries",       [int],      required=False,     default=1),
             ConfigField("sweep_threshold",  [int],      required=False,     default=3600),
-            ConfigField("initial_sweeps",   [int],      required=False,     default=1)
+            ConfigField("initial_sweeps",   [int],      required=False,     default=1),
+            ConfigField("mac_vendor_cache_path", [str], required=False,     default=os.path.join(os.path.dirname(os.path.realpath(__file__)), ".mac_vendors.txt")),
         ]
         self.fields += fields
 
@@ -57,13 +59,6 @@ class WardenService(Service):
         assert self.config.refresh_rate > 0, "the refresh rate must be greater than 0"
         assert self.config.ping_timeout > 0.0, "the ping timeout must be greater than 0"
         assert self.config.ping_tries > 0, "the ping try count must be greater than 0"
-
-        # parse out the individual devices from the "devices" field
-        self.devices = []
-        for ddata in self.config.devices:
-            dc = DeviceConfig()
-            dc.parse_json(ddata)
-            self.devices.append(Device(dc))
 
         # the service will keep a cache of IP/MAC addresses, but it starts as an
         # empty dictionary
@@ -95,7 +90,7 @@ class WardenService(Service):
         # dump out the current state of the cache
         self.log.write("Initial cache entries:")
         for entry in self.cache:
-            self.log.write(" - %s" % self.cache[entry])
+            self.log.write(" - %s" % self.cache[entry].to_str_brief())
 
         # loop forever
         while True:
@@ -104,41 +99,42 @@ class WardenService(Service):
 
             # if we're past the sweep threshold, sweep the network
             if can_sweep():
+                # before sweeping, update the MAC address vendor cache
+                self.log.write("%s Refreshing MAC address vendor cache..." % pfx)
+                self.mac_vendor_refresh_cache()
+
+                # initiate the sweep, then write out all entries in the cache
                 self.log.write("%s Sweeping the network..." % pfx)
                 self.sweep()
                 for entry in self.cache:
-                    self.log.write(" - %s" % self.cache[entry])
+                    self.log.write(" - %s" % self.cache[entry].to_str_brief())
 
-            # iterate across all clients stored in the cache
+            # iterate across all devices stored in the cache
             for addr in self.cache:
-                client = self.cache[addr]
+                device = self.cache[addr]
 
-                # ping the client and update if it responds
+                # ping the device and update if it responds
                 ping_tries = self.config.ping_tries * 2
-                if self.ping(client.ipaddr, tries=ping_tries):
-                    self.log.write("%s Client \"%s\" is responding." %
-                                   (pfx, client))
-                    client.update()
+                if self.ping(device.net_addr.ipaddr, tries=ping_tries):
+                    self.log.write("%s Device \"%s\" is responding." %
+                                   (pfx, device.to_str_brief()))
+                    device.set_last_seen(datetime.now())
 
             # sleep for the specified amount of seconds
             time.sleep(self.config.refresh_rate)
 
 
     # ------------------------------- Caching -------------------------------- #
-    # Returns the matching Client object, or None.
+    # Returns the matching device object, or None.
     def cache_get(self, macaddr: str):
         macaddr = macaddr.lower()
         return None if macaddr not in self.cache else self.cache[macaddr]
 
-    # Takes a MAC address and adds an entry to the cache. The Client object is
+    # Takes a MAC address and adds an entry to the cache. The `Device` object is
     # returned.
-    def cache_set(self, macaddr: str):
-        macaddr = macaddr.lower()
-        if macaddr in self.cache:
-            return self.cache[macaddr]
-        self.cache[macaddr] = Client(macaddr)
-        return self.cache[macaddr]
-
+    def cache_set(self, device: Device):
+        macaddr = device.hw_addr.macaddr.lower()
+        self.cache[macaddr] = device
 
     # --------------------------------- API ---------------------------------- #
     # Attempts to determine (and return) the IP address of the service.
@@ -195,7 +191,7 @@ class WardenService(Service):
 
     # Sweeps the entire range of IP addresses in the same subnet as the
     # service's IP address. Returns dictionary of IP addresses and MAC
-    # addresses corresponding to the clients that responded.
+    # addresses corresponding to the devices that responded.
     def sweep(self):
         self.last_sweep = datetime.now()
         # get all addresses, and our own address
@@ -203,33 +199,66 @@ class WardenService(Service):
         addresses = self.get_all_addresses()
 
         # ping all addresses
-        up_addrs = []
+        devices_found = []
         log_msg = "Trying address %s"
         for (i, addr) in enumerate(addresses):
             # write a message to the log
             log_msg_end = "" if i < len(addresses) - 1 else "\n"
             self.log.write(log_msg % addr, begin="\r", end=log_msg_end)
 
-            entry = {"ipaddr": None, "macaddr": None}
+            d = Device()
+            d.init_defaults()
 
             # ping and save the address if the ping succeeded
             if self.ping(addr):
-                entry["ipaddr"] = addr
-                self.log.write(" - UP", show_prefix=False)
+                d.set_network_address(DeviceNetworkAddress.from_json({
+                    "ipaddr": addr,
+                }))
+                self.log.write(" - UP", show_prefix=False, end="")
             else:
                 continue
 
-            # perform an ARP lookup to get the client's MAC address
+            # perform an ARP lookup to get the device's MAC address. If we can't
+            # get the MAC address, skip it
             macaddr = self.arp(addr, do_ping=False)
-            macaddr = macaddr.lower() if macaddr else macaddr
-            entry["macaddr"] = macaddr
-            up_addrs.append(entry)
+            if not macaddr:
+                continue
 
-            # add this to the cache, or update the existing entry
-            if macaddr:
-                client = self.cache_set(macaddr)
-                client.update(ipaddr=addr)
-        return up_addrs
+            macaddr = macaddr.lower()
+            self.log.write(" - macaddr=\"%s\"" % macaddr, show_prefix=False, end="")
+
+            # look up the vendor for this MAC address
+            vendor = None
+            try:
+                vendor = self.mac_vendor(macaddr)
+                self.log.write(" - vendor=\"%s\"" % vendor, show_prefix=False, end="")
+            except Exception as e:
+                pass
+
+            # save the MAC addr and vendor information to the device object
+            d.set_hardware_address(DeviceHardwareAddress.from_json({
+                "macaddr": macaddr,
+                "vendor": vendor,
+            }))
+
+            # does this MAC address match any of our known devices? If so,
+            # set the device object's known device to point at the known
+            # device's info object
+            for known_dev in self.config.known_devices:
+                for known_mac in known_dev.macaddrs:
+                    if known_mac.lower() == macaddr:
+                        d.set_known_device(known_dev.copy())
+                        break
+
+            # store what information we collected on this device in the cache
+            d.set_last_seen(datetime.now())
+            self.cache_set(d)
+
+            # append the device object to the resulting list of devices
+            self.log.write("", show_prefix=False)
+            devices_found.append(d)
+
+        return devices_found
 
     # Attempts to do various nmap ping strategies to identify if a host is up or
     # not. Used by `self.ping()`. Returns True if the host is up, False
@@ -377,11 +406,23 @@ class WardenService(Service):
             pieces = line.split()
             if pieces[0] == address:
                 macaddr = pieces[2].lower()
-                # update the cache entry
-                client = self.cache_set(macaddr)
-                client.update(ipaddr=address)
                 return pieces[2]
         return None
+
+    # Looks up the vendor for a given MAC address. Returns a string.
+    def mac_vendor(self, macaddr: str):
+        # sanitize the MAC address
+        macaddr_sanitized = macaddr.lower().replace("-", ":").replace(".", ":")
+
+        # perform a lookup
+        mac = MacLookup()
+        return mac.lookup(macaddr_sanitized)
+
+    # Refreshes the MAC address vendor cache.
+    def mac_vendor_refresh_cache(self):
+        BaseMacLookup.cache_path = self.config.mac_vendor_cache_path
+        mac = MacLookup()
+        mac.update_vendors()
 
 
 # ============================== Service Oracle ============================== #
@@ -393,48 +434,51 @@ class WardenOracle(Oracle):
         # This endpoint returns a list of all configured devices. The response
         # only contains static information that was defined in the configuration
         # file.
-        @self.server.route("/devices", methods=["GET"])
-        def endpoint_devices():
+        @self.server.route("/known_devices", methods=["GET"])
+        def endpoint_known_devices():
             if not flask.g.user:
                 return self.make_response(rstatus=404)
 
             # retrieve all devices and build a JSON dictionary to return
             result = []
-            for device in self.service.devices:
-                result.append(device.config.to_json())
+            for device in self.service.config.known_devices:
+                result.append(device.to_json())
             return self.make_response(payload=result)
 
-        # This endpoint retrieves all clients stored in the warden's cache.
-        @self.server.route("/clients", methods=["GET"])
-        def endpoint_clients():
+        # This endpoint retrieves all devices stored in the warden's cache.
+        @self.server.route("/devices", methods=["GET"])
+        def endpoint_devices():
             if not flask.g.user:
                 return self.make_response(rstatus=404)
 
-            # retrieve all clients from the warden's cache and build a JSON
+            # were tags provided to filter with? If so, only return known
+            # devices that have all of the provided tags
+            tags = flask.g.jdata.get("tags", None)
+            if tags is not None and not isinstance(tags, list):
+                return self.make_response(rstatus=400,
+                                          rmessage="The \"tags\" field must be a list.")
+
+            # retrieve all devices from the warden's cache and build a JSON
             # dictionary to return.
             result = []
             named_devices_already_added = {}
             for addr in self.service.cache:
-                c = self.service.cache[addr]
-                jdata = c.to_json()
-                # cross-reference with our list of devices and see if this
-                # device has a name (if so, add it)
-                for device in self.service.devices:
-                    # if we've already seen this named device, skip it (this
-                    # could happen if a device is using multiple MAC addresses)
-                    if device.config.name in named_devices_already_added:
+                d = self.service.cache[addr]
+
+                # if tags were provided, skip devices that don't have all
+                # requested tags
+                if tags is not None and d.known_device is not None:
+                    has_all_tags = True
+                    for t in tags:
+                        tag_sanitized = str(t).strip().lower()
+                        if tag_sanitized not in d.known_device.tags:
+                            has_all_tags = False
+                            break
+                    if not has_all_tags:
                         continue
 
-                    # do any of the configured MAC addresses match this addr? If
-                    # so, add the named device to the JSON
-                    for macaddr in device.config.macaddrs:
-                        if macaddr.lower() == c.macaddr.lower():
-                            jdata["name"] = device.config.name
-                            jdata["tags"] = device.config.tags
-                            named_devices_already_added[device.config.name] = True
-                            break
-                result.append(jdata)
-            self.log.write("Returning a list of %d connected clients to %s" %
+                result.append(d.to_json())
+            self.log.write("Returning a list of %d connected devices to %s" %
                            (len(result), flask.g.user.config.username))
             return self.make_response(payload=result)
 

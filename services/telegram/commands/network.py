@@ -12,14 +12,15 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.oracle import OracleSession
+from warden.device import Device
 
 
 # ================================= Helpers ================================== #
 # Creates and sends a list of cached devices, sorted by last-seen time.
-def network_list_times(service, message, args, clients):
+def network_list_times(service, message, args, devices):
     msg = "<b>All Cached Devices</b>\n\n"
 
-    # sort the clients into buckets based on last-seen time
+    # sort the devices into buckets based on last-seen time
     buckets = [
         {"name": "Currently online",                        "time": 120,    "list": []},
         {"name": "Last seen 5 minutes ago",                 "time": 300,    "list": []},
@@ -42,38 +43,39 @@ def network_list_times(service, message, args, clients):
         {"name": "Last seen within the last year",          "time": 29030400, "list": []}
     ]
     now = datetime.now()
-    for client in clients:
-        last_seen = datetime.fromtimestamp(client["last_seen"])
-        diff = now.timestamp() - last_seen.timestamp()
+    for device in devices:
+        diff = now.timestamp() - device.last_seen.timestamp()
         for b in buckets:
             # if the time since last seen fits in the bucket's time
             # window, add it to the bucket
             if int(diff) <= int(b["time"]):
-                b["list"].append(client)
+                b["list"].append(device)
                 break
-    
+
     # now, prepare a message listing off any non-empty buckets
     for b in buckets:
         if len(b["list"]) == 0:
             continue
         msg += "<b>%s:</b>\n" % b["name"]
-        for client in b["list"]:
-            # add the client's name or MAC address to the message
-            if "name" in client:
-                msg += "• <i>%s</i>" % client["name"]
+        for device in b["list"]:
+            # add the device's name or MAC address to the message
+            if device.known_device is not None:
+                msg += "• <i>%s</i>" % device.known_device.name
             else:
-                msg += "• <code>%s</code>" % client["macaddr"]
+                msg += "• <code>%s</code>" % device.hw_addr.macaddr
+                if device.hw_addr.vendor is not None:
+                    msg += " (<i>%s</i>)" % device.hw_addr.vendor
+
             # add the last-seen time (if it's on the same day, don't
             # include the day in the date string)
-            last_seen = datetime.fromtimestamp(client["last_seen"])
-            dtstr = last_seen.strftime("%I:%M:%S %p")
-            if now.year != last_seen.year or \
-                now.month != last_seen.month or \
-                now.day != last_seen.day:
-                dtstr = "%s at %s" % (last_seen.strftime("%Y-%m-%d"), dtstr)
+            dtstr = device.last_seen.strftime("%I:%M:%S %p")
+            if now.year != device.last_seen.year or \
+                now.month != device.last_seen.month or \
+                now.day != device.last_seen.day:
+                dtstr = "%s at %s" % (device.last_seen.strftime("%Y-%m-%d"), dtstr)
             msg += " - %s\n" % dtstr
         msg += "\n"
-    
+
     # send the message
     service.send_message(message.chat.id, msg, parse_mode="HTML")
     return True
@@ -81,7 +83,7 @@ def network_list_times(service, message, args, clients):
 # Creates and sends a list of comprehensive information for all cached devices.
 def network_list_info(service, message, args, clients):
     msg = "<b>All Cached Devices</b>\n\n"
-            
+
     for client in clients:
         last_seen = datetime.fromtimestamp(client["last_seen"])
         cname_str = ""
@@ -90,7 +92,7 @@ def network_list_info(service, message, args, clients):
             msg += "• <code>%s</code>%s\n" % (client["macaddr"], cname_str)
             msg += "    • <b>IP Address:</b> <code>%s</code>\n" % client["ipaddr"]
             msg += "    • <b>Last seen:</b> %s\n" % last_seen.strftime("%Y-%m-%d at %I:%M:%S %p")
-    
+
     service.send_message(message.chat.id, msg, parse_mode="HTML")
 
 
@@ -117,22 +119,31 @@ def command_network(service, message, args: list):
                              "(%s)" % session.get_response_message(r))
         return False
 
-    # first, retrieve a list of clients from warden (sorted by last_seen)
-    clients = []
+    # first, retrieve a list of devices from warden (sorted by last_seen)
+    devices = []
     try:
-        r = session.get("/clients")
-        clients = session.get_response_json(r)
-        clients = reversed(sorted(clients, key=lambda c: c["last_seen"]))
+        r = session.get("/devices")
+        device_data = session.get_response_json(r)
+
+        # parse each as a warden `Device` object
+        devices = []
+        for entry in device_data:
+            dev = Device.from_json(entry)
+            devices.append(dev)
+
+        # sort the list of devices by last-seen time, such that the most
+        # recently-seen devices appear first
+        devices = reversed(sorted(devices, key=lambda d: d.last_seen.timestamp()))
     except Exception as e:
         service.send_message(message.chat.id,
-                             "Sorry, I couldn't retrieve a list of clients from Warden. "
+                             "Sorry, I couldn't retrieve a list of devices from Warden. "
                              "(%s)" % e)
         return False
 
     # if no arguments are specified, we'll list the connected devices
     if len(args) == 1:
         try:
-            network_list_times(service, message, args, clients)
+            network_list_times(service, message, args, devices)
             return True
         except Exception as e:
             service.send_message(message.chat.id,
@@ -142,9 +153,9 @@ def command_network(service, message, args: list):
 
     # otherwise, look for sub-commands
     subcmd = args[1].strip().lower()
-    if subcmd in ["clients", "info"]:
+    if subcmd in ["devices", "info"]:
         try:
-            network_list_info(service, message, args, clients)
+            network_list_info(service, message, args, devices)
             return True
         except Exception as e:
             service.send_message(message.chat.id,

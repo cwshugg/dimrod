@@ -263,6 +263,10 @@ class Config:
     def parse_hex(self, hstr: str):
         return self.parse_bytes(bytes.fromhex(hstr))
 
+    # Makes a copy of this object and returns it.
+    def copy(self):
+        return self.__class__.from_json(self.to_json())
+
     # Converts the object into a tuple for use in a SQLite3 database. By
     # default, the object is converted to a JSON string, then encoded and
     # represented as a single hex string (a tuple of length 1).
