@@ -15,7 +15,7 @@ class Client:
     # Creates and returns a string representation of the client.
     def __str__(self):
         return "%s: %s" % (self.macaddr, self.ipaddr)
-    
+
     # Takes in an IP address and updates it internally.
     def update(self, ipaddr=None):
         # only update the IP address if one was given
@@ -55,7 +55,7 @@ class ClientLog:
     def __init__(self, maxlen):
         self.maxlen = maxlen
         self.queue = []
-    
+
     # Iterates through the log's internal queue.
     def __iter__(self):
         for entry in self.queue:
@@ -64,11 +64,11 @@ class ClientLog:
     # Returns the length of the inner queue.
     def __len__(self):
         return len(self.queue)
-    
+
     # Returns the latest entry in the queue, or None if the queue is empty.
     def get_latest(self):
         return self.queue[0] if len(self.queue) > 0 else None
-    
+
     # Returns the earliest entry in the queue, or None if the queue is empty.
     def get_earliest(self):
         return self.queue[-1] if len(self.queue) > 0 else None

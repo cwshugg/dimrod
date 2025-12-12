@@ -390,8 +390,9 @@ class WardenOracle(Oracle):
     def endpoints(self):
         super().endpoints()
 
-        # This endpoint retrieves the current known status of the devices
-        # specified in the warden config file.
+        # This endpoint returns a list of all configured devices. The response
+        # only contains static information that was defined in the configuration
+        # file.
         @self.server.route("/devices", methods=["GET"])
         def endpoint_devices():
             if not flask.g.user:
@@ -412,14 +413,26 @@ class WardenOracle(Oracle):
             # retrieve all clients from the warden's cache and build a JSON
             # dictionary to return.
             result = []
+            named_devices_already_added = {}
             for addr in self.service.cache:
                 c = self.service.cache[addr]
                 jdata = c.to_json()
                 # cross-reference with our list of devices and see if this
                 # device has a name (if so, add it)
                 for device in self.service.devices:
-                    if device.config.macaddr.lower() == c.macaddr.lower():
-                        jdata["name"] = device.config.name
+                    # if we've already seen this named device, skip it (this
+                    # could happen if a device is using multiple MAC addresses)
+                    if device.config.name in named_devices_already_added:
+                        continue
+
+                    # do any of the configured MAC addresses match this addr? If
+                    # so, add the named device to the JSON
+                    for macaddr in device.config.macaddrs:
+                        if macaddr.lower() == c.macaddr.lower():
+                            jdata["name"] = device.config.name
+                            jdata["tags"] = device.config.tags
+                            named_devices_already_added[device.config.name] = True
+                            break
                 result.append(jdata)
             self.log.write("Returning a list of %d connected clients to %s" %
                            (len(result), flask.g.user.config.username))

@@ -22,19 +22,22 @@ class DeviceConfig(Config):
         super().__init__()
         self.fields = [
             ConfigField("name",             [str],      required=True),
-            ConfigField("macaddr",          [str],      required=True)
+            ConfigField("macaddrs",         [list],     required=True),
+            ConfigField("tags",             [list],     required=False,     default=[]),
         ]
 
 
 # ================================= Devices ================================== #
 # Class that represents a single light. The light has an identifier and a number
-# of flags that 
+# of flags that
 class Device:
     # Constructor.
     def __init__(self, config: DeviceConfig):
         self.config = config
-        self.config.macaddr = self.config.macaddr.lower()
-    
+        # ensure all MAC addresses are lower-cased
+        for (i, macaddr) in enumerate(self.config.macaddrs):
+            self.config.macaddrs[i] = macaddr.lower()
+
     # Returns a string representation of the device.
     def __str__(self):
         return str(self.config)
