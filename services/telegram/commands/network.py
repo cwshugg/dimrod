@@ -80,21 +80,6 @@ def network_list_times(service, message, args, devices):
     service.send_message(message.chat.id, msg, parse_mode="HTML")
     return True
 
-# Creates and sends a list of comprehensive information for all cached devices.
-def network_list_info(service, message, args, clients):
-    msg = "<b>All Cached Devices</b>\n\n"
-
-    for client in clients:
-        last_seen = datetime.fromtimestamp(client["last_seen"])
-        cname_str = ""
-        if "name" in client:
-            cname_str = " (<i>%s</i>)" % client["name"]
-            msg += "• <code>%s</code>%s\n" % (client["macaddr"], cname_str)
-            msg += "    • <b>IP Address:</b> <code>%s</code>\n" % client["ipaddr"]
-            msg += "    • <b>Last seen:</b> %s\n" % last_seen.strftime("%Y-%m-%d at %I:%M:%S %p")
-
-    service.send_message(message.chat.id, msg, parse_mode="HTML")
-
 
 # =================================== Main =================================== #
 def command_network(service, message, args: list):
@@ -151,17 +136,6 @@ def command_network(service, message, args: list):
                                  "(%s)" % e)
             return False
 
-    # otherwise, look for sub-commands
-    subcmd = args[1].strip().lower()
-    if subcmd in ["devices", "info"]:
-        try:
-            network_list_info(service, message, args, devices)
-            return True
-        except Exception as e:
-            service.send_message(message.chat.id,
-                                 "Sorry, I couldn't retrieve network data. "
-                                 "(%s)" % e)
-            return False
-
     msg = "I'm not sure what you meant."
     service.send_message(message.chat.id, msg)
+

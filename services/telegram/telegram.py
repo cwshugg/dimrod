@@ -52,7 +52,6 @@ from commands.s_reset import command_s_reset
 from commands.s_menu import command_s_menu
 
 
-# =============================== Config Class =============================== #
 class TelegramConfig(ServiceConfig):
     # Constructor.
     def __init__(self):
@@ -80,7 +79,6 @@ class TelegramConfig(ServiceConfig):
         ]
 
 
-# ============================== Service Class =============================== #
 class TelegramService(Service):
     # Constructor.
     def __init__(self, config_path):
@@ -596,270 +594,276 @@ class TelegramService(Service):
         # start up auxiliary threads
         self.menu_thread.start()
 
-        # Generic message handler.
-        @self.bot.message_handler()
-        def bot_handle_message(message):
-            if not self.check_message(message):
-                return
-            now = datetime.now()
-
-            # split the message into pieces and look for a command name (it must
-            # begin with a "/" to be a command)
-            args = message.text.split()
-            first = args[0].strip().lower()
-            if first.startswith(TelegramCommand.prefix):
-                for command in self.commands:
-                    if command.match(first):
-                        command.run(self, message, args)
-                        return
-                # if we didn't find a matching command, tell the user
-                self.send_message(message.chat.id,
-                                  "Sorry, that's not a valid command.\n"
-                                  "Try /help.")
-                return
-
-            # if a matching command wasn't found, we'll interpret it as a chat
-            # message to DImROD.
-
-            # is this message in response to another? If so, look for a message
-            # mapping for the previous message
-            convo_id = None
-            convo_is_system_query = False
-            chat_id = str(message.chat.id)
-            if hasattr(message, "reply_to_message") and \
-               message.reply_to_message is not None:
-                rtmsg = message.reply_to_message
-
-                # search for a message mapped to the reply-to-message's
-                # telegram message ID
-                messages = self.dialogue_message_search(
-                    telegram_message_id=str(rtmsg.message_id),
-                )
-
-                # if a result was found, get the conversation ID from the
-                # message and save it
-                if messages is not None:
-                    messages_len = len(messages)
-                    if messages_len > 0:
-                        if messages_len > 1:
-                            self.log.write("Unexpectedly found more than one message "
-                                           "matching telegram message ID \"%s\". "
-                                           "Using the first one." %
-                                           str(rtmsg.message_id))
-                        first_message_data = messages[0]
-                        first_message = DialogueMessage.from_json(first_message_data["message"])
-                        convo_id = first_message_data["conversation_id"]
-
-                        # is the message a system query type?
-                        if first_message.author.type in [DialogueAuthorType.SYSTEM_QUERY_TO_USER,
-                                                         DialogueAuthorType.USER_ANSWER_TO_QUERY]:
-                            convo_is_system_query = True
-                        # if the message is a normal message, we want to
-                        # replace the conversation ID in the local conversation
-                        # record, such that this particular telegram chat's
-                        # current conversation is replaced with this one
-                        else:
-                            self.chat_conversations[chat_id] = {
-                                "conversation_id": convo_id,
-                                "timestamp": datetime.now()
-                            }
-            # otherwise, look for an active conversation ID for this telegram
-            # chat, and use that conversation ID instead
-            else:
-                chat_id = str(message.chat.id)
-                if chat_id in self.chat_conversations:
-                    timediff = now.timestamp() - self.chat_conversations[chat_id]["timestamp"].timestamp()
-                    if timediff < self.config.bot_conversation_timeout:
-                        convo_id = self.chat_conversations[chat_id]["conversation_id"]
-                    else:
-                        self.log.write("Conversation for chat \"%s\" has expired." % chat_id)
-
-            # is the conversation a system query to the user? If so, we'll
-            # simply update the conversation to include this new message, and
-            # react to the message
-            if convo_is_system_query:
-                # put together a message object to use to update the system
-                # query conversation
-                answer_msg = DialogueMessage.from_json({
-                    "author": DialogueAuthor.from_json({
-                        "type": DialogueAuthorType.USER_ANSWER_TO_QUERY.value,
-                        "name": "telegram_answerer",
-                    }),
-                    "content": message.text,
-                    "telegram_chat_id": str(chat_id),
-                    "telegram_message_id": str(message.id),
-                })
-                self.dialogue_conversation_addmsg(convo_id, answer_msg)
-
-                # add a reaction to the message, so the user knows we processed
-                # the message
-                self.react_to_message(chat_id, message.id, emoji="👍")
-                return
-
-            # if it's a normal message, pass the message (and conversation ID,
-            # if we found one) to the dialogue interface
-            try:
-                talkdata = self.dialogue_talk(message, conversation_id=convo_id)
-
-                # check for failure-to-converse and update the chat dictionary,
-                # if able
-                if talkdata is None:
-                    response = "Sorry, I couldn't generate a response."
-
-                response = talkdata["response"]
-
-                # send the response, and capture the returned message object
-                rmessage = self.send_message(message.chat.id, response, parse_mode="HTML")
-                if rmessage is None:
-                    raise Exception("Failed to send response message.")
-
-                if "conversation_id" in talkdata:
-                    # update both the request message (the user's message) and
-                    # the response message (the message we generated) to
-                    # includethe telegram chat ID and their corresponding
-                    # telegram message IDs. This will let us query for them
-                    # later by the telegram message ID
-                    self.dialogue_message_update(
-                        talkdata["request_message_id"],
-                        telegram_message_id=str(message.id),
-                        telegram_chat_id=str(message.chat.id)
-                    )
-                    self.dialogue_message_update(
-                        talkdata["response_message_id"],
-                        telegram_message_id=str(rmessage.id),
-                        telegram_chat_id=str(rmessage.chat.id)
-                    )
-
-                    # add the conversation record to the local, temporary
-                    # conversation table (this is used to track, and timeout,
-                    # active conversations)
-                    self.chat_conversations[chat_id] = {
-                        "conversation_id": talkdata["conversation_id"],
-                        "timestamp": datetime.now()
-                    }
-
-            except Exception as e:
-                # dump the exception stack trace into the message, for easier
-                # debugging through Telegram
-                tb = traceback.format_exc()
-                msg = "Something went wrong.\n\n<code>%s</code>" % tb
-                self.send_message(message.chat.id, msg, parse_mode="HTML")
-
-                # raise the exception
-                raise e
-
-        # Callback for any menu buttons that are pressed.
-        @self.bot.callback_query_handler(func=lambda call: True)
-        def menu_button_callback(call):
-            menu_option_id = call.data
-
-            # query the database for a menu option with the matching ID
-            op_info = self.menu_db.search_menu_option(menu_option_id)
-            if op_info is None:
-                self.log.write("Unknown menu option selected.")
-                return
-
-            # with the menu option retrieve, query for the menu that owns this
-            # menu option
-            m = self.menu_db.search_menu(op_info.menu_id)
-            if m is None:
-                self.log.write("Menu option belongs to an unknown menu.")
-                return
-
-            # because the above `MenuOption` object was recreated from a
-            # database entry, (and so was the `Menu` object), we want to get a
-            # reference to the menu's version of the `MenuOption` object,
-            # instead of the one reconstructed from the database entry.
-            #
-            # Why? Because we will write the `Menu` back out to the database,
-            # which means *its* `MenuOption` object will be the one written out
-            # to disk. This means that all modifications to the menu option
-            # need to be applied to the `Menu`'s `MenuOption` object.
-            op = m.get_option(op_info.get_id())
-
-            # next, look at the menu's behavior type. We'll adjust the menu
-            # options differently depending on the selecteed value
-            original_op_titles = [o.title for o in m.options]
-            do_menu_update = False
-            if m.behavior_type == MenuBehaviorType.ACCUMULATE:
-                # if we're accumulating, our job is easy; just increment the
-                # option that was selected
-                op.select_add()
-                do_menu_update = True
-
-                # iterate through all options and update the corresponding
-                # button on the menu to show the number of times it was
-                # selected (only do so if it's selection count is non-zero)
-                for o in m.options:
-                    if o.selection_count == 0:
-                        continue
-                    o.title = "%s [%d]" % (o.title, o.selection_count)
-            if m.behavior_type == MenuBehaviorType.MULTI_CHOICE:
-                # if the selected option was already selected, we'll reset it
-                if op.selection_count == 1:
-                    op.select_set(0)
-                else:
-                    op.select_set(1)
-                do_menu_update = True
-
-                # iterate through all options and update the corresponding
-                # button on the menu to show which ones have been selected
-                for o in m.options:
-                    if o.selection_count == 0:
-                        continue
-                    o.title = "%s ✅" % o.title
-            elif m.behavior_type == MenuBehaviorType.SINGLE_CHOICE:
-                # if the menu only allows a single choice, we need to set the
-                # current option's selection count to 1, and reduce all others
-                # to zero
-
-                # if the selected option was already selected, we'll reset it
-                # (i.e. 1 --> 0 and 0 --> 1)
-                new_value = 0 if op.selection_count == 1 else 1
-                do_menu_update = True
-
-                # zero out all options and set the seleted option's new value
-                for o in m.options:
-                    o.select_set(0)
-                op.select_set(new_value)
-
-                # set the select option's title to show that it was the one
-                # chosen value, if its new value is 1
-                if new_value == 1:
-                    op.title = "%s ✅" % op.title
-
-            # apply any changes made above to the option titles (the text on
-            # the buttons) to the Telegram menu
-            if do_menu_update:
-                self.update_menu(m.telegram_msg_info.chat.id,
-                                 m.telegram_msg_info.id,
-                                 m)
-            else:
-                # otherwise, change a single button twice, briefly, to force
-                # telegram to get rid of the shimmery "a button was just
-                # pressed" effect
-                for text in [" %s " % op.title, op.title]:
-                    op.title = text
-                    self.update_menu(m.telegram_msg_info.chat.id,
-                                     m.telegram_msg_info.id,
-                                     m)
-
-            # update the menu option to increment its selection counter
-            self.log.write("Menu option (ID: %s) from Menu (ID %s) "
-                           "was selected. (count: %d)" %
-                           (op.get_id(), m.get_id(), op.selection_count))
-
-            # write the updated menu back out to the database (first, reset the
-            # option titles to reflect the original versions, before we updated
-            # the Telegram menu, so the database retains the original,
-            # un-modified titles)
-            for (i, o) in enumerate(m.options):
-                o.title = original_op_titles[i]
-            self.menu_db.save_menu(m)
-
         # start the bot and set it to poll periodically for updates (catch
         # errors and restart when necessary)
         while True:
+            # start by establishing the handler functions for the bot
+
+            # Generic message handler.
+            @self.bot.message_handler()
+            def bot_handle_message(message):
+                if not self.check_message(message):
+                    return
+                now = datetime.now()
+
+                # split the message into pieces and look for a command name (it must
+                # begin with a "/" to be a command)
+                args = message.text.split()
+                first = args[0].strip().lower()
+                if first.startswith(TelegramCommand.prefix):
+                    for command in self.commands:
+                        if command.match(first):
+                            command.run(self, message, args)
+                            return
+                    # if we didn't find a matching command, tell the user
+                    self.send_message(message.chat.id,
+                                      "Sorry, that's not a valid command.\n"
+                                      "Try /help.")
+                    return
+
+                # if a matching command wasn't found, we'll interpret it as a chat
+                # message to DImROD.
+
+                # is this message in response to another? If so, look for a message
+                # mapping for the previous message
+                convo_id = None
+                convo_is_system_query = False
+                chat_id = str(message.chat.id)
+                if hasattr(message, "reply_to_message") and \
+                   message.reply_to_message is not None:
+                    rtmsg = message.reply_to_message
+
+                    # search for a message mapped to the reply-to-message's
+                    # telegram message ID
+                    messages = self.dialogue_message_search(
+                        telegram_message_id=str(rtmsg.message_id),
+                    )
+
+                    # if a result was found, get the conversation ID from the
+                    # message and save it
+                    if messages is not None:
+                        messages_len = len(messages)
+                        if messages_len > 0:
+                            if messages_len > 1:
+                                self.log.write("Unexpectedly found more than one message "
+                                               "matching telegram message ID \"%s\". "
+                                               "Using the first one." %
+                                               str(rtmsg.message_id))
+                            first_message_data = messages[0]
+                            first_message = DialogueMessage.from_json(first_message_data["message"])
+                            convo_id = first_message_data["conversation_id"]
+
+                            # is the message a system query type?
+                            if first_message.author.type in [DialogueAuthorType.SYSTEM_QUERY_TO_USER,
+                                                             DialogueAuthorType.USER_ANSWER_TO_QUERY]:
+                                convo_is_system_query = True
+                            # if the message is a normal message, we want to
+                            # replace the conversation ID in the local conversation
+                            # record, such that this particular telegram chat's
+                            # current conversation is replaced with this one
+                            else:
+                                self.chat_conversations[chat_id] = {
+                                    "conversation_id": convo_id,
+                                    "timestamp": datetime.now()
+                                }
+                # otherwise, look for an active conversation ID for this telegram
+                # chat, and use that conversation ID instead
+                else:
+                    chat_id = str(message.chat.id)
+                    if chat_id in self.chat_conversations:
+                        timediff = now.timestamp() - self.chat_conversations[chat_id]["timestamp"].timestamp()
+                        if timediff < self.config.bot_conversation_timeout:
+                            convo_id = self.chat_conversations[chat_id]["conversation_id"]
+                        else:
+                            self.log.write("Conversation for chat \"%s\" has expired." % chat_id)
+
+                # is the conversation a system query to the user? If so, we'll
+                # simply update the conversation to include this new message, and
+                # react to the message
+                if convo_is_system_query:
+                    # put together a message object to use to update the system
+                    # query conversation
+                    answer_msg = DialogueMessage.from_json({
+                        "author": DialogueAuthor.from_json({
+                            "type": DialogueAuthorType.USER_ANSWER_TO_QUERY.value,
+                            "name": "telegram_answerer",
+                        }),
+                        "content": message.text,
+                        "telegram_chat_id": str(chat_id),
+                        "telegram_message_id": str(message.id),
+                    })
+                    self.dialogue_conversation_addmsg(convo_id, answer_msg)
+
+                    # add a reaction to the message, so the user knows we processed
+                    # the message
+                    self.react_to_message(chat_id, message.id, emoji="👍")
+                    return
+
+                # if it's a normal message, pass the message (and conversation ID,
+                # if we found one) to the dialogue interface
+                try:
+                    talkdata = self.dialogue_talk(message, conversation_id=convo_id)
+
+                    # check for failure-to-converse and update the chat dictionary,
+                    # if able
+                    if talkdata is None:
+                        response = "Sorry, I couldn't generate a response."
+
+                    response = talkdata["response"]
+
+                    # send the response, and capture the returned message object
+                    rmessage = self.send_message(message.chat.id, response, parse_mode="HTML")
+                    if rmessage is None:
+                        raise Exception("Failed to send response message.")
+
+                    if "conversation_id" in talkdata:
+                        # update both the request message (the user's message) and
+                        # the response message (the message we generated) to
+                        # includethe telegram chat ID and their corresponding
+                        # telegram message IDs. This will let us query for them
+                        # later by the telegram message ID
+                        self.dialogue_message_update(
+                            talkdata["request_message_id"],
+                            telegram_message_id=str(message.id),
+                            telegram_chat_id=str(message.chat.id)
+                        )
+                        self.dialogue_message_update(
+                            talkdata["response_message_id"],
+                            telegram_message_id=str(rmessage.id),
+                            telegram_chat_id=str(rmessage.chat.id)
+                        )
+
+                        # add the conversation record to the local, temporary
+                        # conversation table (this is used to track, and timeout,
+                        # active conversations)
+                        self.chat_conversations[chat_id] = {
+                            "conversation_id": talkdata["conversation_id"],
+                            "timestamp": datetime.now()
+                        }
+
+                except Exception as e:
+                    # dump the exception stack trace into the message, for easier
+                    # debugging through Telegram
+                    tb = traceback.format_exc()
+                    msg = "Something went wrong.\n\n<code>%s</code>" % tb
+                    self.send_message(message.chat.id, msg, parse_mode="HTML")
+
+                    # raise the exception
+                    raise e
+
+            # Callback for any menu buttons that are pressed.
+            @self.bot.callback_query_handler(func=lambda call: True)
+            def menu_button_callback(call):
+                menu_option_id = call.data
+
+                # query the database for a menu option with the matching ID
+                op_info = self.menu_db.search_menu_option(menu_option_id)
+                if op_info is None:
+                    self.log.write("Unknown menu option selected.")
+                    return
+
+                # with the menu option retrieve, query for the menu that owns this
+                # menu option
+                m = self.menu_db.search_menu(op_info.menu_id)
+                if m is None:
+                    self.log.write("Menu option belongs to an unknown menu.")
+                    return
+
+                # because the above `MenuOption` object was recreated from a
+                # database entry, (and so was the `Menu` object), we want to get a
+                # reference to the menu's version of the `MenuOption` object,
+                # instead of the one reconstructed from the database entry.
+                #
+                # Why? Because we will write the `Menu` back out to the database,
+                # which means *its* `MenuOption` object will be the one written out
+                # to disk. This means that all modifications to the menu option
+                # need to be applied to the `Menu`'s `MenuOption` object.
+                op = m.get_option(op_info.get_id())
+
+                # next, look at the menu's behavior type. We'll adjust the menu
+                # options differently depending on the selecteed value
+                original_op_titles = [o.title for o in m.options]
+                do_menu_update = False
+                if m.behavior_type == MenuBehaviorType.ACCUMULATE:
+                    # if we're accumulating, our job is easy; just increment the
+                    # option that was selected
+                    op.select_add()
+                    do_menu_update = True
+
+                    # iterate through all options and update the corresponding
+                    # button on the menu to show the number of times it was
+                    # selected (only do so if it's selection count is non-zero)
+                    for o in m.options:
+                        if o.selection_count == 0:
+                            continue
+                        o.title = "%s [%d]" % (o.title, o.selection_count)
+                if m.behavior_type == MenuBehaviorType.MULTI_CHOICE:
+                    # if the selected option was already selected, we'll reset it
+                    if op.selection_count == 1:
+                        op.select_set(0)
+                    else:
+                        op.select_set(1)
+                    do_menu_update = True
+
+                    # iterate through all options and update the corresponding
+                    # button on the menu to show which ones have been selected
+                    for o in m.options:
+                        if o.selection_count == 0:
+                            continue
+                        o.title = "%s ✅" % o.title
+                elif m.behavior_type == MenuBehaviorType.SINGLE_CHOICE:
+                    # if the menu only allows a single choice, we need to set the
+                    # current option's selection count to 1, and reduce all others
+                    # to zero
+
+                    # if the selected option was already selected, we'll reset it
+                    # (i.e. 1 --> 0 and 0 --> 1)
+                    new_value = 0 if op.selection_count == 1 else 1
+                    do_menu_update = True
+
+                    # zero out all options and set the seleted option's new value
+                    for o in m.options:
+                        o.select_set(0)
+                    op.select_set(new_value)
+
+                    # set the select option's title to show that it was the one
+                    # chosen value, if its new value is 1
+                    if new_value == 1:
+                        op.title = "%s ✅" % op.title
+
+                # apply any changes made above to the option titles (the text on
+                # the buttons) to the Telegram menu
+                if do_menu_update:
+                    self.update_menu(m.telegram_msg_info.chat.id,
+                                     m.telegram_msg_info.id,
+                                     m)
+                else:
+                    # otherwise, change a single button twice, briefly, to force
+                    # telegram to get rid of the shimmery "a button was just
+                    # pressed" effect
+                    for text in [" %s " % op.title, op.title]:
+                        op.title = text
+                        self.update_menu(m.telegram_msg_info.chat.id,
+                                         m.telegram_msg_info.id,
+                                         m)
+
+                # update the menu option to increment its selection counter
+                self.log.write("Menu option (ID: %s) from Menu (ID %s) "
+                               "was selected. (count: %d)" %
+                               (op.get_id(), m.get_id(), op.selection_count))
+
+                # write the updated menu back out to the database (first, reset the
+                # option titles to reflect the original versions, before we updated
+                # the Telegram menu, so the database retains the original,
+                # un-modified titles)
+                for (i, o) in enumerate(m.options):
+                    o.title = original_op_titles[i]
+                self.menu_db.save_menu(m)
+
+            # now that all handlers are defined, start polling. If we fail,
+            # we'll initialize a new instance of the bot, then redo this entire
+            # loop (which will redefine all handlers for the new `self.bot`
+            # instance)
             try:
                 self.log.write("Beginning to poll Telegram API...")
                 self.bot.polling()
