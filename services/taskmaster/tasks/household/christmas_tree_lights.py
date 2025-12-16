@@ -93,18 +93,6 @@ class TaskJob_Household_Christmas_Tree_Lights(TaskJob_Household):
         if now.hour >= 23 or now.hour < 6:
             log_messages.append("It's late at night; turning off the Christmas tree lights.")
             do_turn_off = True
-        # if it a weekday?
-        if dtu.is_weekday(now):
-            # is it in the morning before work hours? If so, turn on the lights
-            if now.hour >= 6 and now.hour < 9:
-                log_messages.append("It's weekday morning; turning on the Christmas tree lights.")
-                do_turn_on = True
-        # otherwise, if it's the weekend...
-        else:
-            # is it the morning? If so, turn on the lights
-            if now.hour >= 8 and now.hour < 11:
-                log_messages.append("It's the weekend morning; turning on the Christmas tree lights.")
-                do_turn_on = True
 
         # if either on or off was chosen...
         if do_turn_on or do_turn_off:
