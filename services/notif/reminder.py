@@ -16,6 +16,7 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.config import Config, ConfigField
+from lib import dtu as dtu
 
 
 # ============================= Reminder Object ============================== #
@@ -86,7 +87,7 @@ class Reminder(Config):
             assert m in range(1, 13), "trigger_months must be within 1-12"
         for d in self.trigger_days:
             assert type(d) == int, "trigger_days must be a list of ints"
-            assert d in range(1, 32), "trigger_days must be within 1-31"
+            assert d in range(1, 32), "trigger_days must be within [1, 31], or [-1, -31]"
         for wd in self.trigger_weekdays:
             assert type(wd) == int, "trigger_weekdays must be a list of ints"
             assert wd in range(1, 8), "trigger_weekdays must be within 1-7"
@@ -123,7 +124,17 @@ class Reminder(Config):
         # DAY CHECK
         if len(self.trigger_days) > 0:
             day_ok = False
+            last_day_of_month = dtu.get_last_day_of_month(now)
             for d in self.trigger_days:
+                # if the trigger day is negative, count backwards from the end
+                # of the month
+                if d < 0:
+                    if last_day_of_month.day + d + 1 == now.day:
+                        day_ok = True
+                        break
+
+                # otherwise, interpret the positive number as the day of the
+                # month
                 if d == now.day:
                     day_ok = True
                     break
