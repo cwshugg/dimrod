@@ -278,7 +278,7 @@ class Todoist:
         # choose an appropriate due datetime
         due_dt = None
         if due_datetime is not None:
-            due_dt = due_datetime.isoformat()
+            due_dt = due_datetime
         elif t.due is not None:
             due_dt = t.due.datetime
 
