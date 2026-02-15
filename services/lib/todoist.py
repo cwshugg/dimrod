@@ -34,25 +34,25 @@ class Todoist:
         self.projects = []
         self.projects_last_dt = None # timestamp of last retrieval
         self.projects_refresh_rate = 15 # number of seconds before reloading projects
-    
+
         # these work the same, but for section retrieval
         self.sections = []
         self.sections_last_dt = None # timestamp of last retrieval
         self.sections_refresh_rate = 15 # number of seconds before reloading sections
-    
+
         # these work the same, but for task retreival
         self.tasks = []
         self.tasks_last_dt = None # timestamp of last retrieval
         self.tasks_refresh_rate = 15 # number of seconds before reloading tasks
         self.tasks_refresh_force = False # switch used to force a refresh
-    
+
     # Initializes the class' API instance (if it's not yet initialized). The
     # API object is returned.
     def api(self):
         if self.api_obj is None:
             self.api_obj = TodoistAPI(self.api_key)
         return self.api_obj
-    
+
     # ------------------------------- Projects ------------------------------- #
     # Returns a list of all projects. The API may be called, or the cached list
     # may be used, depending on when the last call was. If 'refresh' is True,
@@ -64,11 +64,18 @@ class Todoist:
            now.timestamp() - self.projects_last_dt.timestamp() > self.projects_refresh_rate:
             # ping the API for a list of projects
             api = self.api()
-            self.projects = api.get_projects()
+            proj_paginator = api.get_projects()
+
+            # reset the cached projects list and populate it with new data
+            self.projects = []
+            for projs in proj_paginator:
+                self.projects.extend(projs)
+
+            # update the last retrieval timestamp
             self.projects_last_dt = now
 
         return self.projects
-    
+
     # Searches for a project with the given ID, returning it if found.
     def get_project_by_id(self, project_id: str):
         # get a list of projects and search for the project ID
@@ -85,10 +92,10 @@ class Todoist:
         for proj in projs:
             if proj.name == name:
                 return proj
-        
+
         # if we got here, the project isn't in the current list
         return None
-            
+
     # Creates a new project via the Todoist API.
     def add_project(self, name: str, parent_id=None, color="grey",
                     is_favorite=False, view_style="list"):
@@ -111,7 +118,14 @@ class Todoist:
            now.timestamp() - self.sections_last_dt.timestamp() > self.sections_refresh_rate:
             # ping the API for a list of sections
             api = self.api()
-            self.sections = api.get_sections()
+            sect_paginator = api.get_sections()
+
+            # reset the cached sections list and populate it with new data
+            self.sections = []
+            for sects in sect_paginator:
+                self.sections.extend(sects)
+
+            # update the last retrieval timestamp
             self.sections_last_dt = now
 
         # if a specific project was specified, search through the list and
@@ -124,7 +138,7 @@ class Todoist:
             return result
         # otherwise, return all sections
         return self.sections
-    
+
     # Searches for a section with the given ID, returning it if found.
     def get_section_by_id(self, section_id: str):
         # get a list of sections and search for the section ID
@@ -145,7 +159,7 @@ class Todoist:
             # check for a name match
             if sect.name == name:
                 return sect
-    
+
     # Creates a new section via the API, given a name and project ID (and other
     # optional fields).
     def add_section(self, name: str, project_id: str, order=None):
@@ -154,7 +168,7 @@ class Todoist:
         # update the cached list of sections
         self.sections.append(sect)
         return sect
-    
+
     # -------------------------------- Tasks --------------------------------- #
     # Returns a list of all active Todoist tasks. This works the same as
     # get_projects() in terms of caching and refreshing.
@@ -174,7 +188,14 @@ class Todoist:
            now.timestamp() - self.tasks_last_dt.timestamp() > self.tasks_refresh_rate:
             # ping the API for a list of tasks
             api = self.api()
-            self.tasks = api.get_tasks()
+            task_paginator = api.get_tasks()
+
+            # reset the cached tasks list and populate it with new data
+            self.tasks = []
+            for tasks in task_paginator:
+                self.tasks.extend(tasks)
+
+            # update the last retrieval timestamp
             self.tasks_last_dt = now
 
         # iterate through the tasks and build up a list containing only the
@@ -189,7 +210,7 @@ class Todoist:
                 continue
             result.append(task)
         return result
-    
+
     # Searches for a task with the given ID, returning it if found.
     def get_task_by_id(self, task_id: str):
         # get a list of tasks and search for the task ID
@@ -214,14 +235,14 @@ class Todoist:
 
         # if we got here, the task isn't in the current list
         return None
-    
+
     # Adds a task to Todoist, given the title string, body string, and other
     # optional information.
     def add_task(self, title: str, body: str,
                  project_id=None, section_id=None, due_datetime=None,
                  priority=1, labels=[]):
         api = self.api()
-        
+
         # make the API call
         due_dt = None if due_datetime is None else due_datetime.isoformat()
         task = api.add_task(content=title,
@@ -234,19 +255,19 @@ class Todoist:
         # update the cached list of tasks
         self.tasks.append(task)
         return task
-    
+
     # Deletes the task specified by the task ID.
     def delete_task(self, task_id: str):
         api = self.api()
         api.delete_task(task_id=task_id)
-        
+
         # delete the local copy of this task
         for (i, t) in enumerate(self.tasks):
             if t.id == task_id:
                 self.tasks.pop(i)
                 break
         return True
-    
+
     # Updates an existing task with any non-None fields. Returns None if a task
     # with the given ID is not found. Otherwise, the updated task is returned.
     def update_task(self, task_id: str, title=None, body=None, labels=None,
@@ -254,7 +275,7 @@ class Todoist:
         t = self.get_task_by_id(task_id)
         if t is None:
             return None
-        
+
         # choose an appropriate due datetime
         due_dt = None
         if due_datetime is not None:
@@ -270,14 +291,14 @@ class Todoist:
                                labels=t.labels if labels is None else labels,
                                priority=t.priority if priority is None else priority,
                                due_datetime=due_dt)
-        
+
         # now that a task is updated on the remote end, we must refresh the
         # next time tasks are retrieved, no matter how long it's been.
         # Otherwise we'll be working with stale data. So, flip a flag that
         # requires a refresh next time
         self.tasks_refresh_force = True
         return task
-    
+
     # Deletes the given task and creates a copy in the new project and/or
     # section. Does nothing if neither a project ID or section ID is specified.
     # Returns the ID of the new task (or the ID of the old task if nothing was
@@ -287,7 +308,7 @@ class Todoist:
     def move_task(self, task_id: str, project_id=None, section_id=None):
         if project_id is None and section_id is None:
             return task_id
-        
+
         # retrieve the task and delete it
         task = self.get_task_by_id(task_id)
         self.delete_task(task.id)
@@ -308,4 +329,4 @@ class Todoist:
                          duration=None if not hasattr(task, "duration") else task.duration,
                          duration_unit=None if not hasattr(task, "duration_unit") else task.duration_unit)
         return t.id
-    
+
