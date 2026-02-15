@@ -244,12 +244,11 @@ class Todoist:
         api = self.api()
 
         # make the API call
-        due_dt = None if due_datetime is None else due_datetime.isoformat()
         task = api.add_task(content=title,
                             description=body,
                             project_id=project_id,
                             section_id=section_id,
-                            due_datetime=due_dt,
+                            due_datetime=due_datetime,
                             priority=priority,
                             labels=labels)
         # update the cached list of tasks
