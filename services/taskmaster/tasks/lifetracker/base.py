@@ -20,6 +20,7 @@ from task import TaskJob
 from lib.uniserdes import Uniserdes, UniserdesField
 from lib.oracle import OracleSession
 import lib.dtu as dtu
+from lib.db import Database, DatabaseConfig
 
 # A class representing the trigger conditions for a LifeMetric to be sent to
 # the user. These work similar to the Notif service's reminder objects.
@@ -249,6 +250,14 @@ class LifeTracker(Uniserdes):
             UniserdesField("db_path",      [str],          required=True),
             UniserdesField("telegram_chat_id", [str],      required=True),
         ]
+
+    # Returns a `Database` wrapper interface to interact with the tracker's
+    # database.
+    def get_database(self):
+        config = DatabaseConfig.from_json({
+            "path": self.db_path
+        })
+        return Database(config)
 
     # Retrieves a metric, given its name.
     def get_metric_by_name(self, name: str):

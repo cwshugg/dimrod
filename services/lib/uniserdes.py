@@ -264,6 +264,47 @@ class Uniserdes:
     def parse_hex(self, hstr: str):
         return self.parse_bytes(bytes.fromhex(hstr))
 
+    # Returns a list of column names that should be used if this object is
+    # converted to a CSV string.
+    #
+    # This can be used along with `to_csv()` to convert the object to a CSV
+    # string with the correct column names.
+    def get_csv_column_names(self):
+        # Iterate through all fields and build a list of the names of each
+        # field. These form the column names.
+        return [f.name for f in self.fields]
+
+    # Converts the object to a CSV string.
+    #
+    # Only top-level fields get their own column. Nested uniserdes objects will
+    # be encoded as JSON strings and placed into a single column.
+    def to_csv(self):
+        # Convert the object to JSON first, then convert that JSON to a CSV
+        # string.
+        jdata = self.to_json()
+        csv_entries = []
+        for f in self.fields:
+            val = jdata[f.name]
+
+            # If the value is a list, convert it to a JSON string.
+            if type(val) == list:
+                val = json.dumps(val)
+
+            # If the value is a dictionary, convert it to a JSON string.
+            if type(val) == dict:
+                val = json.dumps(val)
+
+            # If the value is None, convert it to an empty string
+            if val is None:
+                val = ""
+
+            # If the value is a string, wrap it in double quotes
+            if type(val) == str:
+                val = "\"%s\"" % val
+
+            csv_entries.append(str(val))
+        return ",".join(csv_entries)
+
     # Makes a copy of this object and returns it.
     def copy(self):
         return self.__class__.from_json(self.to_json())

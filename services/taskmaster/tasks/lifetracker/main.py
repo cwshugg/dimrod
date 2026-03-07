@@ -19,7 +19,7 @@ class TaskJob_LifeTracker_Main(TaskJob_LifeTracker):
     def init(self):
         super().init()
         self.config_name = "main.json"
-    
+
     def update(self, todoist, gcal):
         super().update(todoist, gcal)
         success = False
@@ -69,7 +69,7 @@ class TaskJob_LifeTracker_Main(TaskJob_LifeTracker):
 
                 # continue to the next iteration of the main loop
                 continue
-            
+
             # otherwise, iterate through the menu options and determine which
             # buttons were pressed. We'll use this information to update the
             # entry in the database.
@@ -77,7 +77,7 @@ class TaskJob_LifeTracker_Main(TaskJob_LifeTracker):
             for (i, op) in enumerate(menu["options"]):
                 # get the corresponding metric value field
                 value = metric.values[i]
-                
+
                 # take the selection counts of each and update the entry's
                 # selection counts
                 field_name = value.get_sqlite3_column_name_selection_count()

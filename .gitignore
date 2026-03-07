@@ -21,6 +21,9 @@ dimrod*.service
 *.db
 *.db-journal
 
+# spreadsheets
+*.xlsx
+
 # output files
 *.out
 
