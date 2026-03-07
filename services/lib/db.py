@@ -51,6 +51,13 @@ class Database:
             self.conn.close()
             self.conn = None
 
+    # Deletes the databsae file, completely wiping all data and removing it from
+    # the filesystem.
+    def delete(self):
+        self.close_connection()
+        if os.path.exists(self.config.path):
+            os.remove(self.config.path)
+
     # Executes the provided query and returns the result of
     # `connection.execute()`.
     #
