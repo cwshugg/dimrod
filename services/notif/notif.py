@@ -389,6 +389,7 @@ def nla_create_reminder(oracle: NotifOracle, jdata: dict):
                    "    * Ex: If the user says \"4:45pm\", but says no day, determine when the next occurrence of 4:45pm would be, and set the triggers to reflect this.\n" \
                    "* If a day is specified, but no specific time, assume that the user wants the time to be the same as the *current* time.\n" \
                    "    * Ex: If the user says \"two days from now\", but says no time, use the current time of day when setting the trigger fields.\n" \
+                   "* Unless the user specifies explicit details about the remimder repeating, you must set *all* \"trigger_*\" fields to contain values such that the reminder will occur only a SINGLE time.\n" \
                    "\n" \
                    "If you detect that the user wants multiple reminders to be created, please create multiple JSON objects in the list.\n" \
                    "If not enough information is available to determine the contents or the time any reminders, please respond with an empty list: []\n" \
