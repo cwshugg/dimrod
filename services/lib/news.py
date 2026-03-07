@@ -16,6 +16,7 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.config import Config, ConfigField
+from lib.uniserdes import Uniserdes, UniserdesField
 import lib.dtu as dtu
 
 # News API imports
@@ -30,18 +31,18 @@ class NewsAPIConfig(Config):
         ]
 
 # Used to construct a query for news articles.
-class NewsAPIQueryArticles(Config):
+class NewsAPIQueryArticles(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("query_name",       [str],  required=False, default=None),
-            ConfigField("query",            [str],  required=False, default=None),
-            ConfigField("language",         [str],  required=False, default="en"),
-            ConfigField("sources",          [list], required=False, default=None),
-            ConfigField("timerange_start",  [datetime], required=False, default=None),
-            ConfigField("timerange_end",    [datetime], required=False, default=None),
-            ConfigField("sort_by",          [str],  required=False, default="relevancy"),
-            ConfigField("max_articles",     [int],  required=False, default=100),
+            UniserdesField("query_name",       [str],  required=False, default=None),
+            UniserdesField("query",            [str],  required=False, default=None),
+            UniserdesField("language",         [str],  required=False, default="en"),
+            UniserdesField("sources",          [list], required=False, default=None),
+            UniserdesField("timerange_start",  [datetime], required=False, default=None),
+            UniserdesField("timerange_end",    [datetime], required=False, default=None),
+            UniserdesField("sort_by",          [str],  required=False, default="relevancy"),
+            UniserdesField("max_articles",     [int],  required=False, default=100),
         ]
 
     def sources_to_str(self):
@@ -50,14 +51,14 @@ class NewsAPIQueryArticles(Config):
         return ",".join(self.sources)
 
 # Used to construct a query for news sources.
-class NewsAPIQuerySources(Config):
+class NewsAPIQuerySources(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("query_name",   [str],  required=False, default=None),
-            ConfigField("country_code", [str],  required=False, default="us"),
-            ConfigField("language",     [list], required=False, default="en"),
-            ConfigField("category",     [list], required=False, default=None)
+            UniserdesField("query_name",   [str],  required=False, default=None),
+            UniserdesField("country_code", [str],  required=False, default="us"),
+            UniserdesField("language",     [list], required=False, default="en"),
+            UniserdesField("category",     [list], required=False, default=None)
         ]
 
 # The main news API object.
@@ -67,7 +68,7 @@ class NewsAPI:
 
     def api(self):
         return NewsApiClient(api_key=self.config.api_key)
-    
+
     # Queries the API for news providers/sources and returns them.
     def query_sources(self, query: NewsAPIQuerySources):
         api = self.api()
@@ -85,10 +86,10 @@ class NewsAPI:
                 "???" if "message" not in result else result["message"],
             )
             raise Exception(msg)
-        
+
         # otherwise, extract the sources and return the list
         return result["sources"]
-    
+
     # Queries the API for articles and returns them.
     def query_articles(self, query: NewsAPIQueryArticles):
         api = self.api()
@@ -113,7 +114,7 @@ class NewsAPI:
                 break
 
             result = api.get_everything(**args, page=page)
-            
+
             # if the query failed, throw an exception
             if result["status"].lower().strip() != "ok":
                 msg = "Failed to query for news articles (status code: %s): %s" % (
@@ -137,7 +138,7 @@ class NewsAPI:
             # if NO articles were returned, then we're done
             if articles_len == 0:
                 break
-            
+
             # are there more articles to retrieve on the next "page"? If so,
             # update `page` to point to the next page number
             if articles_len < total_amount:
@@ -145,7 +146,7 @@ class NewsAPI:
             # otherwise, there are no more pages to go through; we're done looping
             else:
                 break
-        
+
         # otherwise, extract the sources and return the list
         return all_articles
 

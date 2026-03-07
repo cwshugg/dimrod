@@ -15,15 +15,16 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.config import Config, ConfigField
+from lib.uniserdes import Uniserdes, UniserdesField
 import lib.dtu as dtu
 
 
 # ====================== Generic Database Entry Objects ====================== #
-class GarminDatabaseEntryBase(Config):
+class GarminDatabaseEntryBase(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("id",               [str],      required=False, default=None),
+            UniserdesField("id",               [str],      required=False, default=None),
         ]
 
     # Turns the entry's start and end time into a unique ID string, such that
@@ -60,11 +61,11 @@ class GarminDatabaseStepsEntry(GarminDatabaseEntryBase):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("time_start",       [datetime], required=True),
-            ConfigField("time_end",         [datetime], required=True),
-            ConfigField("step_count",       [int],      required=True),
-            ConfigField("push_count",       [int],      required=False, default=0),
-            ConfigField("activity_level",   [str],      required=False, default=None),
+            UniserdesField("time_start",       [datetime], required=True),
+            UniserdesField("time_end",         [datetime], required=True),
+            UniserdesField("step_count",       [int],      required=True),
+            UniserdesField("push_count",       [int],      required=False, default=0),
+            UniserdesField("activity_level",   [str],      required=False, default=None),
         ]
 
     @classmethod
@@ -104,9 +105,9 @@ class GarminDatabaseSleepMovementEntry(GarminDatabaseEntryBase):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("time_start",       [datetime], required=True),
-            ConfigField("time_end",         [datetime], required=True),
-            ConfigField("movement_level",   [float], required=True),
+            UniserdesField("time_start",       [datetime], required=True),
+            UniserdesField("time_end",         [datetime], required=True),
+            UniserdesField("movement_level",   [float], required=True),
         ]
 
     @classmethod
@@ -142,8 +143,8 @@ class GarminDatabaseSleepHeartRateEntry(GarminDatabaseEntryBase):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("timestamp", [datetime], required=True),
-            ConfigField("heartrate", [int], required=True),
+            UniserdesField("timestamp", [datetime], required=True),
+            UniserdesField("heartrate", [int], required=True),
         ]
 
     @classmethod
@@ -169,19 +170,19 @@ class GarminDatabaseSleepEntry(GarminDatabaseEntryBase):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("time_start",       [datetime], required=True),
-            ConfigField("time_end",         [datetime], required=True),
-            ConfigField("sleep_time_total_seconds", [int],      required=True),
-            ConfigField("sleep_time_deep_sleep_seconds", [int], required=True),
-            ConfigField("sleep_time_light_sleep_seconds", [int], required=True),
-            ConfigField("sleep_time_rem_sleep_seconds", [int], required=True),
-            ConfigField("sleep_time_awake_seconds", [int], required=True),
-            ConfigField("respiration_min", [float], required=True),
-            ConfigField("respiration_max", [float], required=True),
-            ConfigField("respiration_avg", [float], required=True),
-            ConfigField("heartrate_resting", [int], required=True),
-            ConfigField("movement", [GarminDatabaseSleepMovementEntry], required=False, default=None),
-            ConfigField("heartrate", [GarminDatabaseSleepHeartRateEntry], required=False, default=None),
+            UniserdesField("time_start",       [datetime], required=True),
+            UniserdesField("time_end",         [datetime], required=True),
+            UniserdesField("sleep_time_total_seconds", [int],      required=True),
+            UniserdesField("sleep_time_deep_sleep_seconds", [int], required=True),
+            UniserdesField("sleep_time_light_sleep_seconds", [int], required=True),
+            UniserdesField("sleep_time_rem_sleep_seconds", [int], required=True),
+            UniserdesField("sleep_time_awake_seconds", [int], required=True),
+            UniserdesField("respiration_min", [float], required=True),
+            UniserdesField("respiration_max", [float], required=True),
+            UniserdesField("respiration_avg", [float], required=True),
+            UniserdesField("heartrate_resting", [int], required=True),
+            UniserdesField("movement", [GarminDatabaseSleepMovementEntry], required=False, default=None),
+            UniserdesField("heartrate", [GarminDatabaseSleepHeartRateEntry], required=False, default=None),
         ]
 
     @classmethod
@@ -277,9 +278,9 @@ class GarminDatabaseVO2MaxEntry(GarminDatabaseEntryBase):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("timestamp",       [datetime],  required=True),
-            ConfigField("vo2max",          [float],     required=True),
-            ConfigField("fitness_age",     [int],       required=True),
+            UniserdesField("timestamp",       [datetime],  required=True),
+            UniserdesField("vo2max",          [float],     required=True),
+            UniserdesField("fitness_age",     [int],       required=True),
         ]
 
     @classmethod
@@ -331,8 +332,8 @@ class GarminDatabaseHeartRateEntry(GarminDatabaseEntryBase):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("timestamp", [datetime], required=True),
-            ConfigField("heartrate", [int], required=True),
+            UniserdesField("timestamp", [datetime], required=True),
+            UniserdesField("heartrate", [int], required=True),
         ]
 
     @classmethod
@@ -365,11 +366,11 @@ class GarminDatabaseHeartRateSummaryEntry(GarminDatabaseEntryBase):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("timestamp",            [datetime], required=True),
-            ConfigField("heartrate_min",        [int],      required=False, default=None),
-            ConfigField("heartrate_max",        [int],      required=False, default=None),
-            ConfigField("heartrate_resting",    [int],      required=False, default=None),
-            ConfigField("heartrate_resting_avg_last_7days", [int], required=False, default=None),
+            UniserdesField("timestamp",            [datetime], required=True),
+            UniserdesField("heartrate_min",        [int],      required=False, default=None),
+            UniserdesField("heartrate_max",        [int],      required=False, default=None),
+            UniserdesField("heartrate_resting",    [int],      required=False, default=None),
+            UniserdesField("heartrate_resting_avg_last_7days", [int], required=False, default=None),
         ]
 
     @classmethod
@@ -410,12 +411,12 @@ class GarminDatabaseExerciseSetEntry(GarminDatabaseEntryBase):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("category",         [str],      required=False, default=None),
-            ConfigField("reps",             [int],      required=False, default=None),
-            ConfigField("sets",             [int],      required=False, default=None),
-            ConfigField("weight_max",       [int],      required=False, default=None),
-            ConfigField("volume",           [int],      required=False, default=None),
-            ConfigField("duration",         [float],    required=False, default=None),
+            UniserdesField("category",         [str],      required=False, default=None),
+            UniserdesField("reps",             [int],      required=False, default=None),
+            UniserdesField("sets",             [int],      required=False, default=None),
+            UniserdesField("weight_max",       [int],      required=False, default=None),
+            UniserdesField("volume",           [int],      required=False, default=None),
+            UniserdesField("duration",         [float],    required=False, default=None),
         ]
 
     @classmethod
@@ -451,63 +452,63 @@ class GarminDatabaseActivityEntry(GarminDatabaseEntryBase):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("time_start",       [datetime], required=True),
-            ConfigField("time_end",         [datetime], required=True),
-            ConfigField("activity_id",      [str],      required=True),
-            ConfigField("name",             [str],      required=False, default=None),
-            ConfigField("activity_type",    [str],      required=False, default=None),
-            ConfigField("event_type",       [str],      required=False, default=None),
-            ConfigField("distance",         [float],    required=False, default=None),
-            ConfigField("duration_total",   [float],    required=False, default=None),
-            ConfigField("duration_moving",  [float],    required=False, default=None),
-            ConfigField("elevation_gain",   [float],    required=False, default=None),
-            ConfigField("elevation_loss",   [float],    required=False, default=None),
-            ConfigField("elevation_min",    [float],    required=False, default=None),
-            ConfigField("elevation_max",    [float],    required=False, default=None),
-            ConfigField("speed_avg",        [float],    required=False, default=None),
-            ConfigField("speed_max",        [float],    required=False, default=None),
-            ConfigField("speed_vertical_max", [float],  required=False, default=None),
-            ConfigField("latitude_start",   [float],    required=False, default=None),
-            ConfigField("longitude_start",  [float],    required=False, default=None),
-            ConfigField("latitude_end",     [float],    required=False, default=None),
-            ConfigField("longitude_end",    [float],    required=False, default=None),
-            ConfigField("calories",         [float],    required=False, default=None),
-            ConfigField("heartrate_avg",    [float],    required=False, default=None),
-            ConfigField("heartrate_max",    [float],    required=False, default=None),
-            ConfigField("heartrate_time_in_zone1", [float], required=False, default=None),
-            ConfigField("heartrate_time_in_zone2", [float], required=False, default=None),
-            ConfigField("heartrate_time_in_zone3", [float], required=False, default=None),
-            ConfigField("heartrate_time_in_zone4", [float], required=False, default=None),
-            ConfigField("heartrate_time_in_zone5", [float], required=False, default=None),
-            ConfigField("cycling_cadence_rpm_avg", [float], required=False, default=None),
-            ConfigField("cycling_cadence_rpm_max", [float], required=False, default=None),
-            ConfigField("laps",             [int],      required=False, default=None),
-            ConfigField("power_avg",        [float],    required=False, default=None),
-            ConfigField("power_max",        [float],    required=False, default=None),
-            ConfigField("power_norm",       [float],    required=False, default=None),
-            ConfigField("power_max_avg_1sec", [int],    required=False, default=None),
-            ConfigField("power_max_avg_2sec", [int],    required=False, default=None),
-            ConfigField("power_max_avg_5sec", [int],    required=False, default=None),
-            ConfigField("power_max_avg_10sec", [int],   required=False, default=None),
-            ConfigField("power_max_avg_20sec", [int],   required=False, default=None),
-            ConfigField("power_max_avg_30sec", [int],   required=False, default=None),
-            ConfigField("power_max_avg_60sec", [int],   required=False, default=None),
-            ConfigField("power_max_avg_120sec", [int],  required=False, default=None),
-            ConfigField("power_max_avg_300sec", [int],  required=False, default=None),
-            ConfigField("power_max_avg_600sec", [int],  required=False, default=None),
-            ConfigField("power_max_avg_1200sec", [int], required=False, default=None),
-            ConfigField("power_max_avg_1800sec", [int], required=False, default=None),
-            ConfigField("power_time_in_zone1", [float], required=False, default=None),
-            ConfigField("power_time_in_zone2", [float], required=False, default=None),
-            ConfigField("power_time_in_zone3", [float], required=False, default=None),
-            ConfigField("power_time_in_zone4", [float], required=False, default=None),
-            ConfigField("power_time_in_zone5", [float], required=False, default=None),
-            ConfigField("power_time_in_zone6", [float], required=False, default=None),
-            ConfigField("power_time_in_zone7", [float], required=False, default=None),
-            ConfigField("sets_total",       [int],      required=False, default=None),
-            ConfigField("sets_active",      [int],      required=False, default=None),
-            ConfigField("reps_total",       [int],      required=False, default=None),
-            ConfigField("exercise_sets",    [GarminDatabaseExerciseSetEntry], required=False, default=None),
+            UniserdesField("time_start",       [datetime], required=True),
+            UniserdesField("time_end",         [datetime], required=True),
+            UniserdesField("activity_id",      [str],      required=True),
+            UniserdesField("name",             [str],      required=False, default=None),
+            UniserdesField("activity_type",    [str],      required=False, default=None),
+            UniserdesField("event_type",       [str],      required=False, default=None),
+            UniserdesField("distance",         [float],    required=False, default=None),
+            UniserdesField("duration_total",   [float],    required=False, default=None),
+            UniserdesField("duration_moving",  [float],    required=False, default=None),
+            UniserdesField("elevation_gain",   [float],    required=False, default=None),
+            UniserdesField("elevation_loss",   [float],    required=False, default=None),
+            UniserdesField("elevation_min",    [float],    required=False, default=None),
+            UniserdesField("elevation_max",    [float],    required=False, default=None),
+            UniserdesField("speed_avg",        [float],    required=False, default=None),
+            UniserdesField("speed_max",        [float],    required=False, default=None),
+            UniserdesField("speed_vertical_max", [float],  required=False, default=None),
+            UniserdesField("latitude_start",   [float],    required=False, default=None),
+            UniserdesField("longitude_start",  [float],    required=False, default=None),
+            UniserdesField("latitude_end",     [float],    required=False, default=None),
+            UniserdesField("longitude_end",    [float],    required=False, default=None),
+            UniserdesField("calories",         [float],    required=False, default=None),
+            UniserdesField("heartrate_avg",    [float],    required=False, default=None),
+            UniserdesField("heartrate_max",    [float],    required=False, default=None),
+            UniserdesField("heartrate_time_in_zone1", [float], required=False, default=None),
+            UniserdesField("heartrate_time_in_zone2", [float], required=False, default=None),
+            UniserdesField("heartrate_time_in_zone3", [float], required=False, default=None),
+            UniserdesField("heartrate_time_in_zone4", [float], required=False, default=None),
+            UniserdesField("heartrate_time_in_zone5", [float], required=False, default=None),
+            UniserdesField("cycling_cadence_rpm_avg", [float], required=False, default=None),
+            UniserdesField("cycling_cadence_rpm_max", [float], required=False, default=None),
+            UniserdesField("laps",             [int],      required=False, default=None),
+            UniserdesField("power_avg",        [float],    required=False, default=None),
+            UniserdesField("power_max",        [float],    required=False, default=None),
+            UniserdesField("power_norm",       [float],    required=False, default=None),
+            UniserdesField("power_max_avg_1sec", [int],    required=False, default=None),
+            UniserdesField("power_max_avg_2sec", [int],    required=False, default=None),
+            UniserdesField("power_max_avg_5sec", [int],    required=False, default=None),
+            UniserdesField("power_max_avg_10sec", [int],   required=False, default=None),
+            UniserdesField("power_max_avg_20sec", [int],   required=False, default=None),
+            UniserdesField("power_max_avg_30sec", [int],   required=False, default=None),
+            UniserdesField("power_max_avg_60sec", [int],   required=False, default=None),
+            UniserdesField("power_max_avg_120sec", [int],  required=False, default=None),
+            UniserdesField("power_max_avg_300sec", [int],  required=False, default=None),
+            UniserdesField("power_max_avg_600sec", [int],  required=False, default=None),
+            UniserdesField("power_max_avg_1200sec", [int], required=False, default=None),
+            UniserdesField("power_max_avg_1800sec", [int], required=False, default=None),
+            UniserdesField("power_time_in_zone1", [float], required=False, default=None),
+            UniserdesField("power_time_in_zone2", [float], required=False, default=None),
+            UniserdesField("power_time_in_zone3", [float], required=False, default=None),
+            UniserdesField("power_time_in_zone4", [float], required=False, default=None),
+            UniserdesField("power_time_in_zone5", [float], required=False, default=None),
+            UniserdesField("power_time_in_zone6", [float], required=False, default=None),
+            UniserdesField("power_time_in_zone7", [float], required=False, default=None),
+            UniserdesField("sets_total",       [int],      required=False, default=None),
+            UniserdesField("sets_active",      [int],      required=False, default=None),
+            UniserdesField("reps_total",       [int],      required=False, default=None),
+            UniserdesField("exercise_sets",    [GarminDatabaseExerciseSetEntry], required=False, default=None),
         ]
 
     @classmethod

@@ -35,7 +35,7 @@ class TaskJob_Interview(TaskJob):
         self.thread_class = TaskJob_Interview_Thread
         self.config_class = TaskJob_Interview_Config
         self.refresh_rate = 120
-        
+
     def get_config(self):
         # find and parse the config for this class
         config_fname = inspect.getfile(self.__class__).replace(".py", ".json")
@@ -43,7 +43,7 @@ class TaskJob_Interview(TaskJob):
         config = self.config_class()
         config.parse_file(config_path)
         return config
- 
+
     # Helper function that can be overridden by subclasses to determine if it's
     # time to update. Returns True if an update should be done.
     def is_ready_to_update(self, todoist, gcal):
@@ -53,7 +53,7 @@ class TaskJob_Interview(TaskJob):
         # return early if it's not time to update yet
         if not self.is_ready_to_update(todoist, gcal):
             return False
-        
+
         # if it is, spawn a thread of the configured class name to handle the
         # menu and everything else
         thrd = self.thread_class(self, todoist, gcal)
@@ -75,12 +75,12 @@ class TaskJob_Interview_Thread(threading.Thread):
         s = OracleSession(self.taskjob.service.config.telegram)
         s.login()
         return s
-    
+
     # Main function for the thread. Must be overridden by the child class of
     # `TaskJob_interview`.
     def run(self):
         pass
-    
+
     # Sends the menu to Telegram for the first time.
     def create_menu(self, menu: dict):
         telegram_session = self.get_telegram_session()
@@ -102,7 +102,7 @@ class TaskJob_Interview_Thread(threading.Thread):
         # will contain the menu's ID, and other new information)
         created_menu = telegram_session.get_response_json(r)
         return created_menu
-    
+
     # Updates a menu via Telegram.
     def update_menu(self, chat_id: str, message_id: str, menu: dict):
         telegram_session = self.get_telegram_session()
@@ -125,7 +125,7 @@ class TaskJob_Interview_Thread(threading.Thread):
         # will contain the menu's ID, and other new information)
         updated_menu = telegram_session.get_response_json(r)
         return updated_menu
-    
+
     # Retrieves the menu from Telegram.
     def get_menu(self, menu_id: str, telegram_session=None):
         if telegram_session is None:
@@ -146,7 +146,7 @@ class TaskJob_Interview_Thread(threading.Thread):
         # that was returned
         new_menu = telegram_session.get_response_json(r)
         return new_menu
-    
+
     # Updates a message's text via Telegram.
     def update_message(self, chat_id: str, message_id: str, text: str):
         telegram_session = self.get_telegram_session()
@@ -160,7 +160,7 @@ class TaskJob_Interview_Thread(threading.Thread):
             msg = telegram_session.get_response_message(r)
             self.taskjob.log("Failed to update message via Telegram: %s" % msg)
             return None
- 
+
     # Updates a message's text via Telegram.
     def remove_menu(self, chat_id: str, message_id: str):
         telegram_session = self.get_telegram_session()
@@ -174,7 +174,7 @@ class TaskJob_Interview_Thread(threading.Thread):
             msg = telegram_session.get_response_message(r)
             self.taskjob.log("Failed to remove menu via Telegram: %s" % msg)
             return None
- 
+
     # Takes in a Telegram menu object and repeatedly polls Telegram for
     # information on the menu. As soon as a change with the menu is seen, a new
     # menu object is returned.
@@ -186,7 +186,7 @@ class TaskJob_Interview_Thread(threading.Thread):
         while True:
             new_menu = self.get_menu(menu["id"],
                                      telegram_session=telegram_session)
-            
+
             # look at the menu's options and compare the old vs new
             # side-by-side
             options_len = len(menu["options"])

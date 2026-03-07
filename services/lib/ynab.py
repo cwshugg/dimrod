@@ -21,34 +21,35 @@ from ynab.models.patch_transactions_wrapper import PatchTransactionsWrapper
 
 # Local imports
 from lib.config import Config, ConfigField
+from lib.uniserdes import Uniserdes, UniserdesField
 import lib.dtu as dtu
 
 # An object used for updating an existing YNAB transaction.
-class YNABTransactionUpdate(Config):
+class YNABTransactionUpdate(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("id",                      [str],      required=True),
-            ConfigField("update_account_id",       [str],      required=False, default=None),
-            ConfigField("update_payee_id",         [str],      required=False, default=None),
-            ConfigField("update_amount",           [float],    required=False, default=None),
-            ConfigField("update_date",             [datetime], required=False, default=None),
-            ConfigField("update_category_id",      [str],      required=False, default=None),
-            ConfigField("update_description",      [str],      required=False, default=None),
-            ConfigField("update_cleared_status",   [str],      required=False, default=None),
-            ConfigField("update_approved",         [bool],     required=False, default=None),
-            ConfigField("update_flag_color",       [str],      required=False, default=None),
-            
+            UniserdesField("id",                      [str],      required=True),
+            UniserdesField("update_account_id",       [str],      required=False, default=None),
+            UniserdesField("update_payee_id",         [str],      required=False, default=None),
+            UniserdesField("update_amount",           [float],    required=False, default=None),
+            UniserdesField("update_date",             [datetime], required=False, default=None),
+            UniserdesField("update_category_id",      [str],      required=False, default=None),
+            UniserdesField("update_description",      [str],      required=False, default=None),
+            UniserdesField("update_cleared_status",   [str],      required=False, default=None),
+            UniserdesField("update_approved",         [bool],     required=False, default=None),
+            UniserdesField("update_flag_color",       [str],      required=False, default=None),
+
             # Fields that are *not* used for updating, but strictly used for
             # temporarily storing information in the object:
-            ConfigField("transaction",             [any],      required=False, default=None),
-            ConfigField("account",                 [any],      required=False, default=None),
-            ConfigField("category",                [any],      required=False, default=None),
+            UniserdesField("transaction",             [any],      required=False, default=None),
+            UniserdesField("account",                 [any],      required=False, default=None),
+            UniserdesField("category",                [any],      required=False, default=None),
         ]
 
     def __str__(self):
         return json.dumps(self.to_update_dict())
-    
+
     def has_updates(self):
         return self.update_account_id is not None or \
                self.update_payee_id is not None or \
@@ -59,7 +60,7 @@ class YNABTransactionUpdate(Config):
                self.update_cleared_status is not None or \
                self.update_approved is not None or \
                self.update_approved is not None
-    
+
     # Returns a dictionary containing all YNAB-friendly update fields.
     def to_update_dict(self):
         tdata = {}
@@ -114,7 +115,7 @@ class YNABTransactionUpdate(Config):
         d = self.to_update_dict()
         if d is None:
             return None
-                
+
         # create the YNAB object and return
         d.update({"id": self.id})
         return SaveTransactionWithIdOrImportId.from_dict(d)
@@ -151,16 +152,16 @@ class YNABTransactionInfo:
 
     def get_date(self):
         return self.transaction.var_date
-    
+
     def get_amount(self):
         return float(self.transaction.amount) / 1000.0
-    
+
     def get_description(self):
         if self.transaction.memo is None or \
            len(self.transaction.memo) == 0:
             return None
         return self.transaction.memo
-    
+
     def get_approved(self):
         return self.transaction.approved
 
@@ -169,7 +170,7 @@ class YNABTransactionInfo:
 
     def get_flag_color(self):
         return self.transaction.flag_color
-    
+
     def __str__(self):
         r = "Date=\"%s\" " % dtu.format_yyyymmdd(self.get_date())
         r += "Amount=\"%.2f\" " % self.get_amount()
@@ -205,35 +206,35 @@ class YNAB:
 
         # return the client object
         return self.client
-    
+
     # Returns a YNAB budget-specific API object.
     def api_budgets(self):
         return ynab.BudgetsApi(self.api())
-    
+
     # Returns a YNAB accounts-specific API object.
     def api_accounts(self):
         return ynab.AccountsApi(self.api())
-    
+
     # Returns a YNAB category-specific API object.
     def api_categories(self):
         return ynab.CategoriesApi(self.api())
-    
+
     # Returns a YNAB transaction-specific API object.
     def api_transactions(self):
         return ynab.TransactionsApi(self.api())
-    
+
     # Returns a YNAB payee-specific API object. (YNAB refers to these as
     # "payees")
     def api_entities(self):
         return ynab.PayeesApi(self.api())
-    
+
     # Returns all YNAB budgets.
     def get_budgets(self):
         api = self.api_budgets()
         r = api.get_budgets(include_accounts=True)
         rdata = r.data
         return rdata.budgets
-    
+
     # Returns a budget object based on its ID.
     # Returns `None` if the budget ID does not exist.
     def get_budget_by_id(self, budget_id: str):
@@ -243,7 +244,7 @@ class YNAB:
             return r.data.budget
         except:
             return None
-    
+
     # Using the provided budget ID, returns a list of accounts synced with the
     # budget. Any accounts that are marked as deleted are not returned.
     def get_accounts(self, budget_id: str):
@@ -267,7 +268,7 @@ class YNAB:
             return r.data.account
         except:
             return None
-    
+
     # Returns a master list of *all* accounts under *all* budgets.
     # The list of budgets can be specified. If they are not, they will be
     # retrieved from the YNAB API during this function.
@@ -279,7 +280,7 @@ class YNAB:
         for budget in budgets:
             result += self.get_accounts(budget.id)
         return result
-    
+
     # Returns a list of a budget's categories.
     # Any category that is marked as deleted is not included.
     def get_categories(self, budget_id: str):
@@ -295,7 +296,7 @@ class YNAB:
                     continue
                 result.append(cat)
         return result
-    
+
     # Returns a category object based on its ID.
     # Returns `None` if the account ID doesn't exist.
     def get_category_by_id(self, budget_id: str, category_id: str):
@@ -305,7 +306,7 @@ class YNAB:
             return r.data.category
         except:
             return None
-    
+
     # Returns a list of all entities (payees) belonging to a budget.
     # Entities that are marked as deleted are not included.
     def get_entities(self, budget_id: str):
@@ -320,7 +321,7 @@ class YNAB:
             result.append(p)
 
         return result
-    
+
     # Returns an payee based on its ID.
     # Returns `None` if the ID does not exist.
     def get_payee_by_id(self, budget_id: str, payee_id: str):
@@ -330,7 +331,7 @@ class YNAB:
             return r.data.payee
         except:
             return None
-    
+
     # Returns all transactions occurring after the `since_date` field for a
     # budget. If `since_date` is `None`, then *all* transactions are retrieved.
     def get_transactions(self,
@@ -338,12 +339,12 @@ class YNAB:
                          since_date: datetime = None,
                          transaction_type: str = None):
         api = self.api_transactions()
-    
+
         # format the `since_date` in YYYY-MM-DD format
         since_date_str = None
         if since_date is not None:
             since_date_str = dtu.format_yyyymmdd(since_date)
-        
+
         # poll the API and return the list of transactions
         r = api.get_transactions(budget_id,
                                  since_date=since_date_str,
@@ -375,7 +376,7 @@ class YNAB:
         return self.get_transactions(budget_id,
                                      since_date=since_date,
                                      transaction_type="uncategorized")
-    
+
     # Retrieves both unapproved and uncategorized transactions.
     def get_transactions_unapproved_uncategorized(self,
                                                   budget_id: str,
@@ -395,7 +396,7 @@ class YNAB:
 
         # return the list of transactions
         return transactions.values()
-    
+
     # Retrieves all transactions belonging to a specific category.
     def get_transactions_by_category(self,
                                      budget_id: str,
@@ -403,12 +404,12 @@ class YNAB:
                                      since_date: datetime = None,
                                      transaction_type: str = None):
         api = self.api_transactions()
-    
+
         # format the `since_date` in YYYY-MM-DD format
         since_date_str = None
         if since_date is not None:
             since_date_str = dtu.format_yyyymmdd(since_date)
-        
+
         # poll the API and return the list of transactions
         r = api.get_transactions_by_category(budget_id,
                                              category_id,
@@ -425,7 +426,7 @@ class YNAB:
             result.append(YNABTransactionInfo(t))
 
         return result
-    
+
     # Accepts a list of `YNABTransactionUpdate` objects and attempts to submit
     # updates to the YNAB API for all of them.
     def update_transactions(self,

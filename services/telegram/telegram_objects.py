@@ -12,10 +12,10 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 # Local imports
-from lib.config import Config, ConfigField
+from lib.uniserdes import Uniserdes, UniserdesField
 
 # Parent class for all Telegram objects.
-class TelegramObject(Config):
+class TelegramObject(Uniserdes):
     @classmethod
     def from_telegram_to_obj(cls, obj):
         result = cls()
@@ -26,8 +26,8 @@ class TelegramChat(TelegramObject):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("id",       [str],      required=True),
-            ConfigField("name",     [str],      required=False, default=None)
+            UniserdesField("id",       [str],      required=True),
+            UniserdesField("name",     [str],      required=False, default=None)
         ]
 
     @staticmethod
@@ -45,8 +45,8 @@ class TelegramUser(TelegramObject):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("id",       [str],      required=True),
-            ConfigField("name",     [str],      required=True)
+            UniserdesField("id",       [str],      required=True),
+            UniserdesField("name",     [str],      required=True)
         ]
 
     @staticmethod
@@ -61,8 +61,8 @@ class TelegramButton(TelegramObject):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("id",       [str],      required=True),
-            ConfigField("text",     [str],      required=True)
+            UniserdesField("id",       [str],      required=True),
+            UniserdesField("text",     [str],      required=True)
         ]
 
     @staticmethod
@@ -77,12 +77,12 @@ class TelegramMessage(TelegramObject):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("id",      [str],       required=True),
-            ConfigField("from",    [dict],      required=True),
-            ConfigField("chat",    [TelegramChat], required=True),
-            ConfigField("text",    [str],       required=True),
-            ConfigField("date",    [datetime],  required=True),
-            ConfigField("buttons", [TelegramButton], required=True),
+            UniserdesField("id",      [str],       required=True),
+            UniserdesField("from",    [dict],      required=True),
+            UniserdesField("chat",    [TelegramChat], required=True),
+            UniserdesField("text",    [str],       required=True),
+            UniserdesField("date",    [datetime],  required=True),
+            UniserdesField("buttons", [TelegramButton], required=True),
         ]
 
     @staticmethod

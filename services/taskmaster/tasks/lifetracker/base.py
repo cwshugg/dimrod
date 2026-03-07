@@ -17,30 +17,30 @@ if pdir not in sys.path:
 
 # Service imports
 from task import TaskJob
-from lib.config import Config, ConfigField
+from lib.uniserdes import Uniserdes, UniserdesField
 from lib.oracle import OracleSession
 import lib.dtu as dtu
 
 # A class representing the trigger conditions for a LifeMetric to be sent to
 # the user. These work similar to the Notif service's reminder objects.
-class LifeMetricTrigger(Config):
+class LifeMetricTrigger(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("years",        [list],  required=False, default=[]),
-            ConfigField("months",       [list],  required=False, default=[]),
-            ConfigField("days",         [list],  required=False, default=[]),
-            ConfigField("weekdays",     [list],  required=False, default=[]),
-            ConfigField("hours",        [list],  required=False, default=[]),
-            ConfigField("minutes",      [list],  required=False, default=[]),
-            ConfigField("cooldown",     [int],   required=False, default=3600),
+            UniserdesField("years",        [list],  required=False, default=[]),
+            UniserdesField("months",       [list],  required=False, default=[]),
+            UniserdesField("days",         [list],  required=False, default=[]),
+            UniserdesField("weekdays",     [list],  required=False, default=[]),
+            UniserdesField("hours",        [list],  required=False, default=[]),
+            UniserdesField("minutes",      [list],  required=False, default=[]),
+            UniserdesField("cooldown",     [int],   required=False, default=3600),
         ]
 
     def parse_json(self, jdata: dict):
         result = super().parse_json(jdata)
         self.check_triggers()
         return result
-    
+
     # Function borrowed from notif's Reminder object that makes sure all
     # trigger values are within the expected range.
     def check_triggers(self):
@@ -62,14 +62,14 @@ class LifeMetricTrigger(Config):
             assert type(m) == int, "minutes must be a list of ints"
             assert m in range(0, 60), "minutes must be within 0-59"
         assert self.cooldown > 0, "cooldown must be a positive integer"
-    
+
     # Returns True if the given datetime (which defaults to the current
     # datetime) matches the trigger conditions.
     def is_ready(self, dt: datetime = None, last_trigger: datetime = None):
         if dt is None:
             dt = datetime.now()
         result = True
-        
+
         # check for matching years
         if len(self.years) > 0:
             result = result and any(y == dt.year for y in self.years)
@@ -102,13 +102,13 @@ class LifeMetricTrigger(Config):
         return result
 
 # A class representing a single choice/value for a metric.
-class LifeMetricValue(Config):
+class LifeMetricValue(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("name",         [str],  required=True),
-            ConfigField("title",        [str],  required=True),
-            ConfigField("score_points", [int],  required=False, default=0),
+            UniserdesField("name",         [str],  required=True),
+            UniserdesField("title",        [str],  required=True),
+            UniserdesField("score_points", [int],  required=False, default=0),
         ]
 
     def get_sqlite3_column_name_selection_count(self):
@@ -123,18 +123,18 @@ class LifeMetricValue(Config):
 #
 # One metric contains several metric values, each of which has a score that is
 # awarded to the user if the option is selected.
-class LifeMetric(Config):
+class LifeMetric(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("name",         [str],                  required=True),
-            ConfigField("title",        [str],                  required=True),
-            ConfigField("values",       [LifeMetricValue],      required=True),
-            ConfigField("trigger",      [LifeMetricTrigger],    required=True),
-            ConfigField("telegram_menu_timeout", [int],         required=False, default=90000),
-            ConfigField("telegram_menu_behavior_type", [str],   required=False, default="SINGLE_CHOICE"),
+            UniserdesField("name",         [str],                  required=True),
+            UniserdesField("title",        [str],                  required=True),
+            UniserdesField("values",       [LifeMetricValue],      required=True),
+            UniserdesField("trigger",      [LifeMetricTrigger],    required=True),
+            UniserdesField("telegram_menu_timeout", [int],         required=False, default=90000),
+            UniserdesField("telegram_menu_behavior_type", [str],   required=False, default="SINGLE_CHOICE"),
         ]
-    
+
     # Returns True if any one of the possible options has a non-zero score.
     # Returns False is *all* options have a score of zero.
     def has_nonzero_scores(self):
@@ -142,7 +142,7 @@ class LifeMetric(Config):
             if v.score_points != 0:
                 return True
         return False
-    
+
     # Iterates through the metric's values and determines the maximum possible
     # score that could be achieved.
     #
@@ -157,7 +157,7 @@ class LifeMetric(Config):
         if minimum is not None:
             return minimum
         return result
-    
+
     # Returns a JSON object used to represent a telegram menu containing the
     # metric's title and all of its values.
     def get_telegram_menu(self, title_prefix: str = ""):
@@ -182,20 +182,20 @@ class LifeMetric(Config):
 class LifeMetricEntryStatus(Enum):
     # Alive: the Telegram menu is still open and its values can be modified.
     ALIVE = 0
-    
+
     # Dead: the Telegram menu has expired and its values can no longer be
     # modified.
     DEAD = 1
 
 # A class representing a single database entry for a metric.
-class LifeMetricEntry(Config):
+class LifeMetricEntry(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("timestamp",    [datetime],  required=False, default=datetime.now()),
-            ConfigField("status",       [LifeMetricEntryStatus], required=False, default=LifeMetricEntryStatus.ALIVE),
-            ConfigField("metric_name", [str], required=False, default=None),
-            ConfigField("telegram_menu_id", [str], required=False, default=None)
+            UniserdesField("timestamp",    [datetime],  required=False, default=datetime.now()),
+            UniserdesField("status",       [LifeMetricEntryStatus], required=False, default=LifeMetricEntryStatus.ALIVE),
+            UniserdesField("metric_name", [str], required=False, default=None),
+            UniserdesField("telegram_menu_id", [str], required=False, default=None)
         ]
 
     # Takes a metric and modifies the entry to contain fields that match the
@@ -209,14 +209,14 @@ class LifeMetricEntry(Config):
             selection_count_name = value.get_sqlite3_column_name_selection_count()
 
             self.fields += [
-                ConfigField(score_per_count_name, [int], required=True),
-                ConfigField(selection_count_name, [int], required=True)
+                UniserdesField(score_per_count_name, [int], required=True),
+                UniserdesField(selection_count_name, [int], required=True)
             ]
 
             # set the fields to hold default values
             setattr(self, score_per_count_name, value.score_points)
             setattr(self, selection_count_name, 0)
-    
+
     # Initializes certain fields of the object from the provided Telegram menu.
     def init_from_telegram_menu(self, menu: dict):
         self.telegram_menu_id = menu["id"]
@@ -241,13 +241,13 @@ class LifeMetricEntry(Config):
 
 # ========================== Main LifeTracker Class ========================== #
 # A class reprsenting a collection of life metrics, along with other metadata.
-class LifeTracker(Config):
+class LifeTracker(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("metrics",      [LifeMetric],   required=True),
-            ConfigField("db_path",      [str],          required=True),
-            ConfigField("telegram_chat_id", [str],      required=True),
+            UniserdesField("metrics",      [LifeMetric],   required=True),
+            UniserdesField("db_path",      [str],          required=True),
+            UniserdesField("telegram_chat_id", [str],      required=True),
         ]
 
     # Retrieves a metric, given its name.
@@ -272,7 +272,7 @@ class LifeTracker(Config):
 
         con.commit()
         con.close()
-    
+
     # Returns True if a table exists.
     def get_table_exists(self, name: str):
         con = sqlite3.connect(self.db_path)
@@ -286,14 +286,14 @@ class LifeTracker(Config):
 
         con.close()
         return False
-            
+
     # Queries the database and returns a list of `LifeMetricEntry` objects,
     # representing the entries that are still "alive" (i.e. whose Telegram
     # menus have not yet expired).
     def get_alive_metrics(self):
         con = sqlite3.connect(self.db_path)
         cur = con.cursor()
-        
+
         # perform the following for all metrics
         entries = []
         for metric in self.metrics:
@@ -301,7 +301,7 @@ class LifeTracker(Config):
             # this iteration
             if not self.get_table_exists(metric.name):
                 continue
-            
+
             cmd = "SELECT * FROM %s WHERE status == %d" % \
                   (metric.name, LifeMetricEntryStatus.ALIVE.value)
             result = cur.execute(cmd)
@@ -318,7 +318,7 @@ class LifeTracker(Config):
 
         con.close()
         return entries
-    
+
     # Deletes the given `LifeMetricEntry` from the database.
     def delete_metric(self, entry: LifeMetricEntry):
         con = sqlite3.connect(self.db_path)
@@ -328,7 +328,7 @@ class LifeTracker(Config):
         cmd = "DELETE FROM %s WHERE telegram_menu_id == \"%s\"" % \
               (table_name, entry.telegram_menu_id)
         cur.execute(cmd)
-        
+
         # commit the changes and close the connection
         con.commit()
         con.close()
@@ -339,17 +339,17 @@ class LifeTracker(Config):
         # if the metric's table doesn't exist yet, return early
         if not self.get_table_exists(metric.name):
             return None
-        
+
         # set up a connection to the database
         con = sqlite3.connect(self.db_path)
         cur = con.cursor()
-        
+
         # build a command to grab the entry with the highest integer timestamp
         # (which will be the latest time)
         table_name = metric.name
         cmd = "SELECT * FROM %s ORDER BY timestamp DESC LIMIT 1" % table_name
         result = cur.execute(cmd)
-        
+
         entry = None
         for data in result:
             entry = LifeMetricEntry()
@@ -359,10 +359,10 @@ class LifeTracker(Config):
                 fields_kept_visible=entry.get_sqlite3_fields_to_keep_visible()
             )
             break # there should only be one result (see `LIMIT 1` above)
-        
+
         con.close()
         return entry
-    
+
     # Takes in a LifeMetric and two timestamps, and returns a list of all
     # metric entries that fall between the beginning and ending timestamps.
     #
@@ -384,11 +384,11 @@ class LifeTracker(Config):
         # if the metric's table doesn't exist yet, return early
         if not self.get_table_exists(metric.name):
             return []
-        
+
         # set up a connection to the database
         con = sqlite3.connect(self.db_path)
         cur = con.cursor()
-        
+
         # build a command to grab all relevant entries
         table_name = metric.name
         cmd = "SELECT * FROM %s WHERE " % table_name
@@ -411,7 +411,7 @@ class LifeTracker(Config):
                 fields_kept_visible=entry.get_sqlite3_fields_to_keep_visible()
             )
             entries.append(entry)
-        
+
         con.close()
         return entries
 
@@ -424,13 +424,13 @@ class TaskJob_LifeTracker(TaskJob):
     def init(self):
         self.refresh_rate = 5 * 60 # updates every 5 minutes
         self.config_name = os.path.basename(__file__).replace(".py", ".json")
-    
+
     # Returns the path to where the JSON config file is expected to be.
     def get_config_path(self):
         this_file = inspect.getfile(self.__class__)
         config_dir = os.path.dirname(os.path.realpath(this_file))
         return os.path.join(config_dir, self.config_name)
-    
+
     # Parses the tracker config file and returns a `LifeTracker` object.
     def get_tracker(self):
         tracker = LifeTracker()
@@ -443,7 +443,7 @@ class TaskJob_LifeTracker(TaskJob):
         s = OracleSession(self.service.config.telegram)
         s.login()
         return s
-    
+
     # Sends a message to Telegram.
     def send_message(self, tracker: LifeTracker, text: str):
         telegram_session = self.get_telegram_session()
@@ -483,7 +483,7 @@ class TaskJob_LifeTracker(TaskJob):
         # will contain the menu's ID, and other new information)
         created_menu = telegram_session.get_response_json(r)
         return created_menu
-    
+
     def get_metric_entry_menu(self, entry: LifeMetricEntry):
         telegram_session = self.get_telegram_session()
 
@@ -497,4 +497,4 @@ class TaskJob_LifeTracker(TaskJob):
             return None
 
         return telegram_session.get_response_json(r)
- 
+

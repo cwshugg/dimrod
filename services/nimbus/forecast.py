@@ -13,22 +13,22 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 # Local imports
-from lib.config import Config, ConfigField
+from lib.uniserdes import Uniserdes, UniserdesField
 
-class Forecast(Config):
+class Forecast(Uniserdes):
     # Constructor.
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("name",                 [str],      required=True),
-            ConfigField("description_short",    [str],      required=True),
-            ConfigField("description_long",     [str],      required=True),
-            ConfigField("temperature_value",    [int],      required=True),
-            ConfigField("temperature_unit",     [str],      required=True),
-            ConfigField("wind_speed",           [str],      required=True),
-            ConfigField("wind_direction",       [str],      required=True),
-            ConfigField("time_start",           [str],      required=True),
-            ConfigField("time_end",             [str],      required=True)
+            UniserdesField("name",                 [str],      required=True),
+            UniserdesField("description_short",    [str],      required=True),
+            UniserdesField("description_long",     [str],      required=True),
+            UniserdesField("temperature_value",    [int],      required=True),
+            UniserdesField("temperature_unit",     [str],      required=True),
+            UniserdesField("wind_speed",           [str],      required=True),
+            UniserdesField("wind_direction",       [str],      required=True),
+            UniserdesField("time_start",           [str],      required=True),
+            UniserdesField("time_end",             [str],      required=True)
         ]
 
     # Overridden JSON parsing function.

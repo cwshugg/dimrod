@@ -1,6 +1,9 @@
 # Module that defines a configuration class for a service or some other object.
+#
 # This class inherits much from the `Uniserdes` object (universal
-# serializer/deserializer).
+# serializer/deserializer), but it's intented to be used for *configuring*
+# something, not simply as a way to represent arbitrary data. (For that
+# purpose, the base `Uniserdes` class should be used instead.)
 #
 #   Connor Shugg
 

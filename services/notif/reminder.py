@@ -15,27 +15,27 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 # Local imports
-from lib.config import Config, ConfigField
+from lib.uniserdes import Uniserdes, UniserdesField
 from lib import dtu as dtu
 
 
 # ============================= Reminder Object ============================== #
-class Reminder(Config):
+class Reminder(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("message",          [str],      required=True),
-            ConfigField("title",            [str],      required=False,     default="Reminder"),
-            ConfigField("send_telegrams",   [list],     required=False,     default=[]),
-            ConfigField("send_emails",      [list],     required=False,     default=[]),
-            ConfigField("send_ntfys",       [list],     required=False,     default=[]),
-            ConfigField("trigger_years",    [list],     required=False,     default=[]),
-            ConfigField("trigger_months",   [list],     required=False,     default=[]),
-            ConfigField("trigger_days",     [list],     required=False,     default=[]),
-            ConfigField("trigger_weekdays", [list],     required=False,     default=[]),
-            ConfigField("trigger_hours",    [list],     required=False,     default=[]),
-            ConfigField("trigger_minutes",  [list],     required=False,     default=[]),
-            ConfigField("id",               [str],      required=False,     default=None)
+            UniserdesField("message",          [str],      required=True),
+            UniserdesField("title",            [str],      required=False,     default="Reminder"),
+            UniserdesField("send_telegrams",   [list],     required=False,     default=[]),
+            UniserdesField("send_emails",      [list],     required=False,     default=[]),
+            UniserdesField("send_ntfys",       [list],     required=False,     default=[]),
+            UniserdesField("trigger_years",    [list],     required=False,     default=[]),
+            UniserdesField("trigger_months",   [list],     required=False,     default=[]),
+            UniserdesField("trigger_days",     [list],     required=False,     default=[]),
+            UniserdesField("trigger_weekdays", [list],     required=False,     default=[]),
+            UniserdesField("trigger_hours",    [list],     required=False,     default=[]),
+            UniserdesField("trigger_minutes",  [list],     required=False,     default=[]),
+            UniserdesField("id",               [str],      required=False,     default=None)
         ]
 
     # String representation

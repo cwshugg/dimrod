@@ -36,7 +36,7 @@ class GatekeeperSubscriber:
         # make sure the executable file exists
         assert os.path.isfile(self.config.executable), \
                "could not find executable file: %s" % self.config.executable
-        
+
     # Spawns a child process and has it execute the executable file. Takes in an
     # optional data parameter, and optional file descriptors to which stdout and
     # stderr should be written.
@@ -54,7 +54,7 @@ class GatekeeperSubscriber:
             for line in stderr.decode().split("\n"):
                 if len(line) > 0:
                     stdout_fd.write("[STDERR] %s\n" % line)
-        
+
         # runner code - build an argument list, then invoke spawn_and_wait
         args = [self.config.executable]
         if data is not None:

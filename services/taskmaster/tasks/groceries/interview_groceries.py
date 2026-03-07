@@ -98,7 +98,7 @@ class TaskJob_Interview_Groceries_Thread(TaskJob_Interview_Thread):
                         "%s" % \
                         ((idx + 1), len(items), item.question)
         return menu
-    
+
     # Helper function that must be handled by the subclass. It should return
     # either a new/updated menu, or None.
     def handle_updated_menu(self, items: list, menu: dict, updated_menu: dict):
@@ -148,7 +148,7 @@ class TaskJob_Interview_Groceries_Thread(TaskJob_Interview_Thread):
         return self.update_menu(updated_menu["telegram_msg_info"]["chat"]["id"],
                                 updated_menu["telegram_msg_info"]["id"],
                                 updated_menu)
-                                
+
 
     # Adds a new task under the `Groceries` Todoist project.
     def add_grocery_item(self, t: TaskConfig):

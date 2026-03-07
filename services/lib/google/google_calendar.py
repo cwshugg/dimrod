@@ -40,7 +40,7 @@ class GoogleCalendar:
         # authenticate with the service account and use it to build the service
         c = self.creds.authenticate()
         self.service = build("calendar", "v3", credentials=c)
-    
+
     # ------------------------------- Helpers -------------------------------- #
     # Takes in a datetime (or gets the current time) and returns it as a
     # Google-API-friendly UTC time string.
@@ -58,7 +58,7 @@ class GoogleCalendar:
             dt = dt.astimezone(tz)
         else:
             suffix = "Z"
-        
+
         # convert to ISO format and return
         return dt.isoformat() + suffix
 
@@ -76,32 +76,32 @@ class GoogleCalendar:
         else:
             assert False, "Could not find \"date\" nor \"dateTime\" in the given event JSON"
         return dt
-    
+
     # Extracts the given Google Calendar event object's starting datetime,
     # converts it based on the timezone and ISO formatted string into a
     # datetime object, and returns it.
     @staticmethod
     def get_event_start(event):
         return GoogleCalendar.get_datetime_from_json(event["start"])
-    
+
     # Does the same as `get_event_start()`, but returns the given event's
     # *ending* datetime object.
     @staticmethod
     def get_event_end(event):
         return GoogleCalendar.get_datetime_from_json(event["end"])
-    
+
     # Returns a calendar event's title as a string.
     @staticmethod
     def get_event_title(event):
         return event["summary"]
-    
+
     # Returns a calendar event's description as a string. None if returned if
     # it has no description.
     @staticmethod
     def get_event_description(event):
         key = "description"
         return None if key not in event else event[key]
-    
+
     # --------------------------- Event Retrieval ---------------------------- #
     # Generic event-retrieving function.
     def get_events(self, calid: str,
@@ -123,11 +123,11 @@ class GoogleCalendar:
             args["timeMax"] = self.make_calendar_time(dt=dt_end)
             assert dt_start.timestamp() < dt_end.timestamp(), \
                    "The ending datetime is not greater than the starting datetime."
-        
+
         # execute the query and retrieve the results
         result = self.service.events().list(**args).execute()
         events = result.get("items", [])
-        
+
         # return an empty list, or the list of retrieved events
         if events is None:
             return []

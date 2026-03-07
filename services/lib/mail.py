@@ -38,7 +38,7 @@ class Messenger:
         wbconf = WebhookConfig()
         wbconf.parse_json(config.to_json())
         self.webhooker = Webhook(wbconf)
-    
+
     # Takes in an email address, a subject string, and a content string, and
     # sends an email.
     def send(self, email: str, subject: str, content: str):

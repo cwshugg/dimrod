@@ -123,11 +123,11 @@ class TripTimeConfig(Config):
                 if val not in ms:
                     ms.append(val)
         self.departure_months = sorted(ms)
-        
+
     # Examines the time config's weekdays/months/years/etc. and determines
     # dates that match. A list of datetime.datetime objects are returned in a
     # list of tuples:
-    #   
+    #
     #   [
     #       [date0_embark, date0_return],
     #       [date1_embark, date1_return],
@@ -147,7 +147,7 @@ class TripTimeConfig(Config):
         # and returns a new version.
         def dt_add(dt: datetime, secs: int):
             return datetime.fromtimestamp(dt.timestamp() + secs)
-        
+
         # handle defaults
         if after is None:
             after = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)

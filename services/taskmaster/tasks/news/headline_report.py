@@ -33,7 +33,7 @@ class TaskJob_News_HeadlineReport(TaskJob):
     def init(self):
         self.refresh_rate = 60 * 30
         self.config_name = os.path.basename(__file__).replace(".py", ".json")
-    
+
     # Returns the path to where the JSON config file is expected to be.
     def get_config_path(self):
         this_file = inspect.getfile(self.__class__)
@@ -44,14 +44,14 @@ class TaskJob_News_HeadlineReport(TaskJob):
         config = TaskJob_News_HeadlineReport_Config()
         config.parse_file(self.get_config_path())
         return config
-    
+
     # -------------------------- Telegram Interface -------------------------- #
     # Creates and returns an authenticated OracleSession with the telegram bot.
     def get_telegram_session(self):
         s = OracleSession(self.service.config.telegram)
         s.login()
         return s
-    
+
     # Sends a message to Telegram.
     def send_message(self, chat_id: str, text: str):
         telegram_session = self.get_telegram_session()
@@ -71,7 +71,7 @@ class TaskJob_News_HeadlineReport(TaskJob):
 
         message = telegram_session.get_response_json(r)
         return message
-    
+
     # --------------------------- Update Function ---------------------------- #
     def update(self, todoist, gcal):
         super().update(todoist, gcal)
@@ -81,7 +81,7 @@ class TaskJob_News_HeadlineReport(TaskJob):
         now = datetime.now()
         if not dtu.is_wednesday(now) or not dtu.is_evening(now):
             return False
-        
+
         # we'll query for news articles between now and the previous successful
         # run of this taskjob
         query_timerange_start = self.get_last_success_datetime()
@@ -96,7 +96,7 @@ class TaskJob_News_HeadlineReport(TaskJob):
         for query in self.config.queries:
             query.timerange_start = query_timerange_start
             query.timerange_end = query_timerange_end
-    
+
             # attempt to query for articles
             articles = []
             try:
@@ -104,11 +104,11 @@ class TaskJob_News_HeadlineReport(TaskJob):
             except Exception as e:
                 self.log("Something went wrong with querying the news API: %s" % e)
                 return
-            
+
             # create a message that randomly chooses some number of articles to
             # present
             msg += "%s:\n" % query.query_name
-    
+
             # select a random number of articles and build them into the message
             articles = random.sample(articles, self.config.articles_per_query)
             for article in articles:

@@ -16,7 +16,7 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 # Local imports
-from lib.config import Config, ConfigField
+from lib.uniserdes import Uniserdes, UniserdesField
 from lib.oracle import Oracle, OracleSessionConfig
 
 # A specific function definition that represents the handler function
@@ -25,21 +25,21 @@ NLAEndpointHandlerFunction = Callable[[Oracle, dict], dict]
 
 # Defines an object used to represent a single service that supports one or
 # more NLA endpoints.
-class NLAService(Config):
+class NLAService(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("name",         [str],      required=True),
-            ConfigField("oracle", [OracleSessionConfig], required=True),
+            UniserdesField("name",         [str],      required=True),
+            UniserdesField("oracle", [OracleSessionConfig], required=True),
         ]
 
 # Defines information regarding a specific NLA HTTP endpoint.
-class NLAEndpoint(Config):
+class NLAEndpoint(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("name",         [str],      required=True),
-            ConfigField("description",  [str],      required=True),
+            UniserdesField("name",         [str],      required=True),
+            UniserdesField("description",  [str],      required=True),
         ]
 
     # Returns the full URL to invoke this NLA endpoint.
@@ -53,22 +53,22 @@ class NLAEndpoint(Config):
         return self
 
 # Defines fields used to invoke an NLA endpoint.
-class NLAEndpointInvokeParameters(Config):
+class NLAEndpointInvokeParameters(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("message",      [str],      required=True),
-            ConfigField("substring",    [str],      required=False, default=None),
-            ConfigField("extra_params", [dict],     required=False, default=None),
+            UniserdesField("message",      [str],      required=True),
+            UniserdesField("substring",    [str],      required=False, default=None),
+            UniserdesField("extra_params", [dict],     required=False, default=None),
         ]
 
 # Defines the result of an NLA invocation.
-class NLAResult(Config):
+class NLAResult(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("success",      [bool],     required=True),
-            ConfigField("message",      [str],      required=False, default=None),
-            ConfigField("message_context", [str],   required=False, default=None),
+            UniserdesField("success",      [bool],     required=True),
+            UniserdesField("message",      [str],      required=False, default=None),
+            UniserdesField("message_context", [str],   required=False, default=None),
         ]
 

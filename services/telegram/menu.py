@@ -29,7 +29,7 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 # Local imports
-from lib.config import Config, ConfigField
+from lib.uniserdes import Uniserdes, UniserdesField
 import lib.dtu as dtu
 
 # Service imports
@@ -41,11 +41,11 @@ from telegram_objects import TelegramMessage, TelegramButton
 # option. This is needed because the two sub-objects have a somewhat circular
 # dependency on one another.
 
-class MenuObject(Config):
+class MenuObject(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("id",           [str],      required=False, default=None),
+            UniserdesField("id",           [str],      required=False, default=None),
         ]
 
     # Overloaded JSON parsing function from parent.
@@ -62,14 +62,14 @@ class MenuObject(Config):
 
 
 # ================================= Objects ================================== #
-# Config object used to create a MenuOption object.
+# Uniserdes object used to create a MenuOption object.
 class MenuOption(MenuObject):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("title",            [str],      required=True),
-            ConfigField("menu_id",          [str],      required=False, default=""),
-            ConfigField("selection_count",  [int],      required=False, default=0),
+            UniserdesField("title",            [str],      required=True),
+            UniserdesField("menu_id",          [str],      required=False, default=""),
+            UniserdesField("selection_count",  [int],      required=False, default=0),
         ]
 
     # Generates a Telegram Bot button and returns it.
@@ -104,18 +104,18 @@ class MenuBehaviorType(Enum):
     # can have a value of 1.
     SINGLE_CHOICE = 2
 
-# Config object used to create a Menu object.
+# Uniserdes object used to create a Menu object.
 class Menu(MenuObject):
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("title",        [str],      required=True),
-            ConfigField("options",      [MenuOption], required=True),
-            ConfigField("timeout",      [int],      required=False, default=86400),
-            ConfigField("birth_time",   [datetime], required=False, default=None),
-            ConfigField("death_time",   [datetime], required=False, default=None),
-            ConfigField("behavior_type", [MenuBehaviorType], required=False, default=MenuBehaviorType.ACCUMULATE),
-            ConfigField("telegram_msg_info", [TelegramMessage], required=False, default=None),
+            UniserdesField("title",        [str],      required=True),
+            UniserdesField("options",      [MenuOption], required=True),
+            UniserdesField("timeout",      [int],      required=False, default=86400),
+            UniserdesField("birth_time",   [datetime], required=False, default=None),
+            UniserdesField("death_time",   [datetime], required=False, default=None),
+            UniserdesField("behavior_type", [MenuBehaviorType], required=False, default=MenuBehaviorType.ACCUMULATE),
+            UniserdesField("telegram_msg_info", [TelegramMessage], required=False, default=None),
         ]
 
     # Overridden `parse_json()`.

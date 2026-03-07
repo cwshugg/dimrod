@@ -82,7 +82,7 @@ def main():
         fp = open(last_client_fpath, "rb")
         old = pickle.load(fp)
         fp.close()
-        
+
         len_new = len(new)
         len_old = len(old)
         #print("CURRENT CLIENTS: %d clients" % len(new))

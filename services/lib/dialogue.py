@@ -21,6 +21,7 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.config import Config, ConfigField
+from lib.uniserdes import Uniserdes, UniserdesField
 
 
 # ================================= Helpers ================================== #
@@ -75,13 +76,13 @@ openai_outro = (
 # ================================== Moods =================================== #
 # Represents a single "mood" that DImROD can be in. Used to give DImROD some
 # variance in terms of how it responds to users.
-class DialogueMood(Config):
+class DialogueMood(Uniserdes):
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("name",          [str],      required=True),
-            ConfigField("description",   [str],      required=True),
-            ConfigField("chance",        [float],    required=True)
+            UniserdesField("name",          [str],      required=True),
+            UniserdesField("description",   [str],      required=True),
+            UniserdesField("chance",        [float],    required=True)
         ]
 
     # Uses RNG and the configured chance value to determine if this mood should
@@ -172,14 +173,14 @@ class DialogueAuthorType(Enum):
 
 # This class represents a single speaker in a dialogue (ex: DImROD itself, a
 # telegram user, etc.)
-class DialogueAuthor(Config):
+class DialogueAuthor(Uniserdes):
     # Constructor.
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("id",        [str],             required=False, default=None),
-            ConfigField("type", [DialogueAuthorType],   required=True),
-            ConfigField("name",      [str],             required=True),
+            UniserdesField("id",        [str],             required=False, default=None),
+            UniserdesField("type", [DialogueAuthorType],   required=True),
+            UniserdesField("name",      [str],             required=True),
         ]
 
     def post_parse_init(self):
@@ -215,17 +216,17 @@ class DialogueAuthor(Config):
         return ["id", "type", "name"]
 
 # This class represents a single message passed between a user and DImROD.
-class DialogueMessage(Config):
+class DialogueMessage(Uniserdes):
     # Constructor.
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("author",       [DialogueAuthor],   required=True),
-            ConfigField("content",      [str],              required=True),
-            ConfigField("timestamp",    [datetime],         required=False, default=None),
-            ConfigField("id",           [str],              required=False, default=None),
-            ConfigField("telegram_chat_id", [str],          required=False, default=None),
-            ConfigField("telegram_message_id", [str],       required=False, default=None),
+            UniserdesField("author",       [DialogueAuthor],   required=True),
+            UniserdesField("content",      [str],              required=True),
+            UniserdesField("timestamp",    [datetime],         required=False, default=None),
+            UniserdesField("id",           [str],              required=False, default=None),
+            UniserdesField("telegram_chat_id", [str],          required=False, default=None),
+            UniserdesField("telegram_message_id", [str],       required=False, default=None),
         ]
 
     def post_parse_init(self):
@@ -267,16 +268,16 @@ class DialogueMessage(Config):
 # This class represents a single conversation had between a user and DImROD. It
 # retains messages and can be used to have an extended conversation (via the
 # Dialogue class).
-class DialogueConversation(Config):
+class DialogueConversation(Uniserdes):
     # Constructor. Accepts an optional conversation ID.
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("messages",     [DialogueMessage],  required=False, default=[]),
-            ConfigField("id",           [str],              required=False, default=None),
-            ConfigField("time_start",   [datetime],         required=False, default=None),
-            ConfigField("time_latest",  [datetime],         required=False, default=None),
-            ConfigField("telegram_chat_id", [str],          required=False, default=None),
+            UniserdesField("messages",     [DialogueMessage],  required=False, default=[]),
+            UniserdesField("id",           [str],              required=False, default=None),
+            UniserdesField("time_start",   [datetime],         required=False, default=None),
+            UniserdesField("time_latest",  [datetime],         required=False, default=None),
+            UniserdesField("telegram_chat_id", [str],          required=False, default=None),
         ]
 
     def post_parse_init(self):

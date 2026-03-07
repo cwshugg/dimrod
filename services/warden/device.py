@@ -11,18 +11,18 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 # Local imports
-from lib.config import Config, ConfigField
+from lib.uniserdes import Uniserdes, UniserdesField
 
 # Class that represents a single known device's information, which can be
 # provided at runtime via a config file.
-class KnownDeviceConfig(Config):
+class KnownDeviceConfig(Uniserdes):
     # Constructor.
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("name",             [str],      required=True),
-            ConfigField("macaddrs",         [list],     required=True),
-            ConfigField("tags",             [list],     required=False, default=[]),
+            UniserdesField("name",             [str],      required=True),
+            UniserdesField("macaddrs",         [list],     required=True),
+            UniserdesField("tags",             [list],     required=False, default=[]),
         ]
 
     def post_parse_init(self):
@@ -36,35 +36,35 @@ class KnownDeviceConfig(Config):
         self.tags = [tag.strip().lower() for tag in self.tags]
 
 # Class that represents a device's unique hardware address.
-class DeviceHardwareAddress(Config):
+class DeviceHardwareAddress(Uniserdes):
     # Constructor.
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("macaddr",          [str],      required=True),
-            ConfigField("vendor",           [str],      required=False, default=None),
+            UniserdesField("macaddr",          [str],      required=True),
+            UniserdesField("vendor",           [str],      required=False, default=None),
         ]
 
 # Class that represents a device's network connection address.
-class DeviceNetworkAddress(Config):
+class DeviceNetworkAddress(Uniserdes):
     # Constructor.
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("ipaddr",           [str],      required=True),
+            UniserdesField("ipaddr",           [str],      required=True),
         ]
 
 # Class that represents a device. It has a configuration (`DeviceConfig`) and
 # can have a `DeviceAddress`.
-class Device(Config):
+class Device(Uniserdes):
     # Constructor.
     def __init__(self):
         super().__init__()
         self.fields = [
-            ConfigField("known_device",     [KnownDeviceConfig],        required=False, default=None),
-            ConfigField("hw_addr",          [DeviceHardwareAddress],    required=False, default=None),
-            ConfigField("net_addr",         [DeviceNetworkAddress],     required=False, default=None),
-            ConfigField("last_seen",        [datetime],                 required=False, default=None),
+            UniserdesField("known_device",     [KnownDeviceConfig],        required=False, default=None),
+            UniserdesField("hw_addr",          [DeviceHardwareAddress],    required=False, default=None),
+            UniserdesField("net_addr",         [DeviceNetworkAddress],     required=False, default=None),
+            UniserdesField("last_seen",        [datetime],                 required=False, default=None),
         ]
 
     # Assigns a known device configuration to this device.

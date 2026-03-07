@@ -13,21 +13,21 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 # Local imports
-from lib.config import Config, ConfigField
+from lib.uniserdes import Uniserdes, UniserdesField
 
 # Globals
 event_tag_delimeter = "/"
 event_tag_delimeter_sub = "EVENT_TAG_DELIMETER_SUB"
 
-class HistorianEvent(Config):
+class HistorianEvent(Uniserdes):
     def __init__(self, event_id=None):
         super().__init__()
         self.fields = [
-            ConfigField("author",       [str],      required=True),
-            ConfigField("title",        [str],      required=True),
-            ConfigField("description",  [str],      required=True),
-            ConfigField("timestamp",    [int],      required=True),
-            ConfigField("tags",         [list],     required=True)
+            UniserdesField("author",       [str],      required=True),
+            UniserdesField("title",        [str],      required=True),
+            UniserdesField("description",  [str],      required=True),
+            UniserdesField("timestamp",    [int],      required=True),
+            UniserdesField("tags",         [list],     required=True)
         ]
         self.id = event_id
     

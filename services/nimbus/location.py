@@ -12,17 +12,17 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 # Local imports
-from lib.config import Config, ConfigField
+from lib.uniserdes import Uniserdes, UniserdesField
 
-class Location(Config):
+class Location(Uniserdes):
     # Constructor.
     def __init__(self):
         super().__init__()
         self.fields += [
-            ConfigField("name",                 [str],      required=False,     default=""),
-            ConfigField("address",              [str],      required=False,     default=None),
-            ConfigField("longitude",            [float],    required=False,     default=None),
-            ConfigField("latitude",             [float],    required=False,     default=None)
+            UniserdesField("name",                 [str],      required=False,     default=""),
+            UniserdesField("address",              [str],      required=False,     default=None),
+            UniserdesField("longitude",            [float],    required=False,     default=None),
+            UniserdesField("latitude",             [float],    required=False,     default=None)
         ]
 
     # Creates and returns a string representation of the object.

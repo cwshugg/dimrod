@@ -59,7 +59,7 @@ class GatekeeperEvent:
     # String representation.
     def __str__(self):
         return "%s: %d subscriber(s)" % (self.config.name, len(self.config.subscribers))
-    
+
     # Fires the event, which executes all subscribers. Takes in an optional data
     # parameter. Returns a dictionary of stdout/stderr results corresponding to
     # each executed subscriber.
