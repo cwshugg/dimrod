@@ -18,6 +18,7 @@ class TaskJob_LifeTracker_Exporter(TaskJob_LifeTracker):
     # Overridden initialization function.
     def init(self):
         super().init()
+        self.refresh_rate = 604800 # (one week)
         self.config_name = "main.json"
 
         self.spreadsheet_name = "lifetracker.xlsx"
@@ -28,8 +29,6 @@ class TaskJob_LifeTracker_Exporter(TaskJob_LifeTracker):
 
     def update(self, todoist, gcal):
         super().update(todoist, gcal)
-        success = False
-
         # Get a database interface wrapper for the tracker's database, and
         # export it to a spreadsheet at the configured path.
         tracker = self.get_tracker()
@@ -37,4 +36,6 @@ class TaskJob_LifeTracker_Exporter(TaskJob_LifeTracker):
         self.log("Exporting lifetracker metrics to spreadsheet at: \"%s\"" % self.spreadsheet_path)
         db.export_to_excel(self.spreadsheet_path)
         self.log("Export complete.")
+
+        return True
 
