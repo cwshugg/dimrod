@@ -1,0 +1,23 @@
+{
+    "service_name": "chef",
+    "service_log": "stdout",
+
+    "oracle":
+    {
+        "addr": "0.0.0.0",
+        "port": 2362,
+        "log": "stdout",
+        "auth_cookie": "chef_auth",
+        "auth_secret": "YOUR_JWT_SECRET_HERE",
+        "auth_users":
+        [
+            {
+                "username": "swedish chef",
+                "password": "1234",
+                "privilege": 0
+            }
+        ]
+    },
+
+    "recipe_dir": "/path/to/reminders"
+}
