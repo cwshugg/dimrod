@@ -22,6 +22,7 @@ from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle, OracleSession, OracleSessionConfig
 from lib.cli import ServiceCLI
+from lib.dialogue import DialogueConfig, DialogueInterface
 
 # Service imports
 from recipe import Recipe
@@ -32,7 +33,9 @@ class ChefConfig(ServiceConfig):
         super().__init__()
         self.fields += [
             ConfigField("recipe_dir",           [str],  required=True),
+            ConfigField("dialogue",             [DialogueConfig], required=True),
             ConfigField("recipe_refresh_rate",  [int],  required=False, default=180),
+            ConfigField("resolve_recipe_dialogue_retries", [int], required=False, default=4),
         ]
 
 
@@ -152,6 +155,93 @@ class ChefService(Service):
                 recipes[r.id] = r
         return recipes
 
+    # Uses an LLM to resolve the provided text to one of the recipes saved in
+    # the chef service. Returns None, or the matching recipe object.
+    def resolve_recipe(self, text: str):
+        # Does the text contain the ID or name of any of the recipes? If so,
+        # we'll use the recipe ID to inject a hint into the LLM prompt to steer
+        # it in the right direction.
+        hint_recipe_id = None
+        for r_id, recipe in self.recipes.items():
+            if r_id in text.lower():
+                hint_recipe_id = r_id
+                break
+            if recipe.title is not None and \
+               recipe.title.lower() in text.lower():
+                hint_recipe_id = r_id
+                break
+
+        # Build a prompt for the LLM; include all information about recipes:
+        prompt_intro = "You are a helpful assistant for a cooking recipe management service. " \
+                       "Your task is to determine which of the available recipes best matches a user's request. " \
+                       "These recipes are:\n\n"
+        prompt_intro += "[\n"
+        for r_id, recipe in self.recipes.items():
+            prompt_intro += "    %s,\n" % json.dumps({
+                "id": recipe.id,
+                "title": recipe.title,
+                "description": recipe.description,
+                "servings": recipe.servings,
+            })
+        prompt_intro += "]\n\n"
+
+        # Explain the output format:
+        output_format = {
+            "id": "<the ID of the recipe that matches the user's request>",
+            "quantity": "<the number of copies of the recipe the user wants to make; default is 1 if not specified>",
+        }
+        prompt_intro += "\nYou will be provided with a string of text. " \
+                        "Please examine this string and return the following JSON object:\n\n"
+        prompt_intro += json.dumps(output_format, indent=4) + "\n\n"
+        prompt_intro += "If the user's request does not match any of the available recipes, return an empty JSON object ({}).\n" \
+                        "Use the recipe's serving amount as a to determine how mnay copies of the recipe the user wants. " \
+                        "The \"quantity\" field should be set such that the number of servings in the recipe multiplied by the quantity is equal to the number of servings the user wants. (Or *greater than* if it doesn't multiple evenly.) " \
+                        "For example, if the user's request indicates they want to make a recipe (with \"servings\" = 2) for six people, the \"quantity\" field in your response should be set to 3."
+
+        # Build content to pass in after the intro prompt:
+        prompt_content = "%s" % text
+        if hint_recipe_id is not None:
+            prompt_content += " (%s)" % hint_recipe_id
+
+        # Set up a dialogue interface to use the LLM, and attempt to resolve the
+        # user's request.
+        dialogue = DialogueInterface(self.config.dialogue)
+        fail_count = 0
+        recipe_info = None
+        for attempt in range(self.config.resolve_recipe_dialogue_retries):
+            try:
+                r = dialogue.oneshot(prompt_intro, prompt_content)
+                recipe_info = json.loads(r)
+
+                # If the LLM returned an empty object, this means it didn't find
+                # a match for the user's request. We can return early in this
+                # case.
+                if recipe_info == {}:
+                    return None
+
+                # Otherwise, make sure the LLM returned the required fields:
+                if "id" not in recipe_info:
+                    raise Exception("LLM response is missing required field \"id\".")
+                if "quantity" not in recipe_info:
+                    recipe_info["quantity"] = 1
+
+                # Does the ID string match one of our recipes? If not, this means the LLM returned an invalid recipe ID, so we'll throw an error.
+                r_id = recipe_info["id"].strip().lower()
+                if r_id not in self.recipes:
+                    raise Exception(
+                        "LLM response contains invalid recipe ID \"%s\" that doesn't match any known recipes." %
+                        r_id
+                    )
+
+                # If all else succeeded, we can return the recipe info:
+                return recipe_info
+            except Exception as e:
+                if fail_count == self.config.resolve_recipe_dialogue_retries:
+                    raise e
+                fail_count += 1
+                continue
+
+        return None
 
 # ============================== Service Oracle ============================== #
 class ChefOracle(Oracle):
@@ -184,7 +274,7 @@ class ChefOracle(Oracle):
 
         # Returns basic information about all recipes.
         @self.server.route("/recipes/list_all", methods=["POST"])
-        def endpoint_recipes_get_by_id():
+        def endpoint_recipes_list_all():
             if not flask.g.user:
                 return self.make_response(rstatus=404)
 
@@ -201,7 +291,7 @@ class ChefOracle(Oracle):
 
         # Returns full recipe objects for every recipe.
         @self.server.route("/recipes/get_all", methods=["POST"])
-        def endpoint_recipes_get_by_id():
+        def endpoint_recipes_get_all():
             if not flask.g.user:
                 return self.make_response(rstatus=404)
 
@@ -211,6 +301,28 @@ class ChefOracle(Oracle):
             for r_id, recipe in self.service.recipes.items():
                 result[r_id] = recipe.to_json()
             return self.make_response(payload=result)
+
+        # Resolves the provided text as a recipe.
+        @self.server.route("/recipes/resolve", methods=["POST"])
+        def endpoint_recipes_resolve():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            # Extract the text to resolve:
+            text = flask.g.jdata.get("text", None)
+            if not text:
+                return self.make_response(msg="Missing required field \"text\" in JSON data.",
+                                          success=False, rstatus=400)
+
+            recipe_info = self.service.resolve_recipe(text)
+            if recipe_info is None:
+                return self.make_response(msg="No matching recipe found.",
+                                          success=False, rstatus=404)
+
+            return self.make_response(payload=recipe_info)
 
 
 # =============================== Runner Code ================================ #

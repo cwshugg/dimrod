@@ -62,6 +62,11 @@ class NLAEndpointInvokeParameters(Uniserdes):
             UniserdesField("extra_params", [dict],     required=False, default=None),
         ]
 
+    def has_substring(self):
+        return hasattr(self, "substring") and \
+               self.substring is not None and \
+               len(str(self.substring).strip()) > 0
+
 # Defines the result of an NLA invocation.
 class NLAResult(Uniserdes):
     def __init__(self):
@@ -70,5 +75,6 @@ class NLAResult(Uniserdes):
             UniserdesField("success",      [bool],     required=True),
             UniserdesField("message",      [str],      required=False, default=None),
             UniserdesField("message_context", [str],   required=False, default=None),
+            UniserdesField("payload",      [dict],     required=False, default=None),
         ]
 

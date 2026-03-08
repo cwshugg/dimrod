@@ -14,12 +14,14 @@ from tasks.groceries.base import *
 import lib.dtu as dtu
 from lib.config import Config, ConfigField
 from lib.oracle import OracleSession, OracleSessionConfig
+from chef.recipe import Recipe, Ingredient
 
 # A taskjob that scans the grocery list for mention of recipe names.
 # If a recipe name is found, the taskjob polls the chef service for the
 # recipe's ingredients and adds them to the grocery list.
 class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
-    def __init__(self):
+    def __init__(self, service):
+        super().__init__(service)
         self.refresh_rate = 120
 
         self.chef_config_path = os.path.join(
@@ -27,6 +29,8 @@ class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
             "chef_config.json"
         )
         self.chef_config = None
+
+        self.expanded_recipe_ingredient_magic = "dimrod::expanded_recipe_ingredient"
 
     # Initializes and returns an authenticated session with the chef service.
     def get_chef_session(self):
@@ -58,15 +62,165 @@ class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
         if rate_limit_retries_attempted >= self.todoist_rate_limit_retries:
             raise Exception("Exceeded maximum retries due to Todoist rate limiting")
 
-        # Retrieve all tasks stored in the grocery list.
+        # Retrieve all tasks stored in the grocery list. If there are no tasks,
+        # we can return early since there's nothing to work with.
         tasks = todoist.get_tasks(project_id=proj.id)
+        if len(tasks) == 0:
+            return False
 
-        print("TASKS:\n%s" % "\n".join([str(t) for t in tasks]))
-
-        # Query the chef service for a list of all recipes.`
+        # Connect to the chef service and retrieve a listing of all recipes.
+        # We'll use this to determine if any of the tasks in the grocery list
+        # match the name of a recipe, and thus should be expanded into a list of
+        # ingredients.
         chef = self.get_chef_session()
-        # TODO
+        chef_result = chef.post("/recipes/list_all")
+        if OracleSession.get_response_status(chef_result) != 200:
+            self.log("Failed to retrieve recipe list from chef service: \"%s\"." % chef_result)
+            return False
+        recipes = OracleSession.get_response_json(chef_result)
 
+        # Iterate through each task:
+        for task in tasks:
+            task_title = task.content.strip().lower()
 
-        return False
+            # Does this task already contain the magic string that indicates it
+            # has already been expanded as a recipe? If so, skip it since we
+            # don't want to expand it again.
+            if self.expanded_recipe_ingredient_magic in task_title:
+                continue
+            if task.description is not None and \
+               self.expanded_recipe_ingredient_magic in task.description.lower():
+                continue
+
+            # Does the task's title contain the word "recipe"? If so, this means
+            # the user is indicating that they want this task to be resolved as
+            # a recipe.
+            if "recipe" not in task_title:
+                continue
+
+            self.log("Found item that appears to be a recipe: \"%s\". Attempting to resolve..." % task.content)
+
+            # Pass the task title (and description, if it exists) to the chef
+            # service's resolve endpoint. If it matches up with a recognized
+            # recipe, the chef service will return the recipe's ID (and other
+            # information) to us.
+            text_to_resolve = task_title
+            if task.description is not None and len(task.description.strip()) > 0:
+                text_to_resolve += "\n\n" + task.description.strip()
+            chef_result = chef.post("/recipes/resolve", {
+                "text": text_to_resolve,
+            })
+            chef_result_status = OracleSession.get_response_status(chef_result)
+            if chef_result_status != 200:
+                self.log("Failed to resolve recipe with chef service: \"%s\"." % chef_result)
+
+                # If the status is 404, then there was no matching recipe to
+                # match the text. To alert the user, we'll modify the todoist
+                # item.
+                if chef_result_status == 404:
+                    new_title = "❓ %s" % task.content
+                    new_desc = "(Could not find a matching recipe)\n\n"
+                    if task.description is not None and len(task.description.strip()) > 0:
+                        new_desc += task.description
+                    new_desc += "\n\n%s" % self.expanded_recipe_ingredient_magic
+
+                    todoist.update_task(
+                        task.id,
+                        title=new_title,
+                        body=new_desc,
+                    )
+
+                # Skip to the next iteration
+                continue
+            recipe_info = OracleSession.get_response_json(chef_result)
+
+            # Next, look up the full recipe information:
+            chef_result = chef.post("/recipes/get_by_id", {
+                "id": recipe_info["id"],
+            })
+            if OracleSession.get_response_status(chef_result) != 200:
+                self.log("Failed to retrieve recipe from chef service: \"%s\"." % chef_result)
+                continue
+            recipe = Recipe.from_json(OracleSession.get_response_json(chef_result))
+            self.log("Resolved item \"%s\" to recipe \"%s\"." % (
+                task.content,
+                recipe.id,
+            ))
+
+            # Finally, build a list of ingredients to represent the request;
+            # we'll use these to add new tasks to the Todoist list.
+            ingredients = []
+            quantity_multiplier = recipe_info.get("quantity", 1.0)
+            for ingredient in recipe.ingredients:
+                i_json = ingredient.to_json()
+
+                # Update the ingredient quantity by the quantity multiplier
+                new_quantity = i_json.get("quantity", 1.0) * quantity_multiplier
+                i_json["quantity"] = new_quantity
+
+                # Parse updated JSON and append:
+                i = Ingredient.from_json(i_json)
+                ingredients.append(i)
+
+            # For each ingredient, add a new task to the Todoist grocery list.
+            for ingredient in ingredients:
+                # Build a title string:
+                title = ingredient.title if ingredient.title is not None else ingredient.id
+                if quantity_multiplier != 1.0:
+                    # If the quantity multiplier is an even integer, display it
+                    # as an integer; otherwise, display it as a float with 2
+                    # decimal places
+                    if int(quantity_multiplier) == quantity_multiplier:
+                        title += " (x%d)" % int(quantity_multiplier)
+                    else:
+                        title += " (%.2fx)" % quantity_multiplier
+
+                # Build a description string:
+                recipe_str = recipe.title if recipe.title is not None else recipe.id
+                description = "# 📜 %s" % recipe_str
+                if quantity_multiplier != 1.0:
+                    # Show the number of servings in the description, if the
+                    # quantity multiplier is not 1.0 (i.e. if the user has
+                    # indicated that they want to make more or less than the
+                    # default number of servings for the recipe).
+                    serving_count = recipe.servings * quantity_multiplier
+                    if int(serving_count) == serving_count:
+                        description += " - %d servings" % int(serving_count)
+                    else:
+                        description += " - %.2f servings" % serving_count
+                if ingredient.description is not None:
+                    # If the ingredient has a description, add it to the task
+                    # description.
+                    description += "\n\n%s" % ingredient.description
+
+                # Add the magic string to the description so that we don't end
+                # up trying to resolve this ingredient as a recipe in the
+                # future:
+                description += "\n\n%s" % self.expanded_recipe_ingredient_magic
+
+                # Add the task to the list:
+                todoist.add_task(
+                    title,
+                    description,
+                    project_id=proj.id,
+                )
+                self.log("[Recipe: %s] Added ingredient \"%s\" to grocery list." % (
+                    recipe.id,
+                    title,
+                ))
+
+            # Remove the original task from the list, now that we've expanded it
+            # into its ingredients.
+            todoist.delete_task(task.id)
+            self.log("[Recipe: %s] Removed original recipe item (\"%s\") from grocery list." % (
+                recipe.id,
+                task.content,
+            ))
+
+            # TODO - eventual improvement: add a `/ingredients/edit` endpoint,
+            # which uses an LLM to examine a list of ingredients and compare it
+            # against the original user string (TASK TITLE + TASK CONTENT) to
+            # make edits to the ingredient list
+
+        return True
 

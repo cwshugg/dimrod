@@ -48,6 +48,7 @@ class Recipe(Uniserdes):
             UniserdesField("steps",         [RecipeStep],   required=True),
             UniserdesField("title",         [str],          required=False, default=None),
             UniserdesField("description",   [str],          required=False, default=None),
+            UniserdesField("servings",      [int],          required=False, default=1),
         ]
 
     def post_parse_init(self):
