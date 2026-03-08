@@ -62,7 +62,11 @@ class ChefService(Service):
         while True:
             # Load all recipes from the recipe directory; cache them in memory
             # for quick access.
-            self.recipes = self.load_all_recipes()
+            try:
+                self.recipes = self.load_all_recipes()
+            except Exception as e:
+                self.log.write("Failed to load recipes: \"%s\". Will retry on the next refresh." % e)
+                self.recipes = {}
             recipes_len = len(self.recipes)
 
             # Log the number of recipes we loaded, if the number changed since
@@ -116,7 +120,7 @@ class ChefService(Service):
                     if r_id in all_recipes:
                         raise Exception(
                             "Duplicate recipe ID \"%s\" found in file \"%s\". " \
-                            "This ID is already used by another recipe.",
+                            "This ID is already used by another recipe." %
                             (r_id, f)
                         )
                     all_recipes[r_id] = r

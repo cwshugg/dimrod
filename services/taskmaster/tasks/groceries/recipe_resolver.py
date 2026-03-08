@@ -80,6 +80,7 @@ class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
         recipes = OracleSession.get_response_json(chef_result)
 
         # Iterate through each task:
+        tasks_resolved = 0
         for task in tasks:
             task_title = task.content.strip().lower()
 
@@ -216,11 +217,15 @@ class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
                 recipe.id,
                 task.content,
             ))
+            tasks_resolved += 1
 
             # TODO - eventual improvement: add a `/ingredients/edit` endpoint,
             # which uses an LLM to examine a list of ingredients and compare it
             # against the original user string (TASK TITLE + TASK CONTENT) to
             # make edits to the ingredient list
 
+        # Return according to whether or not we resolved any recipes:
+        if tasks_resolved == 0:
+            return False
         return True
 
