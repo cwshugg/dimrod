@@ -33,7 +33,8 @@ class TaskJob_LifeTracker_Exporter(TaskJob_LifeTracker):
         # export it to a spreadsheet at the configured path.
         tracker = self.get_tracker()
         db = tracker.get_database()
-        db.delete()
+        if os.path.exists(self.spreadsheet_path):
+            os.remove(self.spreadsheet_path)
         self.log("Exporting lifetracker metrics to spreadsheet at: \"%s\"" % self.spreadsheet_path)
         db.export_to_excel(self.spreadsheet_path)
         self.log("Export complete.")
