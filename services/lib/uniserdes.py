@@ -133,7 +133,7 @@ class Uniserdes:
                         val = cls(jdata[key])
                     # or, attempt to convert from a string
                     elif type(enum_val) == str:
-                        val = cls[enum_val]
+                        val = cls[enum_val.upper()]
                     else:
                         msg = "%s entry \"%s\" must be a string or integer, " \
                               "representing enum \"%s\"" % \

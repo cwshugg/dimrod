@@ -14,7 +14,7 @@ from tasks.groceries.base import *
 import lib.dtu as dtu
 from lib.config import Config, ConfigField
 from lib.oracle import OracleSession, OracleSessionConfig
-from chef.recipe import Recipe, Ingredient
+from chef.recipe import Recipe, Ingredient, IngredientReplenishType
 
 # A taskjob that scans the grocery list for mention of recipe names.
 # If a recipe name is found, the taskjob polls the chef service for the
@@ -29,8 +29,6 @@ class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
             "chef_config.json"
         )
         self.chef_config = None
-
-        self.expanded_recipe_ingredient_magic = "dimrod::expanded_recipe_ingredient"
 
     # Initializes and returns an authenticated session with the chef service.
     def get_chef_session(self):
@@ -84,19 +82,27 @@ class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
         for task in tasks:
             task_title = task.content.strip().lower()
 
-            # Does this task already contain the magic string that indicates it
-            # has already been expanded as a recipe? If so, skip it since we
-            # don't want to expand it again.
-            if self.expanded_recipe_ingredient_magic in task_title:
-                continue
-            if task.description is not None and \
-               self.expanded_recipe_ingredient_magic in task.description.lower():
+            # Does this task already contain a magic string that indicates it
+            # has already been processed? If so, skip it since we don't want to
+            # process it again.
+            keywords_to_skip = [
+                EXPANDED_RECIPE_INGREDIENT_MAGIC,
+                RECIPE_RESOLUTION_FAILURE_MAGIC,
+            ]
+            skip_task = False
+            for keyword in keywords_to_skip:
+                if keyword in task_title:
+                    skip_task = True
+                if task.description is not None and \
+                   keyword in task.description.lower():
+                    skip_task = True
+            if skip_task:
                 continue
 
             # Does the task's title contain the word "recipe"? If so, this means
             # the user is indicating that they want this task to be resolved as
             # a recipe.
-            if "recipe" not in task_title:
+            if RECIPE_MAGIC_STRING not in task_title:
                 continue
 
             self.log("Found item that appears to be a recipe: \"%s\". Attempting to resolve..." % task.content)
@@ -123,7 +129,7 @@ class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
                     new_desc = "(Could not find a matching recipe)\n\n"
                     if task.description is not None and len(task.description.strip()) > 0:
                         new_desc += task.description
-                    new_desc += "\n\n%s" % self.expanded_recipe_ingredient_magic
+                    new_desc += "\n\n%s" % RECIPE_RESOLUTION_FAILURE_MAGIC
 
                     todoist.update_task(
                         task.id,
@@ -151,12 +157,12 @@ class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
             # Finally, build a list of ingredients to represent the request;
             # we'll use these to add new tasks to the Todoist list.
             ingredients = []
-            quantity_multiplier = recipe_info.get("quantity", 1.0)
+            quantity_multiplier = float(recipe_info.get("quantity", 1.0))
             for ingredient in recipe.ingredients:
                 i_json = ingredient.to_json()
 
                 # Update the ingredient quantity by the quantity multiplier
-                new_quantity = i_json.get("quantity", 1.0) * quantity_multiplier
+                new_quantity = float(i_json.get("quantity", 1.0)) * float(quantity_multiplier)
                 i_json["quantity"] = new_quantity
 
                 # Parse updated JSON and append:
@@ -176,19 +182,34 @@ class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
                     else:
                         title += " (%.2fx)" % quantity_multiplier
 
-                # Build a description string:
+                # Next, build a description string.
+
+                # First, look at the ingredient's replenish type, and add text
+                # accordingly hinting that the user may already have this in
+                # stock.
+                description = ""
+                if ingredient.replenish == IngredientReplenishType.SOMETIMES:
+                    description += "(❗ You may already have this) "
+                elif ingredient.replenish == IngredientReplenishType.RARELY:
+                    description += "(‼️  You probably already have this) "
+
+                # Next, add the recipe name and icon (if they exist):
                 recipe_str = recipe.title if recipe.title is not None else recipe.id
-                description = "# 📜 %s" % recipe_str
+                icon_str = ("%s " % recipe.icon) if recipe.icon is not None else ""
+                description += "[%s%s]" % (icon_str, recipe_str)
+
+                # Show the number of servings in the description, if the
+                # quantity multiplier is not 1.0 (i.e. if the user has indicated
+                # that they want to make more or less than the default number of
+                # servings for the recipe).
                 if quantity_multiplier != 1.0:
-                    # Show the number of servings in the description, if the
-                    # quantity multiplier is not 1.0 (i.e. if the user has
-                    # indicated that they want to make more or less than the
-                    # default number of servings for the recipe).
                     serving_count = recipe.servings * quantity_multiplier
                     if int(serving_count) == serving_count:
                         description += " - %d servings" % int(serving_count)
                     else:
                         description += " - %.2f servings" % serving_count
+
+                # If the ingredient itself has a description, add that too.
                 if ingredient.description is not None:
                     # If the ingredient has a description, add it to the task
                     # description.
@@ -197,7 +218,7 @@ class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
                 # Add the magic string to the description so that we don't end
                 # up trying to resolve this ingredient as a recipe in the
                 # future:
-                description += "\n\n%s" % self.expanded_recipe_ingredient_magic
+                description += "\n\n%s" % EXPANDED_RECIPE_INGREDIENT_MAGIC
 
                 # Add the task to the list:
                 todoist.add_task(

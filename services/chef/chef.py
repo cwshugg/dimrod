@@ -36,6 +36,7 @@ class ChefConfig(ServiceConfig):
             ConfigField("dialogue",             [DialogueConfig], required=True),
             ConfigField("recipe_refresh_rate",  [int],  required=False, default=180),
             ConfigField("resolve_recipe_dialogue_retries", [int], required=False, default=4),
+            ConfigField("resolve_recipe_default_servings_needed", [int], required=False, default=2),
         ]
 
 
@@ -201,6 +202,8 @@ class ChefService(Service):
                         "Use the recipe's serving amount as a to determine how mnay copies of the recipe the user wants. " \
                         "The \"quantity\" field should be set such that the number of servings in the recipe multiplied by the quantity is equal to the number of servings the user wants. (Or *greater than* if it doesn't multiple evenly.) " \
                         "For example, if the user's request indicates they want to make a recipe (with \"servings\" = 2) for six people, the \"quantity\" field in your response should be set to 3."
+        prompt_intro += "You can assume that for a single meal, %d servings are needed." % \
+                        self.config.resolve_recipe_default_servings_needed
 
         # Build content to pass in after the intro prompt:
         prompt_content = "%s" % text

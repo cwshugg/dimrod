@@ -30,7 +30,9 @@
 # SPEAKER: Tuesday mornings at 4:00am
 0     4   *   *   2 /home/provolone/chs/scripts/restart-service.sh speaker
 # TASKMASTER: Friday mornings at 4:00am
-0     4   *   *   4 /home/provolone/chs/scripts/restart-service.sh taskmaster
+0     4   *   *   5 /home/provolone/chs/scripts/restart-service.sh taskmaster
 # GATEKEEPER: Monday mornings at 3:00am
-0     4   *   *   4 /home/provolone/chs/scripts/restart-service.sh gatekeeper
+0     4   *   *   1 /home/provolone/chs/scripts/restart-service.sh gatekeeper
+# CHEF: Friday evenings at 11:00pm
+0     23  *   *   5 /home/provolone/chs/scripts/restart-service.sh chef
 

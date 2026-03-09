@@ -308,8 +308,11 @@ class Todoist:
         if project_id is None and section_id is None:
             return task_id
 
-        # retrieve the task and delete it
+        # retrieve the task and delete it. If the task doesn't exist, return
+        # early with the original task ID.
         task = self.get_task_by_id(task_id)
+        if task is None:
+            return task_id
         self.delete_task(task.id)
 
         # re-create the task with the same information as the original, with

@@ -18,6 +18,13 @@ import lib.dtu as dtu
 from lib.config import Config, ConfigField
 from lib.oracle import OracleSession
 
+# String applied to items in the grocery list when they are created as a result
+# of expanding a recipe prompt.
+RECIPE_MAGIC_STRING = "recipe"
+EXPANDED_RECIPE_INGREDIENT_MAGIC = "dimrod::expanded_recipe_ingredient"
+RECIPE_RESOLUTION_FAILURE_MAGIC = "dimrod::recipe_resolution_failure"
+AUTOSORT_IGNORE_MAGIC = "dimrod::autosort_ignore"
+
 # Base class for the grocery list.
 class TaskJob_Groceries(TaskJob):
     def update(self, todoist, gcal):

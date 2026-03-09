@@ -147,6 +147,23 @@ class TaskJob_Groceries_Autosort(TaskJob_Groceries):
             tname = self.get_task_dict_name(task)
             task_dict[tname] = task
 
+            # Does the task's contain the magic string that indicates it was
+            # created with the intention of expanding it as a recipe?
+            #
+            # If so, skip it; we don't want to be deleting/re-creating these
+            # tasks, as it would disturb the recipe resolver taskjob that is
+            # running in parallel.
+            task_title = task.content.strip().lower()
+            task_description = task.description.strip().lower() if task.description is not None else ""
+            if RECIPE_MAGIC_STRING in task_title:
+                if AUTOSORT_IGNORE_MAGIC not in task_description:
+                    # Update the task's description to show the user that it won't
+                    # be touched by the autosort taskjob.
+                    new_desc = "" if task.description is None else task.description
+                    new_desc += "\n%s" % AUTOSORT_IGNORE_MAGIC
+                    todoist.update_task(task.id, body=new_desc)
+                continue
+
             # if the task is new, or it's section is different, or it is
             # currently not in any of the sections, add it to the list of dirty
             # tasks
