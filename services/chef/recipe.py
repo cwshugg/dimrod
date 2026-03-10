@@ -31,6 +31,7 @@ class Ingredient(Uniserdes):
             UniserdesField("description",           [str],      required=False, default=None),
             UniserdesField("quantity",              [float],    required=False, default=1.0),
             UniserdesField("replenish", [IngredientReplenishType], required=False, default=IngredientReplenishType.ALWAYS),
+            UniserdesField("is_optional",           [bool],     required=False, default=False),
         ]
 
     def post_parse_init(self):

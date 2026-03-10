@@ -184,7 +184,12 @@ class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
 
                 # Next, build a description string.
 
-                # First, look at the ingredient's replenish type, and add text
+                # Look at the ingredient's "is_optional" field, and if it's
+                # marked as optional, add a note about that to the description.
+                if ingredient.is_optional:
+                    description += "(OPTIONAL) "
+
+                # Also, look at the ingredient's replenish type, and add text
                 # accordingly hinting that the user may already have this in
                 # stock.
                 description = ""
