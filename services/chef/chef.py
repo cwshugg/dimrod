@@ -293,6 +293,7 @@ class ChefOracle(Oracle):
                     "id": recipe.id,
                     "title": recipe.title,
                     "description": recipe.description,
+                    "links": recipe.links,
                 }
             return self.make_response(payload=result)
 

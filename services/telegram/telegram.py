@@ -48,6 +48,7 @@ from commands.mode import command_mode
 from commands.calendar import command_calendar
 from commands.budget import command_budget
 from commands.news import command_news
+from commands.recipes import command_recipes
 from commands.s_reset import command_s_reset
 from commands.s_menu import command_s_menu
 
@@ -70,6 +71,7 @@ class TelegramConfig(ServiceConfig):
             ConfigField("notif",    [OracleSessionConfig],      required=True),
             ConfigField("moder",    [OracleSessionConfig],      required=True),
             ConfigField("speaker",  [OracleSessionConfig],      required=True),
+            ConfigField("chef",     [OracleSessionConfig],      required=True),
             ConfigField("google_calendar_config",   [GoogleCalendarConfig], required=True),
             ConfigField("google_calendar_id",       [str],      required=True),
             ConfigField("google_calendar_timezone", [str],      required=False, default="America/New_York"),
@@ -116,6 +118,9 @@ class TelegramService(Service):
             TelegramCommand(["news", "articles", "headlines"],
                             "Retrieves news articles to read.",
                             command_news),
+            TelegramCommand(["recipes", "recipe"],
+                            "Retrieves all known food recipes.",
+                            command_recipes),
             TelegramCommand(["_reset"],
                             "Resets the current chat conversation.",
                             command_s_reset,

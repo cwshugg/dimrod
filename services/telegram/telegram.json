@@ -11,7 +11,7 @@
         "auth_secret": "YOUR_JWT_SECRET_HERE",
         "auth_users": []
     },
-    
+
     "bot_api_key": "YOUR_TELEGRAM_BOT_API_KEY_HERE",
     "bot_chats":
     [
@@ -35,7 +35,7 @@
             "name": "USER2_NAME"
         }
     ],
-    
+
     "lumen":
     {
         "addr": "0.0.0.0",
@@ -43,7 +43,7 @@
         "auth_username": "ABC",
         "auth_password": "XYZ"
     },
-    
+
     "warden":
     {
         "addr": "0.0.0.0",
@@ -51,7 +51,7 @@
         "auth_username": "ABC",
         "auth_password": "XYZ"
     },
-    
+
     "notif":
     {
         "addr": "0.0.0.0",
@@ -59,7 +59,7 @@
         "auth_username": "ABC",
         "auth_password": "XYZ"
     },
-    
+
     "moder":
     {
         "addr": "0.0.0.0",
@@ -67,11 +67,19 @@
         "auth_username": "ABC",
         "auth_password": "XYZ"
     },
-    
+
     "speaker":
     {
         "addr": "0.0.0.0",
         "port": 2357,
+        "auth_username": "ABC",
+        "auth_password": "XYZ"
+    },
+
+    "chef":
+    {
+        "addr": "0.0.0.0",
+        "port": 2362,
         "auth_username": "ABC",
         "auth_password": "XYZ"
     },
