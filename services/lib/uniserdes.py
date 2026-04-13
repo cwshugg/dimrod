@@ -10,6 +10,7 @@
 import os
 import sys
 import json
+import yaml
 from datetime import datetime
 from enum import Enum
 
@@ -80,17 +81,25 @@ class Uniserdes:
     # Takes in a file path, opens it for reading, and attempts to parse all
     # fields defined in the class' 'fields' property.
     def parse_file(self, fpath: str):
-        # slurp the entire file contents (not ideal, but the uniserdes files
-        # shouldn't be too big)
+        # slurp the entire file contents (not ideal; assumes the file isn't big
+        # enough to blow out the memory we have available)
         self.fpath = fpath
-        fp = open(fpath)
-        content = fp.read()
-        fp.close()
+        with open(fpath) as fp:
+            content = fp.read()
 
-        # convert to JSON and define a number of expected fields, then invoke
-        # the JSON parsing function
-        jdata = json.loads(content)
-        self.parse_json(jdata)
+            # What kind of file are we looking at? Parse accordingly.
+            _, ext = os.path.splitext(fpath)
+            ext = ext.lower()
+            if ext in [".yaml", ".yml"]:
+                self.parse_yaml(content)
+            elif ext in [".json"]:
+                self.parse_json(content)
+            else:
+                raise Exception(
+                    "Unsupported file type for uniserdes: \"%s\". "
+                    "Supported types are: JSON, YAML." %
+                    ext
+                )
 
     # Used to parse uniserdes entries from a dictionary.
     def parse_json(self, jdata: dict):
@@ -247,6 +256,22 @@ class Uniserdes:
 
         return result
 
+    # Takes in a YAML string and uses it to parse the object's fields.
+    #
+    # The YAML string is parsed into a dictionary via `yaml.safe_load()`,
+    # then passed to the existing `parse_json()` method to populate the
+    # object's fields.
+    def parse_yaml(self, yaml_str: str):
+        ydata = yaml.safe_load(yaml_str)
+        self.parse_json(ydata)
+
+    # Statically initializes a new Uniserdes object, given a YAML string.
+    @classmethod
+    def from_yaml(cls, yaml_str: str):
+        c = cls()
+        c.parse_yaml(yaml_str)
+        return c
+
     # Converts the object to JSON, then encodes it into a `bytes` object.
     def to_bytes(self):
         return json.dumps(self.to_json()).encode("utf-8")
@@ -263,6 +288,14 @@ class Uniserdes:
     # Takes in a hex string and uses it to decode and parse the JSON contents.
     def parse_hex(self, hstr: str):
         return self.parse_bytes(bytes.fromhex(hstr))
+
+    # Converts the uniserdes object into a YAML string and returns it.
+    #
+    # This reuses the existing `to_json()` method to produce a dictionary,
+    # then serializes that dictionary to YAML format via `yaml.dump()`.
+    def to_yaml(self) -> str:
+        return yaml.dump(self.to_json(), default_flow_style=False,
+                         sort_keys=False)
 
     # Returns a list of column names that should be used if this object is
     # converted to a CSV string.
