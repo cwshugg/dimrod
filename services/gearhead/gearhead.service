@@ -1,0 +1,11 @@
+[Unit]
+Description=DImROD Service - Gearhead
+Documentation=https://github.com/cwshugg/dimrod
+After=syslog.target network.target
+
+[Service]
+Type=simple
+ExecStart=/path/to/run-service.sh /path/to/gearhead.py --config /path/to/config.yaml --oracle
+
+[Install]
+WantedBy=multi-user.target

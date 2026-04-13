@@ -1,6 +1,6 @@
 # DImROD Services
 
-DImROD consists of 11 Python-based microservices, each running as a systemd service. Services communicate via authenticated HTTP/JSON APIs using the [Oracle](../library.md#oraclepy--http-api-server) framework.
+DImROD consists of 12 Python-based microservices, each running as a systemd service. Services communicate via authenticated HTTP/JSON APIs using the [Oracle](../library.md#oraclepy--http-api-server) framework.
 
 ## Service Overview
 
@@ -15,6 +15,7 @@ DImROD consists of 11 Python-based microservices, each running as a systemd serv
 | [Chef](chef.md) | Recipe registry and search | ✓ | — |
 | [Gatekeeper](gatekeeper.md) | Event routing and subscriber dispatch | ✓ | — |
 | [Historian](historian.md) | Event archival (SQLite) | ✓ | — |
+| [Gearhead](gearhead.md) | Vehicle & mileage tracking | ✓ | ✓ |
 | [Taskmaster](taskmaster.md) | Automated recurring job scheduler | — | — |
 | [Rambler](rambler.md) | Flight price scraper | — | — |
 
@@ -28,7 +29,7 @@ Services communicate via `OracleSession`, an HTTP client that authenticates with
 graph TD
     User <-->|chat| Telegram
     Telegram <-->|conversation & NLA| Speaker["Speaker (LLM)"]
-    Speaker <-->|invoke| NLA["NLA Services (Lumen, Notif)"]
+    Speaker <-->|invoke| NLA["NLA Services (Lumen, Notif, Gearhead)"]
     Telegram -->|commands| Lumen
     Telegram -->|commands| Warden
     Telegram -->|commands| Notif
@@ -49,4 +50,4 @@ graph TD
 
 ### NLA (Natural Language Actions)
 
-Services that expose NLA endpoints (currently Lumen and Notif) register their capabilities with the Oracle. Speaker discovers these at runtime and dispatches natural-language requests to the appropriate service. See the [NLA types documentation](../data-types.md#nla-types) for details.
+Services that expose NLA endpoints (currently Lumen, Notif, and Gearhead) register their capabilities with the Oracle. Speaker discovers these at runtime and dispatches natural-language requests to the appropriate service. See the [NLA types documentation](../data-types.md#nla-types) for details.

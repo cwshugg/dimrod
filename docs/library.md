@@ -343,10 +343,23 @@ Convenience wrapper around Python's `sqlite3` module.
 | `table_exists(table)` | Check if a table exists |
 | `get_all_table_names()` | List all tables |
 | `get_table_column_names(table)` | List columns in a table |
-| `search(table, condition)` | Query rows with a WHERE clause |
+| `search(table, condition, order_by, desc, limit)` | Query rows with a WHERE clause, optional ordering and limit |
 | `search_order_by(table, condition, ...)` | Query with ordering |
+| `insert_or_replace(table, values, do_commit)` | Insert a row, or replace if the primary key already exists |
 | `table_to_csv(table, condition)` | Export a table to CSV string |
 | `export_to_excel(path, table_names)` | Export tables to Excel file |
+
+The `search()` method supports optional parameters for ordering and limiting results:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `table` | `str` | — | Table name to query |
+| `condition` | `str` | — | SQL WHERE clause |
+| `order_by` | `str` | `None` | Column name to order results by |
+| `desc` | `bool` | `False` | If `True`, order descending |
+| `limit` | `int` | `None` | Maximum number of rows to return |
+
+The `insert_or_replace()` method performs an `INSERT OR REPLACE` operation, inserting a new row or replacing an existing row if a row with the same primary key already exists. The `values` parameter should be a SQL-formatted values string (e.g., the output of `Uniserdes.to_sqlite3_str()`). Commits by default unless `do_commit` is set to `False`.
 
 ### `mail.py` — Email Sender
 

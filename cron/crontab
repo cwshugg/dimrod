@@ -35,4 +35,6 @@
 0     4   *   *   1 /home/provolone/chs/scripts/restart-service.sh gatekeeper
 # CHEF: Friday evenings at 11:00pm
 0     23  *   *   5 /home/provolone/chs/scripts/restart-service.sh chef
+# GEARHEAD: Thursday evenings at 11:00pm
+0     23  *   *   4 /home/provolone/chs/scripts/restart-service.sh gearhead
 

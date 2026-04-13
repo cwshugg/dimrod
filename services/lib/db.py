@@ -98,8 +98,11 @@ class Database:
         result = cur.execute("PRAGMA table_info(%s);" % table)
         return [row[1] for row in result]
 
-    def search(self, table: str, condition: str):
-        """Performs a search of the database and returns tuples in a list."""
+    def search(self, table: str, condition: str, order_by: str = None, desc: bool = False, limit: int = None):
+        """Performs a search of the database and returns tuples in a list.
+
+        Optionally supports ORDER BY and LIMIT clauses.
+        """
         # If the table doesn't exist, return an empty list
         if not self.table_exists(table):
             return []
@@ -108,6 +111,12 @@ class Database:
         cmd = "SELECT * FROM %s" % table
         if condition is not None and len(condition) > 0:
             cmd += " WHERE %s" % condition
+        if order_by is not None:
+            cmd += " ORDER BY %s" % order_by
+            if desc:
+                cmd += " DESC"
+        if limit is not None:
+            cmd += " LIMIT %d" % limit
 
         # Connect, query, and return
         conn = self.get_connection()
@@ -181,4 +190,17 @@ class Database:
 
         # Save the workbook to the provided path.
         wb.save(path)
+
+    def insert_or_replace(self, table: str, values: str, do_commit: bool = True):
+        """Inserts a row into the specified table, or replaces it if a row with the
+        same primary key already exists.
+
+        The values param should be a SQL-formatted values string, e.g. the output of
+        Uniserdes.to_sqlite3_str().
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO %s VALUES %s" % (table, values))
+        if do_commit:
+            conn.commit()
 

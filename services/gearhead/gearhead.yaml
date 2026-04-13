@@ -1,0 +1,73 @@
+service_name: gearhead
+service_log: stdout
+msghub_name: YOUR_MSGHUB_NAME
+oracle:
+  addr: 0.0.0.0
+  port: 2363
+  log: stdout
+  auth_cookie: gearhead_auth
+  auth_secret: YOUR_JWT_SECRET_HERE
+  auth_users:
+  - username: torque
+    password: wrench
+    privilege: 0
+
+mileage_db:
+  path: ./.gearhead.db
+
+dialogue:
+  openai_api_key: YOUR_OPENAI_KEY_HERE
+  openai_chat_model: gpt-4o-mini
+
+vehicles:
+- id: civic_2020
+  manufacturer: Honda
+  year: 2020
+  nicknames:
+  - The Daily Driver
+  - The Civic
+  vin: 1HGBH41JXMN109186
+  license_plate: ABC-1234
+  properties:
+  - key: engine_type
+    nickname: Engine Type
+    value: gasoline
+  - key: horsepower
+    nickname: Horsepower
+    value: 158
+  - key: oil_capacity
+    nickname: Oil Capacity (quarts)
+    value: 3.7
+  - key: cylinders
+    nickname: Cylinders
+    value: 4
+  - key: displacement
+    nickname: Displacement (liters)
+    value: 2.0
+  - key: color
+    nickname: Exterior Color
+    value: Lunar Silver Metallic
+  - key: trim
+    nickname: Trim Level
+    value: EX
+
+- id: model3_2022
+  manufacturer: Tesla
+  year: 2022
+  nicknames:
+  - Sparky
+  vin: 5YJ3E1EA1NF123456
+  license_plate: EV-5678
+  properties:
+  - key: engine_type
+    nickname: Engine Type
+    value: electric
+  - key: horsepower
+    nickname: Horsepower
+    value: 283
+  - key: range_miles
+    nickname: EPA Range
+    value: 358
+  - key: color
+    nickname: Exterior Color
+    value: Pearl White
