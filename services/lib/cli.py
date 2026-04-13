@@ -36,7 +36,7 @@ class ServiceCLI:
         self.config_class = config
         self.service_class = service
         self.oracle_class = oracle
-        
+
         # ---------------------- Argument Parser Setup ----------------------- #
         # create an argument parser with a fitting description
         desc = "Interact with %s." % exec_name
@@ -53,7 +53,7 @@ class ServiceCLI:
 
         # save the parser to a class field
         self.parser = p
-    
+
     # Runs the command-line interface. It parses all arguments then invokes the
     # service (and oracle, if applicable).
     def run(self):
@@ -75,7 +75,7 @@ class ServiceCLI:
             self.panic("This is not running in a Python Virtual Environment. "
                        "Please restart this and run in a venv.")
             return
-        
+
         # next, attempt to initialize the service
         global service
         try:
@@ -108,17 +108,23 @@ class ServiceCLI:
     # ------------------------------- Helpers -------------------------------- #
     # Pretty-prints an error message and exits.
     def panic(self, msg, exception=None):
-        prefix = "%s:" % exec_name if not config else "%s:" % config.service_name
-        sys.stderr.write("%s%s%s %s\n" % (C_RED, prefix, C_NONE, msg))
+        prefix = exec_name
+        if config and hasattr(config, "service_name"):
+            prefix = config.service_name
+
+        sys.stderr.write("%s%s:%s %s\n" % (C_RED, prefix, C_NONE, msg))
         # raise the given exception or just exit
         if exception is not None:
             raise exception
         sys.exit(1)
-    
+
     # Pretty-prints a success message.
     def success(self, msg):
-        prefix = "%s:" % exec_name if not config else "%s:" % config.service_name
-        sys.stderr.write("%s%s%s %s\n" % (C_GREEN, prefix, C_NONE, msg))
+        prefix = exec_name
+        if config and hasattr(config, "service_name"):
+            prefix = config.service_name
+
+        sys.stderr.write("%s%s:%s %s\n" % (C_GREEN, prefix, C_NONE, msg))
 
     # SIGINT handler.
     def sigint_handler(self, sig, frame):

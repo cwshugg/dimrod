@@ -1,0 +1,84 @@
+service_name: telegram
+service_log: stdout
+oracle:
+  addr: 0.0.0.0
+  port: 2355
+  log: stdout
+  auth_cookie: telegram_auth
+  auth_secret: YOUR_JWT_SECRET_HERE
+  auth_users: []
+bot_api_key: YOUR_TELEGRAM_BOT_API_KEY_HERE
+bot_chats:
+- id: CHAT1_ID
+  name: CHAT1_NAME
+- id: CHAT2_ID
+  name: CHAT2_NAME
+bot_users:
+- id: USER1_ID
+  name: USER1_NAME
+- id: USER2_ID
+  name: USER2_NAME
+lumen:
+  addr: 0.0.0.0
+  port: 2350
+  auth_username: ABC
+  auth_password: XYZ
+warden:
+  addr: 0.0.0.0
+  port: 2351
+  auth_username: ABC
+  auth_password: XYZ
+notif:
+  addr: 0.0.0.0
+  port: 2356
+  auth_username: ABC
+  auth_password: XYZ
+moder:
+  addr: 0.0.0.0
+  port: 2358
+  auth_username: ABC
+  auth_password: XYZ
+speaker:
+  addr: 0.0.0.0
+  port: 2357
+  auth_username: ABC
+  auth_password: XYZ
+chef:
+  addr: 0.0.0.0
+  port: 2362
+  auth_username: ABC
+  auth_password: XYZ
+google_calendar_config:
+  service_account_credentials_path: /path/to/google/cloud/service_account_creds.json
+google_calendar_id: your_google_calendar_id
+google_calendar_timezone: America/New_York
+ynab:
+  access_token: YNAB_ACCESS_TOKEN
+news:
+  api_key: f2b0643fc26c40ae92a82b609948d5ce
+news_default_queries:
+- query_name: Political Headlines
+  sources:
+  - abc-news
+  - cbs-news
+  - cnn
+  - fox-news
+  - google-news
+  - the-hill
+  - the-huffington-post
+  - usa-today
+- query_name: Business Headlines
+  sources:
+  - bloomberg
+  - business-insider
+  - fortune
+  - the-wall-street-journal
+- query_name: Tech Headlines
+  sources:
+  - engadget
+  - hacker-news
+  - ign
+  - mashable
+  - techcrunch
+  - techradar
+  - the-verge

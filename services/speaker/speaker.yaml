@@ -1,0 +1,21 @@
+service_name: speaker
+service_log: stdout
+oracle:
+  addr: 0.0.0.0
+  port: 2357
+  log: stdout
+  auth_cookie: speaker_auth
+  auth_secret: YOUR_SECRET_HERE
+  auth_users:
+  - username: bob
+    password: bob!
+    privilege: 0
+dialogue:
+  openai_api_key: YOUR_OPENAI_KEY_HERE
+nla_services:
+- name: Lumen
+  oracle:
+    addr: 0.0.0.0
+    port: 999
+    auth_username: YOUR_USERNAME
+    auth_password: YOUR_PASSWORD

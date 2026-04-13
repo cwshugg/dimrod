@@ -1,0 +1,33 @@
+service_name: lumen
+service_log: stdout
+oracle:
+  addr: 0.0.0.0
+  port: 2350
+  log: stdout
+  auth_cookie: lumen_auth
+  auth_secret: YOUR_JWT_SECRET_HERE
+  auth_users:
+  - username: frodo
+    password: baggins
+    privilege: 0
+  - username: samwise
+    password: gamgee
+    privilege: 1
+lights:
+- id: bulb_front_porch
+  description: The lightbulb above the front door.
+  tags:
+  - outdoor
+  - front
+  - porch
+  - light
+  - bulb
+  has_color: true
+  has_brightness: true
+webhook_event: YOUR_IFTTT_WEBHOOK_HERE
+webhook_key: YOUR_IFTTT_KEY_HERE
+wyze_config:
+  email: YOUR_WYZE_EMAIL
+  password: YOUR_WYZE_PASSWORD
+  api_key_id: YOUR_WYZE_API_KEY_ID
+  api_key: YOUR_WYZE_API_KEY

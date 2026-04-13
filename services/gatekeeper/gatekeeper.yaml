@@ -1,0 +1,19 @@
+service_name: gatekeeper
+service_log: stdout
+oracle:
+  addr: 0.0.0.0
+  port: 2353
+  log: stdout
+  auth_cookie: gatekeeper_auth
+  auth_secret: YOUR_JWT_SECRET_HERE
+  auth_users:
+  - username: luke
+    password: skywalker
+    privilege: 0
+events:
+- name: your_event_name_here
+  subscribers:
+  - name: subscriber1
+    executable: /path/to/subscriber1.py
+  - name: subscriber2
+    executable: /path/to/subscriber2.sh

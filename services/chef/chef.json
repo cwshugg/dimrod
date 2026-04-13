@@ -19,5 +19,5 @@
         ]
     },
 
-    "recipe_dir": "/path/to/reminders"
+    "recipe_dir": "/path/to/recipes"
 }

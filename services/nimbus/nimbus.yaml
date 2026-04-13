@@ -1,0 +1,18 @@
+service_name: nimbus
+service_log: stdout
+oracle:
+  addr: 0.0.0.0
+  port: 2352
+  log: stdout
+  auth_cookie: nimbus_auth
+  auth_secret: YOUR_JWT_SECRET_HERE
+  auth_users:
+  - username: luke
+    password: skywalker
+    privilege: 0
+locations:
+- name: home
+  address: 1234 Fake Rd, Fake-Town, NY 99999
+- name: treasure trove
+  longitude: 10.0
+  latitude: -20.0

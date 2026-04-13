@@ -1,0 +1,38 @@
+service_name: rambler
+service_log: stdout
+oracle:
+  addr: 0.0.0.0
+  port: 2359
+  log: stdout
+  auth_cookie: rambler_auth
+  auth_secret: YOUR_JWT_SECRET_HERE
+  auth_users:
+  - username: frodo
+    password: baggins
+    privilege: 0
+  - username: samwise
+    password: gamgee
+    privilege: 1
+flight_scraper: kayak
+trips:
+- name: Seattle Trip
+  description: Taking a trip out to Seattle, and potentially Vancouver.
+  timing:
+    number_of_nights:
+    - 3
+    - 4
+    departure_weekdays:
+    - wedneday
+    - thursday
+    - friday
+    departure_months:
+    - sep
+    - oct
+    - nov
+  flight:
+    airport_embark_depart: DEN
+    airport_embark_arrive: SEA
+    airport_return_depart: SEA
+    airport_return_arrive: DEN
+    passengers_adult: 2
+    passengers_child: 0

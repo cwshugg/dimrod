@@ -1,6 +1,7 @@
 # vim swapfiles
 *.swp
 *.swo
+*.swn
 
 # python artifacts, venv, etc.
 __pycache__
@@ -9,6 +10,7 @@ venv
 
 # my service config files and other private files
 cwshugg*.json
+cwshugg*.yaml
 cwshugg_*
 
 # my systemd files
@@ -42,4 +44,7 @@ services/taskmaster/tasks/*.json
 
 # MAC address vendor cache file
 .mac_vendors.txt
+
+# AI workspace
+.cobots/
 
