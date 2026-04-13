@@ -93,7 +93,8 @@ class Uniserdes:
             if ext in [".yaml", ".yml"]:
                 self.parse_yaml(content)
             elif ext in [".json"]:
-                self.parse_json(content)
+                jdata = json.loads(content)
+                self.parse_json(jdata)
             else:
                 raise Exception(
                     "Unsupported file type for uniserdes: \"%s\". "
