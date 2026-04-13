@@ -15,8 +15,8 @@ from tasks.wedding.base import *
 import lib.dtu as dtu
 
 class TaskJob_Wedding_Empty(TaskJob_Wedding):
-    def update(self, todoist, gcal):
-        proj = self.get_project(todoist)
+    def update(self):
+        proj = self.get_project()
 
         # this is empty; it simply ensures that the project exists
         return False

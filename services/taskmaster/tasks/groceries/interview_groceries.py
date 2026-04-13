@@ -37,7 +37,7 @@ class TaskJob_Interview_Groceries(TaskJob_Interview, TaskJob_Groceries):
         self.thread_class = TaskJob_Interview_Groceries_Thread
         self.config_class = TaskJob_Interview_Groceries_Config
 
-    def is_ready_to_update(self, todoist, gcal):
+    def is_ready_to_update(self):
         # if this was done within the past week, don't do it right now
         last_success = self.get_last_success_datetime()
         now = datetime.now()
@@ -55,8 +55,8 @@ class TaskJob_Interview_Groceries(TaskJob_Interview, TaskJob_Groceries):
         return True
 
 class TaskJob_Interview_Groceries_Thread(TaskJob_Interview_Thread):
-    def __init__(self, taskjob, todoist, gcal):
-        super().__init__(taskjob, todoist, gcal)
+    def __init__(self, taskjob):
+        super().__init__(taskjob)
         self.item_idx = 0
         self.items_added = []
         self.menu = {
@@ -153,8 +153,9 @@ class TaskJob_Interview_Groceries_Thread(TaskJob_Interview_Thread):
 
     def add_grocery_item(self, t: TaskConfig):
         """Adds a new task under the `Groceries` Todoist project."""
-        proj = self.taskjob.get_project(self.todoist)
-        self.todoist.add_task(t.title,
+        todoist = self.taskjob.get_todoist()
+        proj = self.taskjob.get_project()
+        todoist.add_task(t.title,
                               t.get_content(),
                               project_id=proj.id,
                               priority=t.priority,

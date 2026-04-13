@@ -73,8 +73,8 @@ class TaskJob_News_HeadlineReport(TaskJob):
         return message
 
     # --------------------------- Update Function ---------------------------- #
-    def update(self, todoist, gcal):
-        super().update(todoist, gcal)
+    def update(self):
+        super().update()
         self.config = self.get_config()
 
         # is it wednesday evening? If not, don't proceed

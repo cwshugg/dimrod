@@ -21,14 +21,15 @@ class TaskJob_Automotive_Carwash(TaskJob_Automotive):
         self.trigger_months = [3, 6, 9, 12]
         self.trigger_days = range(1, 10)
 
-    def update(self, todoist, gcal):
+    def update(self):
         # the parent shouldn't update; we make this happen by only allowing
         # classes that have a defined car name (i.e. the subclasses) to proceed
         if self.car_name is None:
             return False
 
-        proj = self.get_project(todoist)
-        sect = self.get_section_by_name(todoist, proj.id, "Upkeep")
+        todoist = self.get_todoist()
+        proj = self.get_project()
+        sect = self.get_section_by_name(proj.id, "Upkeep")
 
         # set up a TaskConfig object for the task
         t = TaskConfig()

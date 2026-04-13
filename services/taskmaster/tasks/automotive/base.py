@@ -20,10 +20,10 @@ from lib.oracle import OracleSession
 
 class TaskJob_Automotive(TaskJob):
     """Base class for automotive-based tasks."""
-    def update(self, todoist, gcal):
-        super().update(todoist, gcal)
+    def update(self):
+        super().update()
         return False
 
-    def get_project(self, todoist):
-        return self.get_project_by_name(todoist, "Automotive", color="red")
+    def get_project(self):
+        return self.get_project_by_name("Automotive", color="red")
 

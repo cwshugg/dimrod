@@ -20,11 +20,12 @@ from lib.oracle import OracleSession
 
 class TaskJob_Medical(TaskJob):
     """Base class for medical-based tasks."""
-    def update(self, todoist, gcal):
-        super().update(todoist, gcal)
+    def update(self):
+        super().update()
         return False
 
-    def get_project(self, todoist):
+    def get_project(self):
+        todoist = self.get_todoist()
         proj = todoist.get_project_by_name("Medical")
         if proj is None:
             proj = todoist.add_project("Medical", color="blue")

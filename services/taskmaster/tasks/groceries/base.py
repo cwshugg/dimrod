@@ -27,11 +27,12 @@ AUTOSORT_IGNORE_MAGIC = "dimrod::autosort_ignore"
 
 class TaskJob_Groceries(TaskJob):
     """Base class for the grocery list."""
-    def update(self, todoist, gcal):
-        super().update(todoist, gcal)
+    def update(self):
+        super().update()
         return False
 
-    def get_project(self, todoist):
+    def get_project(self):
+        todoist = self.get_todoist()
         proj = todoist.get_project_by_name("Groceries")
         if proj is None:
             proj = todoist.add_project("Groceries", color="green")

@@ -15,8 +15,9 @@ from tasks.family.base import *
 import lib.dtu as dtu
 
 class TaskJob_Family_AnniversaryVideo(TaskJob_Family):
-    def update(self, todoist, gcal):
-        proj = self.get_project(todoist)
+    def update(self):
+        todoist = self.get_todoist()
+        proj = self.get_project()
 
         # set up a TaskConfig object for the task
         content_fname = __file__.replace(".py", ".md")

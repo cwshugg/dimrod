@@ -45,20 +45,20 @@ class TaskJob_Interview(TaskJob):
         config.parse_file(config_path)
         return config
 
-    def is_ready_to_update(self, todoist, gcal):
+    def is_ready_to_update(self):
         """Helper function that can be overridden by subclasses to determine if it's
         time to update. Returns True if an update should be done.
         """
         return False
 
-    def update(self, todoist, gcal):
+    def update(self):
         # return early if it's not time to update yet
-        if not self.is_ready_to_update(todoist, gcal):
+        if not self.is_ready_to_update():
             return False
 
         # if it is, spawn a thread of the configured class name to handle the
         # menu and everything else
-        thrd = self.thread_class(self, todoist, gcal)
+        thrd = self.thread_class(self)
         thrd.start()
         return True
 
@@ -68,11 +68,9 @@ class TaskJob_Interview_Thread(threading.Thread):
     when `update()` return True. This is used to send and manage the
     communication with Telegram.
     """
-    def __init__(self, taskjob, todoist, gcal):
+    def __init__(self, taskjob):
         threading.Thread.__init__(self, target=self.run)
         self.taskjob = taskjob
-        self.todoist = todoist
-        self.gcal = gcal
 
     def get_telegram_session(self):
         """Creates and returns an authenticated OracleSession with the telegram bot."""
@@ -185,7 +183,7 @@ class TaskJob_Interview_Thread(threading.Thread):
         information on the menu. As soon as a change with the menu is seen, a new
         menu object is returned.
         """
-        if telegram_session is not None:
+        if telegram_session is None:
             telegram_session = self.get_telegram_session()
 
         # loop repeatedly until we see a change in the menu

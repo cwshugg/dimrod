@@ -41,15 +41,16 @@ class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
         s.login()
         return s
 
-    def update(self, todoist, gcal):
-        super().update(todoist, gcal)
+    def update(self):
+        super().update()
 
         # Retrieve the Todoist project that contains the grocery list:
+        todoist = self.get_todoist()
         proj = None
         rate_limit_retries_attempted = 0
         for attempt in range(self.todoist_rate_limit_retries):
             try:
-                proj = self.get_project(todoist)
+                proj = self.get_project()
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 429:
                     self.log("Getting rate-limited by Todoist. Sleeping...")
@@ -188,13 +189,13 @@ class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
 
                 # Look at the ingredient's "is_optional" field, and if it's
                 # marked as optional, add a note about that to the description.
+                description = ""
                 if ingredient.is_optional:
                     description += "(OPTIONAL) "
 
                 # Also, look at the ingredient's replenish type, and add text
                 # accordingly hinting that the user may already have this in
                 # stock.
-                description = ""
                 if ingredient.replenish == IngredientReplenishType.SOMETIMES:
                     description += "(❗ You may already have this) "
                 elif ingredient.replenish == IngredientReplenishType.RARELY:

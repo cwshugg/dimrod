@@ -32,8 +32,8 @@ class TaskJob_LifeTracker_Scorer(TaskJob_LifeTracker):
         self.config_name = "main.json"
         self.refresh_rate = 520000 # about 6 days
 
-    def update(self, todoist, gcal):
-        super().update(todoist, gcal)
+    def update(self):
+        super().update()
         tracker = self.get_tracker()
         
         # is it a Saturday night? If not, don't execute

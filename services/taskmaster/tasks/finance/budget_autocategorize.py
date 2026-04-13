@@ -122,7 +122,7 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
         self.config = TaskJob_Finance_Budget_AutoCategorize_Config()
         self.config.parse_file(config_path)
 
-    def update(self, todoist, gcal):
+    def update(self):
         # update the refresh rate to the the default value. It's possible the
         # last invocation of this taskjob ended in a YNAB API rate limit, which
         # caused us to shorten the refresh rate. This ensures that it is

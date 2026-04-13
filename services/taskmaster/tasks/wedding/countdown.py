@@ -35,7 +35,7 @@ class TaskJob_Wedding_Countdown(TaskJob_Wedding):
         self.config = TaskJob_Wedding_Countdown_Config()
         self.config.parse_file(config_path)
 
-    def update(self, todoist, gcal):
+    def update(self):
         now = datetime.now()
 
         # if the wedding date has passed, do nothing

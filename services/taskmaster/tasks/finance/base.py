@@ -20,11 +20,12 @@ from lib.oracle import OracleSession
 
 class TaskJob_Finance(TaskJob):
     """Base class for finance-based tasks."""
-    def update(self, todoist, gcal):
-        super().update(todoist, gcal)
+    def update(self):
+        super().update()
         return False
 
-    def get_project(self, todoist):
+    def get_project(self):
+        todoist = self.get_todoist()
         proj = todoist.get_project_by_name("Finances")
         if proj is None:
             proj = todoist.add_project("Finances", color="olive_green")

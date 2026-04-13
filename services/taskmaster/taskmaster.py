@@ -125,8 +125,7 @@ class TaskmasterThread(threading.Thread):
             try:
                 now = datetime.now()
                 j.set_last_update_datetime(now)
-                is_success = j.update(self.service.get_todoist(),
-                                      self.service.get_gcal())
+                is_success = j.update()
 
                 # if the task succeeded, save the timestamp to disk
                 if is_success:

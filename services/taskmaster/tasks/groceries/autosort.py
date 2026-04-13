@@ -104,17 +104,18 @@ class TaskJob_Groceries_Autosort(TaskJob_Groceries):
             section = section.name
         return section.strip().lower()
 
-    def update(self, todoist, gcal):
+    def update(self):
         # this task doesn't add any new grocery tasks to the grocery project.
         # Instead, it examines the list and sorts them by category (where each
         # section is a grocery category)
 
         # retrieve the grocery project; watch out for rate limiting
+        todoist = self.get_todoist()
         proj = None
         rate_limit_retries_attempted = 0
         for attempt in range(self.todoist_rate_limit_retries):
             try:
-                proj = self.get_project(todoist)
+                proj = self.get_project()
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 429:
                     self.log("Getting rate-limited by Todoist. Sleeping...")

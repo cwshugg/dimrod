@@ -20,9 +20,10 @@ class TaskJob_Services_WyzeAPIKey(TaskJob_Services):
     def init(self):
         self.refresh_rate = 3600 * 24 # check every day
 
-    def update(self, todoist, gcal):
-        proj = self.get_project(todoist)
-        sect = self.get_section_by_name(todoist, proj.id, "Maintenance")
+    def update(self):
+        todoist = self.get_todoist()
+        proj = self.get_project()
+        sect = self.get_section_by_name(proj.id, "Maintenance")
 
         # attempt to initialize a Wyze API object. If it fails to login, we
         # assume the API key is invalid.

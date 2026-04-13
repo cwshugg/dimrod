@@ -49,7 +49,7 @@ class TaskJob_Household_Christmas_Tree_Lights(TaskJob_Household):
 
         return False
 
-    def update(self, todoist, gcal):
+    def update(self):
         # make sure we are in Christmas time!
         now = datetime.now()
         if not self.is_christmas_season(now):

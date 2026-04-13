@@ -20,8 +20,8 @@ class TaskJob_LifeTracker_Main(TaskJob_LifeTracker):
         super().init()
         self.config_name = "main.json"
 
-    def update(self, todoist, gcal):
-        super().update(todoist, gcal)
+    def update(self):
+        super().update()
         success = False
         tracker = self.get_tracker()
 

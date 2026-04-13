@@ -44,7 +44,7 @@ class TaskJob_Garmin(TaskJob):
         self.db_config_fname = "garmin_database.json"
         self.db_config_fpath = os.path.join(fdir, self.db_config_fname)
 
-    def update(self, todoist, gcal):
+    def update(self):
         """Update function to be overridden by subclasses."""
         pass
 

@@ -66,7 +66,7 @@ class TaskJob_Household_Holiday_Lights(TaskJob_Household):
 
         return False
 
-    def update(self, todoist, gcal):
+    def update(self):
         # make sure we are in holiday times!
         now = datetime.now()
         if not self.is_holiday_season(now):

@@ -23,13 +23,14 @@ class TaskJob_Automotive_Routine_Maintenance(TaskJob_Automotive):
         self.trigger_months = [1, 6, 7, 12]
         self.trigger_days = range(1, 10)
 
-    def update(self, todoist, gcal):
+    def update(self):
         # only proceed if a car name is set (this is done by subclasses)
         if self.car_name is None:
             return False
 
-        proj = self.get_project(todoist)
-        sect = self.get_section_by_name(todoist, proj.id, "Upkeep")
+        todoist = self.get_todoist()
+        proj = self.get_project()
+        sect = self.get_section_by_name(proj.id, "Upkeep")
 
         # set up a TaskConfig object for the task
         content_fname = __file__.replace(".py", ".md")

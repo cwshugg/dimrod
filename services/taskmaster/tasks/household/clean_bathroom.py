@@ -15,9 +15,10 @@ from tasks.household.base import *
 import lib.dtu as dtu
 
 class TaskJob_Household_Clean_Bathroom(TaskJob_Household):
-    def update(self, todoist, gcal):
-        proj = self.get_project(todoist)
-        sect = self.get_section_by_name(todoist, proj.id, "Cleaning")
+    def update(self):
+        todoist = self.get_todoist()
+        proj = self.get_project()
+        sect = self.get_section_by_name(proj.id, "Cleaning")
 
         # set up a TaskConfig object for the task
         content_fname = __file__.replace(".py", ".md")

@@ -20,11 +20,12 @@ from lib.oracle import OracleSession
 
 class TaskJob_Household(TaskJob):
     """Base class for house chores and maintenance."""
-    def update(self, todoist, gcal):
-        super().update(todoist, gcal)
+    def update(self):
+        super().update()
         return False
 
-    def get_project(self, todoist):
+    def get_project(self):
+        todoist = self.get_todoist()
         proj = todoist.get_project_by_name("Household")
         if proj is None:
             proj = todoist.add_project("Household", color="yellow")

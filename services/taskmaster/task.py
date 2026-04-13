@@ -47,6 +47,8 @@ class TaskJob:
     """
     def __init__(self, service):
         self.service = service
+        self._todoist = None
+        self._gcal = None
         self.refresh_rate = 43200
         self.todoist_rate_limit_retries = 10
         self.todoist_rate_limit_timeout = 30
@@ -63,11 +65,31 @@ class TaskJob:
         """
         pass
 
-    def update(self, todoist, gcal):
-        """Function that uses the provided API objects to update any tasks, events,
-        etc. This must be implemented by subclasses.
-        Must return True if the update succeeded (some sort of update was made).
-        Otherwise, must return False.
+    def get_todoist(self):
+        """Returns a Todoist API handle.
+
+        Created on first access and cached for the lifetime of this TaskJob
+        instance.
+        """
+        if self._todoist is None:
+            self._todoist = self.service.get_todoist()
+        return self._todoist
+
+    def get_gcal(self):
+        """Returns a Google Calendar API handle.
+
+        Created on first access and cached for the lifetime of this TaskJob
+        instance.
+        """
+        if self._gcal is None:
+            self._gcal = self.service.get_gcal()
+        return self._gcal
+
+    def update(self):
+        """Function that updates any tasks, events, etc.
+
+        This must be implemented by subclasses. Must return True if the update
+        succeeded (some sort of update was made). Otherwise, must return False.
         """
         return False
 
@@ -137,10 +159,11 @@ class TaskJob:
         """Returns a unique identifier for this object"""
         return "%s_%s" % (self.get_name(), id(self))
 
-    def get_project_by_name(self, todoist, name: str,
+    def get_project_by_name(self, name: str,
                             color="grey", parent_id=None,
                             is_favorite=False, view_style="list"):
         """Creates and returns the project with the given name."""
+        todoist = self.get_todoist()
         rate_limit_retries_attempted = 0
         for attempt in range(self.todoist_rate_limit_retries):
             try:
@@ -160,9 +183,10 @@ class TaskJob:
         if rate_limit_retries_attempted >= self.todoist_rate_limit_retries:
             raise Exception("Exceeded maximum retries due to Todoist rate limiting")
 
-    def get_section_by_name(self, todoist, project_id: str, name: str,
+    def get_section_by_name(self, project_id: str, name: str,
                             order=None):
         """Creates and returns the section with the given name."""
+        todoist = self.get_todoist()
         rate_limit_retries_attempted = 0
         for attempt in range(self.todoist_rate_limit_retries):
             try:

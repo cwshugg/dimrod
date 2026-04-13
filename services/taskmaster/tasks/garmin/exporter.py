@@ -36,8 +36,8 @@ class TaskJob_Garmin_Exporter(TaskJob_Garmin):
         )
 
 
-    def update(self, todoist, gcal):
-        super().update(todoist, gcal)
+    def update(self):
+        super().update()
 
         # Get a database interface wrapper for the garmin database
         garmin_db = self.get_database()

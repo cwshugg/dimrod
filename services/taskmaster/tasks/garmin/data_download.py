@@ -36,7 +36,7 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
         self.reachback_heart_rate = 86400 * (365 * 5)   # 5 years
         self.reachback_activity = 86400 * (365 * 12)    # 12 years
 
-    def update(self, todoist, gcal):
+    def update(self):
         # get an authenticated garmin client
         g = self.get_client()
         if g is None:

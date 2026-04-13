@@ -27,8 +27,8 @@ class TaskJob_LifeTracker_Exporter(TaskJob_LifeTracker):
             self.spreadsheet_name,
         )
 
-    def update(self, todoist, gcal):
-        super().update(todoist, gcal)
+    def update(self):
+        super().update()
         # Get a database interface wrapper for the tracker's database, and
         # export it to a spreadsheet at the configured path.
         tracker = self.get_tracker()

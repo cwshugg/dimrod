@@ -15,9 +15,10 @@ from tasks.medical.base import *
 import lib.dtu as dtu
 
 class TaskJob_Medical_Eye_Checkup(TaskJob_Medical):
-    def update(self, todoist, gcal):
-        proj = self.get_project(todoist)
-        sect = self.get_section_by_name(todoist, proj.id, "Vision")
+    def update(self):
+        todoist = self.get_todoist()
+        proj = self.get_project()
+        sect = self.get_section_by_name(proj.id, "Vision")
 
         # set up a TaskConfig object for the task
         content_fname = __file__.replace(".py", ".md")

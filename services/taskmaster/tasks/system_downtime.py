@@ -35,7 +35,7 @@ class TaskJob_System_Downtime(TaskJob):
         self.config = TaskJob_System_Downtime_Config()
         self.config.parse_file(config_path)
 
-    def update(self, todoist, gcal):
+    def update(self):
         now = datetime.now()
         last_update = self.get_last_update_datetime()
 
