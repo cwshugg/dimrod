@@ -28,8 +28,8 @@ class GatekeeperSubscriberConfig(Config):
 
 # ============================= Subscriber Class ============================= #
 class GatekeeperSubscriber:
-    # Constructor. Takes in JSON data and parses it as a subscriber config.
     def __init__(self, jdata: dict):
+        """Constructor. Takes in JSON data and parses it as a subscriber config."""
         self.config = GatekeeperSubscriberConfig()
         self.config.parse_json(jdata)
 
@@ -37,13 +37,16 @@ class GatekeeperSubscriber:
         assert os.path.isfile(self.config.executable), \
                "could not find executable file: %s" % self.config.executable
 
-    # Spawns a child process and has it execute the executable file. Takes in an
-    # optional data parameter, and optional file descriptors to which stdout and
-    # stderr should be written.
     def spawn(self, data=None, stdout_fd=None, stderr_fd=None):
-        # Helper function that spawns, then waits, for the subprocess to finish.
-        # Upon completion, STDOUT and STDERR are written to the given locations.
+        """Spawns a child process and has it execute the executable file. Takes in an
+        optional data parameter, and optional file descriptors to which stdout and
+        stderr should be written.
+        """
         def spawn_and_wait(argv):
+            """Helper function that spawns, then waits, for the subprocess to finish.
+
+            Upon completion, STDOUT and STDERR are written to the given locations.
+            """
             process = subprocess.Popen(argv,
                                        stdout=None if stdout_fd is None else subprocess.PIPE,
                                        stderr=None if stdout_fd is None else subprocess.PIPE)

@@ -9,8 +9,8 @@ pdir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 if pdir not in sys.path:
     sys.path.append(pdir)
 
-# Main function.
 def command_s_reset(service, message, args: list):
+    """Main function."""
     # look up the chat ID in the service's dictionary and delete the entry if
     # it exists
     chat_id = str(message.chat.id)

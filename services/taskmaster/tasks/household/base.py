@@ -18,8 +18,8 @@ import lib.dtu as dtu
 from lib.config import Config, ConfigField
 from lib.oracle import OracleSession
 
-# Base class for house chores and maintenance.
 class TaskJob_Household(TaskJob):
+    """Base class for house chores and maintenance."""
     def update(self, todoist, gcal):
         super().update(todoist, gcal)
         return False

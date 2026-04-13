@@ -33,8 +33,8 @@ flight_scrapers = {
 
 
 # =============================== Config Class =============================== #
-# The official config class for the Rambler service.
 class RamblerConfig(ServiceConfig):
+    """The official config class for the Rambler service."""
     def __init__(self):
         super().__init__()
         self.fields += [
@@ -46,8 +46,8 @@ class RamblerConfig(ServiceConfig):
             ConfigField("refresh_rate",                 [int],      required=False, default=1800)
         ]
 
-    # Overridden version of parse_json() that utilizes the TripConfig object.
     def parse_json(self, jdata: dict):
+        """Overridden version of parse_json() that utilizes the TripConfig object."""
         super().parse_json(jdata)
         # parse all objects in the 'trips' list as a TripConfig object.
         trips = []
@@ -65,14 +65,14 @@ class RamblerConfig(ServiceConfig):
 
 # ============================== Service Class =============================== #
 class RamblerService(Service):
-    # Constructor.
     def __init__(self, config_path):
+        """Constructor."""
         super().__init__(config_path)
         self.config = RamblerConfig()
         self.config.parse_file(config_path)
 
-    # Overridden main function implementation.
     def run(self):
+        """Overridden main function implementation."""
         super().run()
 
         # print a summary of all configured trips
@@ -189,8 +189,8 @@ class RamblerService(Service):
 
 # ============================== Service Oracle ============================== #
 class RamblerOracle(Oracle):
-    # Endpoint definition function.
     def endpoints(self):
+        """Endpoint definition function."""
         super().endpoints()
 
         # TODO

@@ -15,50 +15,56 @@ from datetime import datetime
 from enum import Enum
 
 
-# Represents a single uniserdes field with various properties that are enforced
-# when parsed.
 class UniserdesField:
-    # Constructor. Takes in:
-    #   name        The name of the uniserdes file entry.
-    #   types       An array of types representing the field's allowed type(s).
-    #   required    An optional boolean that indicates if the field is mandatory
-    #   default     A default field, useful if required=False
+    """Represents a single uniserdes field with various properties that are enforced
+    when parsed.
+    """
     def __init__(self, name, types, required=False, default=None):
+        """Constructor. Takes in:
+
+          name        The name of the uniserdes file entry.
+          types       An array of types representing the field's allowed type(s).
+          required    An optional boolean that indicates if the field is mandatory
+          default     A default field, useful if required=False
+        """
         self.name = name
         self.types = types
         self.required = required
         self.default = default
 
-    # Checks the type of a given value against the field's type. Returns True if
-    # the type matches one of the field's types.
     def type_match(self, value):
+        """Checks the type of a given value against the field's type. Returns True if
+        the type matches one of the field's types.
+        """
         return type(value) in self.types
 
 
-# Uniserdes class.
 class Uniserdes:
-    # Constructor. Takes in the JSON file path and reads it in.
+    """Uniserdes class."""
     def __init__(self):
+        """Constructor. Takes in the JSON file path and reads it in."""
         self.fields = []
         self.fpath = None
 
-    # Creates and returns a string representation of the uniserdes object.
     def __str__(self):
+        """Creates and returns a string representation of the uniserdes object."""
         jdata = self.to_json()
         return json.dumps(jdata, indent=4, default=str)
 
-    # Initializes the object with all fields that are not required. Once this
-    # function is complete, all non-required fields will be present and be set
-    # to their default values.
     def init_defaults(self):
+        """Initializes the object with all fields that are not required. Once this
+        function is complete, all non-required fields will be present and be set
+        to their default values.
+        """
         for f in self.fields:
             if f.required:
                 continue
             setattr(self, f.name, f.default)
 
-    # Returns the `UniserdesField` object representing one of the object's fields,
-    # or `None` if the field doesn't exist.
     def get_field(self, name: str):
+        """Returns the `UniserdesField` object representing one of the object's fields,
+        or `None` if the field doesn't exist.
+        """
         for f in self.fields:
             if name == f.name:
                 return f
@@ -78,9 +84,10 @@ class Uniserdes:
         c.parse_json(jdata)
         return c
 
-    # Takes in a file path, opens it for reading, and attempts to parse all
-    # fields defined in the class' 'fields' property.
     def parse_file(self, fpath: str):
+        """Takes in a file path, opens it for reading, and attempts to parse all
+        fields defined in the class' 'fields' property.
+        """
         # slurp the entire file contents (not ideal; assumes the file isn't big
         # enough to blow out the memory we have available)
         self.fpath = fpath
@@ -102,8 +109,8 @@ class Uniserdes:
                     ext
                 )
 
-    # Used to parse uniserdes entries from a dictionary.
     def parse_json(self, jdata: dict):
+        """Used to parse uniserdes entries from a dictionary."""
         # iterate through each field we expect to see
         for f in self.fields:
             key = f.name
@@ -205,21 +212,22 @@ class Uniserdes:
         # parsing is done; call the post-parsing initialization function
         self.post_parse_init()
 
-    # A custom assertion function for the uniserdes class.
     def check(self, condition, msg):
+        """A custom assertion function for the uniserdes class."""
         if not condition:
             raise Exception("Uniserdes Error: %s" % msg)
 
-    # A function that can be overridden by subclasses to perform any additional
-    # initialization after parsing succeeds. Automatically invoked after
-    # parsing.
     def post_parse_init(self):
+        """A function that can be overridden by subclasses to perform any additional
+        initialization after parsing succeeds. Automatically invoked after
+        parsing.
+        """
         pass
 
-    # Converts the uniserdes into a JSON dictionary and returns it.
     def to_json(self):
-        # Converts a given object to a JSON-friendly format
+        """Converts the uniserdes into a JSON dictionary and returns it."""
         def obj_to_json(obj):
+            """Converts a given object to a JSON-friendly format"""
             # if it's a subclass of our Uniserdes parent class, recursively invoke
             # its `to_json()` function
             if issubclass(obj.__class__, Uniserdes):
@@ -235,8 +243,8 @@ class Uniserdes:
 
             return obj
 
-        # Helper function for converting uniserdes objects back to JSON.
         def to_json_helper(obj):
+            """Helper function for converting uniserdes objects back to JSON."""
             # if the object is a list, convert each entry individually
             if type(obj) == list:
                 result = []
@@ -257,12 +265,13 @@ class Uniserdes:
 
         return result
 
-    # Takes in a YAML string and uses it to parse the object's fields.
-    #
-    # The YAML string is parsed into a dictionary via `yaml.safe_load()`,
-    # then passed to the existing `parse_json()` method to populate the
-    # object's fields.
     def parse_yaml(self, yaml_str: str):
+        """Takes in a YAML string and uses it to parse the object's fields.
+
+        The YAML string is parsed into a dictionary via `yaml.safe_load()`,
+        then passed to the existing `parse_json()` method to populate the
+        object's fields.
+        """
         ydata = yaml.safe_load(yaml_str)
         self.parse_json(ydata)
 
@@ -273,46 +282,50 @@ class Uniserdes:
         c.parse_yaml(yaml_str)
         return c
 
-    # Converts the object to JSON, then encodes it into a `bytes` object.
     def to_bytes(self):
+        """Converts the object to JSON, then encodes it into a `bytes` object."""
         return json.dumps(self.to_json()).encode("utf-8")
 
-    # Takes in a `bytes` object and uses it to decode and parse the JSON string
-    # within.
     def parse_bytes(self, b: bytes):
+        """Takes in a `bytes` object and uses it to decode and parse the JSON string
+        within.
+        """
         return self.parse_json(json.loads(b.decode("utf-8")))
 
-    # Converts the object to an encoded hex string.
     def to_hex(self):
+        """Converts the object to an encoded hex string."""
         return self.to_bytes().hex()
 
-    # Takes in a hex string and uses it to decode and parse the JSON contents.
     def parse_hex(self, hstr: str):
+        """Takes in a hex string and uses it to decode and parse the JSON contents."""
         return self.parse_bytes(bytes.fromhex(hstr))
 
-    # Converts the uniserdes object into a YAML string and returns it.
-    #
-    # This reuses the existing `to_json()` method to produce a dictionary,
-    # then serializes that dictionary to YAML format via `yaml.dump()`.
     def to_yaml(self) -> str:
+        """Converts the uniserdes object into a YAML string and returns it.
+
+        This reuses the existing `to_json()` method to produce a dictionary,
+        then serializes that dictionary to YAML format via `yaml.dump()`.
+        """
         return yaml.dump(self.to_json(), default_flow_style=False,
                          sort_keys=False)
 
-    # Returns a list of column names that should be used if this object is
-    # converted to a CSV string.
-    #
-    # This can be used along with `to_csv()` to convert the object to a CSV
-    # string with the correct column names.
     def get_csv_column_names(self):
+        """Returns a list of column names that should be used if this object is
+        converted to a CSV string.
+
+        This can be used along with `to_csv()` to convert the object to a CSV
+        string with the correct column names.
+        """
         # Iterate through all fields and build a list of the names of each
         # field. These form the column names.
         return [f.name for f in self.fields]
 
-    # Converts the object to a CSV string.
-    #
-    # Only top-level fields get their own column. Nested uniserdes objects will
-    # be encoded as JSON strings and placed into a single column.
     def to_csv(self):
+        """Converts the object to a CSV string.
+
+        Only top-level fields get their own column. Nested uniserdes objects will
+        be encoded as JSON strings and placed into a single column.
+        """
         # Convert the object to JSON first, then convert that JSON to a CSV
         # string.
         jdata = self.to_json()
@@ -339,30 +352,31 @@ class Uniserdes:
             csv_entries.append(str(val))
         return ",".join(csv_entries)
 
-    # Makes a copy of this object and returns it.
     def copy(self):
+        """Makes a copy of this object and returns it."""
         return self.__class__.from_json(self.to_json())
 
-    # Converts the object into a tuple for use in a SQLite3 database. By
-    # default, the object is converted to a JSON string, then encoded and
-    # represented as a single hex string (a tuple of length 1).
-    #
-    #   ("(encoded JSON string)")
-    #
-    # However, the caller can specify `fields_to_keep_visible` as a list of
-    # field names that belong to this object. All fields within this list will
-    # *not* be encoded, and instead will be placed directly as tuple entries.
-    #
-    # For example: if your object has a field called `obj_id`, and you want
-    # that to be present in the tuple and *not* encoded, you can specify
-    # `fields_to_keep_visible=["obj_id"]`, and your tuple will look like this:
-    #
-    #   ("(encoded JSON string)", "VALUE_OF_OBJ_ID_FIELD")
-    #
-    # All fields specified in `fields_to_keep_visible` must be simple,
-    # primitive types that can be represented by SQLite3 (such as integers or
-    # strings).
     def to_sqlite3(self, fields_to_keep_visible=[], extra_fields={}):
+        """Converts the object into a tuple for use in a SQLite3 database. By
+        default, the object is converted to a JSON string, then encoded and
+        represented as a single hex string (a tuple of length 1).
+
+          ("(encoded JSON string)")
+
+        However, the caller can specify `fields_to_keep_visible` as a list of
+        field names that belong to this object. All fields within this list will
+        *not* be encoded, and instead will be placed directly as tuple entries.
+
+        For example: if your object has a field called `obj_id`, and you want
+        that to be present in the tuple and *not* encoded, you can specify
+        `fields_to_keep_visible=["obj_id"]`, and your tuple will look like this:
+
+          ("(encoded JSON string)", "VALUE_OF_OBJ_ID_FIELD")
+
+        All fields specified in `fields_to_keep_visible` must be simple,
+        primitive types that can be represented by SQLite3 (such as integers or
+        strings).
+        """
         # encode the entire object as a hex string and store it as the first
         # field in the tuple
         result = (self.to_hex(),)
@@ -397,9 +411,10 @@ class Uniserdes:
 
         return result
 
-    # Converts the SQLite3 tuple representation of the object to a string that
-    # can be safely inserted into SQLite3 commands.
     def to_sqlite3_str(self, fields_to_keep_visible=[], extra_fields={}):
+        """Converts the SQLite3 tuple representation of the object to a string that
+        can be safely inserted into SQLite3 commands.
+        """
         tdata = self.to_sqlite3(fields_to_keep_visible=fields_to_keep_visible,
                                 extra_fields=extra_fields)
 
@@ -419,18 +434,19 @@ class Uniserdes:
         # join everything together and return
         return "(" + ", ".join(str_entries) + ")"
 
-    # Creates a SQLite `CREATE TABLE` statement used to store this type of
-    # object, bearing in mind the same `fields_to_keep_visible` as described
-    # above in `to_sqlite3()`.
-    #
-    # Additionally, a `primary_key_field` can be specified as the name of a
-    # field to represent the entry's primary ID. If this is specified, the
-    # given field name must also be present in `fields_to_keep_visible`.
-    #
-    # The SQLite statement is returned.
     def get_sqlite3_table_definition(self, table_name: str,
                                      fields_to_keep_visible=[],
                                      primary_key_field=None):
+        """Creates a SQLite `CREATE TABLE` statement used to store this type of
+        object, bearing in mind the same `fields_to_keep_visible` as described
+        above in `to_sqlite3()`.
+
+        Additionally, a `primary_key_field` can be specified as the name of a
+        field to represent the entry's primary ID. If this is specified, the
+        given field name must also be present in `fields_to_keep_visible`.
+
+        The SQLite statement is returned.
+        """
         result = "CREATE TABLE IF NOT EXISTS %s (" % table_name
         result += "encoded_obj TEXT, "
 
@@ -490,11 +506,13 @@ class Uniserdes:
         result += ")"
         return result
 
-    # Takes in an object and parses the given SQLite3 tuple.
-    # If any fields names are specified in the `field_kept_visible` array,
-    # their values are retrieved from the extra tuple entries and used to
-    # update the decoded object.
     def parse_sqlite3(self, tdata: tuple, fields_kept_visible=[]):
+        """Takes in an object and parses the given SQLite3 tuple.
+
+        If any fields names are specified in the `field_kept_visible` array,
+        their values are retrieved from the extra tuple entries and used to
+        update the decoded object.
+        """
         # the first field must be the encoded object; decode it
         assert len(tdata) >= (1 + len(fields_kept_visible))
 

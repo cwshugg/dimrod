@@ -32,8 +32,8 @@ from db import HistorianDatabase
 
 # =============================== Config Class =============================== #
 class HistorianConfig(ServiceConfig):
-    # Constructor.
     def __init__(self):
+        """Constructor."""
         super().__init__()
         fields = [
             ConfigField("db_path",              [str],      required=False,     default="./.history.db"),
@@ -43,8 +43,8 @@ class HistorianConfig(ServiceConfig):
 
 # ================================= Service ================================== #
 class HistorianService(Service):
-    # Constructor.
     def __init__(self, config_path):
+        """Constructor."""
         super().__init__(config_path)
         self.config = HistorianConfig()
         self.config.parse_file(config_path)
@@ -52,15 +52,15 @@ class HistorianService(Service):
         # create a database object
         self.db = HistorianDatabase(self.config.db_path)
 
-    # Overridden main function implementation.
     def run(self):
+        """Overridden main function implementation."""
         super().run()
 
 
 # ============================== Service Oracle ============================== #
 class HistorianOracle(Oracle):
-    # Endpoint definition function.
     def endpoints(self):
+        """Endpoint definition function."""
         super().endpoints()
 
         # Endpoint that retrieves and returns the latest N events.

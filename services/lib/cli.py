@@ -28,11 +28,11 @@ C_GREEN = "\033[32m"
 
 # ========================== Command-Line Interface ========================== #
 class ServiceCLI:
-    # Constructor. Takes in the service this CLI will manage.
     def __init__(self,
                  config=lib.service.ServiceConfig,
                  service=lib.service.Service,
                  oracle=lib.oracle.Oracle):
+        """Constructor. Takes in the service this CLI will manage."""
         self.config_class = config
         self.service_class = service
         self.oracle_class = oracle
@@ -54,9 +54,10 @@ class ServiceCLI:
         # save the parser to a class field
         self.parser = p
 
-    # Runs the command-line interface. It parses all arguments then invokes the
-    # service (and oracle, if applicable).
     def run(self):
+        """Runs the command-line interface. It parses all arguments then invokes the
+        service (and oracle, if applicable).
+        """
         args = vars(self.parser.parse_args())
 
         # first, attempt to initialize the config object
@@ -106,8 +107,8 @@ class ServiceCLI:
         service.join()
 
     # ------------------------------- Helpers -------------------------------- #
-    # Pretty-prints an error message and exits.
     def panic(self, msg, exception=None):
+        """Pretty-prints an error message and exits."""
         prefix = exec_name
         if config and hasattr(config, "service_name"):
             prefix = config.service_name
@@ -118,16 +119,16 @@ class ServiceCLI:
             raise exception
         sys.exit(1)
 
-    # Pretty-prints a success message.
     def success(self, msg):
+        """Pretty-prints a success message."""
         prefix = exec_name
         if config and hasattr(config, "service_name"):
             prefix = config.service_name
 
         sys.stderr.write("%s%s:%s %s\n" % (C_GREEN, prefix, C_NONE, msg))
 
-    # SIGINT handler.
     def sigint_handler(self, sig, frame):
+        """SIGINT handler."""
         self.success("caught SIGINT. Exiting.")
         sys.exit(0)
 

@@ -13,8 +13,8 @@ if pdir not in sys.path:
 from lib.oracle import OracleSession
 from lumen.light import LightConfig, Light
 
-# Main function.
 def command_recipes(service, message, args: list):
+    """Main function."""
     # create a HTTP session with chef
     session = OracleSession(service.config.chef)
     try:

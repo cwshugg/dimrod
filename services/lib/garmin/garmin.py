@@ -26,10 +26,11 @@ logging.getLogger("garminconnect").setLevel(logging.CRITICAL)
 # Default directory to store Garmin Connect auth tokens
 garminconnect_default_token_dir = os.path.join(os.path.expandvars("${HOME}"), ".garminconnect")
 
-# An enum used to represent the various states of logging in with Garmin
-# Connect. This can get tricky due to 2FA requirements, so this helps clarify
-# things for the caller.
 class GarminLoginStatus(enum.Enum):
+    """An enum used to represent the various states of logging in with Garmin
+    Connect. This can get tricky due to 2FA requirements, so this helps clarify
+    things for the caller.
+    """
     SUCCESS = 0,
     FAILURE = 1,
     BAD_CREDENTIALS = 2,
@@ -39,8 +40,8 @@ class GarminLoginStatus(enum.Enum):
 
 
 # ============================= Main API Objects ============================= #
-# A config object used to configure the `Garmin` object.
 class GarminConfig(Config):
+    """A config object used to configure the `Garmin` object."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -50,17 +51,19 @@ class GarminConfig(Config):
             ConfigField("auth_tokenstore_dir",      [str],  required=False, default=garminconnect_default_token_dir),
         ]
 
-# Main class for interacting with Garmin Connect.
 class Garmin:
+    """Main class for interacting with Garmin Connect."""
     def __init__(self, config: GarminConfig):
         self.config = config
         self.client = None
         self.login_with_2fa_data = None
 
     # ---------------------------- Authentication ---------------------------- #
-    # Logs in using the configured email and password credentials.
-    # Returns a login status code.
     def login_with_credentials(self):
+        """Logs in using the configured email and password credentials.
+
+        Returns a login status code.
+        """
         try:
             client = garminconnect.Garmin(
                 self.config.account_email,
@@ -88,8 +91,8 @@ class Garmin:
         except Exception as e:
             return GarminLoginStatus.FAILURE
 
-    # Attempts to log in with the provided
     def login_with_2fa(self, code: str):
+        """Attempts to log in with the provided"""
         # make sure we have the 2FA data and the client object from the initial
         # credentials-based login step
         assert self.login_with_2fa_data is not None and \
@@ -115,8 +118,8 @@ class Garmin:
         except GarthException as e:
             return GarminLoginStatus.FAILURE
 
-    # Attempts to log in with an existing token.
     def login_with_tokenstore(self):
+        """Attempts to log in with an existing token."""
         try:
             client = garminconnect.Garmin()
             client.login(self.config.auth_tokenstore_dir)
@@ -125,15 +128,16 @@ class Garmin:
         except Exception as e:
             return GarminLoginStatus.FAILURE
 
-    # Helper function for ensuring the client is logged in.
     def check_logged_in(self):
+        """Helper function for ensuring the client is logged in."""
         assert self.client is not None, \
             "Not logged into Garmin Connect; please call one of the login methods first"
 
     # ------------------------------- Helpers -------------------------------- #
-    # Helper function (mostly for debugging) that returns a list of all
-    # functions that can be invoked through the inner Garmin client.
     def get_all_inner_functions(self):
+        """Helper function (mostly for debugging) that returns a list of all
+        functions that can be invoked through the inner Garmin client.
+        """
         self.check_logged_in()
         results = []
         for entry in dir(self.client):
@@ -141,9 +145,11 @@ class Garmin:
                 results.append(entry)
         return results
 
-    # Generic function to help check for errors in returned Garmin API results.
-    # The provided result object is passed through this function and returned.
     def check_errors(self, result):
+        """Generic function to help check for errors in returned Garmin API results.
+
+        The provided result object is passed through this function and returned.
+        """
         # look for an error message
         errmsg = None
         if hasattr(result, "errorMessage") and result.errorMessage is not None:
@@ -166,24 +172,25 @@ class Garmin:
 
 
     # ------------------------------ Interface ------------------------------- #
-    # Returns the full name of the Garmin account owner.
     def get_full_name(self):
+        """Returns the full name of the Garmin account owner."""
         self.check_logged_in()
         return self.check_errors(self.client.get_full_name())
 
-    # Returns an object containing data on the device that was used last.
     def get_device_last_used(self):
+        """Returns an object containing data on the device that was used last."""
         self.check_logged_in()
         return self.check_errors(self.client.get_device_last_used())
 
-    # Returns a list of objects containing device data.
     def get_devices(self):
+        """Returns a list of objects containing device data."""
         self.check_logged_in()
         return self.check_errors(self.client.get_devices())
 
-    # Returns a list of objects containing the TOTAL step count for a day; one
-    # object for each day in the specified range.
     def get_steps_total_for_day_range(self, start_date: datetime, end_date: datetime):
+        """Returns a list of objects containing the TOTAL step count for a day; one
+        object for each day in the specified range.
+        """
         self.check_logged_in()
         return self.check_errors(self.client.get_daily_steps(
             dtu.format_yyyymmdd(start_date),
@@ -194,20 +201,21 @@ class Garmin:
     # throughout a day, for each day in the specified range.
     #
     # NOTE: This function calls the Garmin API once per day in the specified
-    # range, so it may take a while to complete if the range is large. It may
-    # also quickly hit the rate limit if you requeset too many.
-    #
-    # A list of thees objects is returned for each call to the inner function:
-    #
-    # {
-    #     "startGMT": "2025-11-02T05:00:00.0",
-    #     "endGMT": "2025-11-02T05:15:00.0",
-    #     "steps": 22,
-    #     "pushes": 0,
-    #     "primaryActivityLevel": "sedentary",
-    #     "activityLevelConstant": true
-    # }
     def get_steps_for_day_range(self, start_date: datetime, end_date: datetime):
+        """range, so it may take a while to complete if the range is large. It may
+        also quickly hit the rate limit if you requeset too many.
+
+        A list of thees objects is returned for each call to the inner function:
+
+        {
+            "startGMT": "2025-11-02T05:00:00.0",
+            "endGMT": "2025-11-02T05:15:00.0",
+            "steps": 22,
+            "pushes": 0,
+            "primaryActivityLevel": "sedentary",
+            "activityLevelConstant": true
+        }
+        """
         self.check_logged_in()
         days = dtu.split_by_day(start_date, end_date)
 
@@ -224,9 +232,10 @@ class Garmin:
     # climbed.
     #
     # NOTE: This function calls the Garmin API once per day in the specified
-    # range, so it may take a while to complete if the range is large. It may
-    # also quickly hit the rate limit if you requeset too many.
     def get_floors_for_day_range(self, start_date: datetime, end_date: datetime):
+        """range, so it may take a while to complete if the range is large. It may
+        also quickly hit the rate limit if you requeset too many.
+        """
         self.check_logged_in()
         days = dtu.split_by_day(start_date, end_date)
 
@@ -235,8 +244,8 @@ class Garmin:
             results.append(self.get_floors_for_day(day))
         return results
 
-    # Returns a list of activities for a specific day.
     def get_activities_for_day(self, dt: datetime):
+        """Returns a list of activities for a specific day."""
         self.check_logged_in()
         result = self.client.get_activities_fordate(dtu.format_yyyymmdd(dt))
         self.check_errors(result)
@@ -245,10 +254,12 @@ class Garmin:
         activities = result["ActivitiesForDay"]["payload"]
         return activities
 
-    # Returns a list of activities across a span of days.
-    # The returned list is in sorted order, where the earliest activity
-    # appears first in the list
     def get_activities_for_day_range(self, start_date: datetime, end_date: datetime):
+        """Returns a list of activities across a span of days.
+
+        The returned list is in sorted order, where the earliest activity
+        appears first in the list
+        """
         self.check_logged_in()
         return self.check_errors(self.client.get_activities_by_date(
             dtu.format_yyyymmdd(start_date),
@@ -256,17 +267,18 @@ class Garmin:
             sortorder="asc"
         ))
 
-    # Returns heart rate data for the given date.
     def get_heart_rate_for_day(self, dt: datetime):
+        """Returns heart rate data for the given date."""
         self.check_logged_in()
         return self.check_errors(self.client.get_heart_rates(dtu.format_yyyymmdd(dt)))
 
     # Returns heart rate data for each day specified in the given date range.
     #
     # NOTE: This function calls the Garmin API once per day in the specified
-    # range, so it may take a while to complete if the range is large. It may
-    # also quickly hit the rate limit if you requeset too many.
     def get_heart_rate_for_day_range(self, start_date: datetime, end_date: datetime):
+        """range, so it may take a while to complete if the range is large. It may
+        also quickly hit the rate limit if you requeset too many.
+        """
         self.check_logged_in()
         days = dtu.split_by_day(start_date, end_date)
 
@@ -275,17 +287,18 @@ class Garmin:
             results.append(self.get_heart_rate_for_day(day))
         return results
 
-    # Returns sleep data for the given date.
     def get_sleep_for_day(self, dt: datetime):
+        """Returns sleep data for the given date."""
         self.check_logged_in()
         return self.check_errors(self.client.get_sleep_data(dtu.format_yyyymmdd(dt)))
 
     # Returns sleep data for each day specified in the given date range.
     #
     # NOTE: This function calls the Garmin API once per day in the specified
-    # range, so it may take a while to complete if the range is large. It may
-    # also quickly hit the rate limit if you requeset too many.
     def get_sleep_for_day_range(self, start_date: datetime, end_date: datetime):
+        """range, so it may take a while to complete if the range is large. It may
+        also quickly hit the rate limit if you requeset too many.
+        """
         self.check_logged_in()
         days = dtu.split_by_day(start_date, end_date)
 
@@ -294,36 +307,38 @@ class Garmin:
             results.append(self.get_sleep_for_day(day))
         return results
 
-    # Retrieves VO2Max data for the provided day.
-    #
-    # Example object returned by this function:
-    #
-    # [
-    #     {
-    #         "userId": 6199854,
-    #         "generic":
-    #         {
-    #             "calendarDate": "2020-11-04",
-    #             "vo2MaxPreciseValue": 54.2,
-    #             "vo2MaxValue": 54.0,
-    #             "fitnessAge": 20,
-    #             "fitnessAgeDescription": 2,
-    #             "maxMetCategory": 0
-    #         },
-    #         "cycling": null,
-    #         "heatAltitudeAcclimation": null
-    #     }
-    # ]
     def get_vo2max_for_day(self, dt: datetime):
+        """Retrieves VO2Max data for the provided day.
+
+        Example object returned by this function:
+
+        [
+            {
+                "userId": 6199854,
+                "generic":
+                {
+                    "calendarDate": "2020-11-04",
+                    "vo2MaxPreciseValue": 54.2,
+                    "vo2MaxValue": 54.0,
+                    "fitnessAge": 20,
+                    "fitnessAgeDescription": 2,
+                    "maxMetCategory": 0
+                },
+                "cycling": null,
+                "heatAltitudeAcclimation": null
+            }
+        ]
+        """
         self.check_logged_in()
         return self.check_errors(self.client.get_max_metrics(dtu.format_yyyymmdd(dt)))
 
     # Returns VO2Max data for each day specified in the given date range.
     #
     # NOTE: This function calls the Garmin API once per day in the specified
-    # range, so it may take a while to complete if the range is large. It may
-    # also quickly hit the rate limit if you requeset too many.
     def get_vo2max_for_day_range(self, start_date: datetime, end_date: datetime):
+        """range, so it may take a while to complete if the range is large. It may
+        also quickly hit the rate limit if you requeset too many.
+        """
         self.check_logged_in()
         days = dtu.split_by_day(start_date, end_date)
 

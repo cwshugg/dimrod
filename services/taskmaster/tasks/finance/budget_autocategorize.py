@@ -41,9 +41,10 @@ class BudgetRegexConfig(Config):
             ConfigField("extra_context",                  [list],   required=False, default=[])
         ]
 
-    # Takes in a list of YNAB categories and returns the resulting list, using
-    # the regexes to filter them.
     def filter_categories(self, categories: list):
+        """Takes in a list of YNAB categories and returns the resulting list, using
+        the regexes to filter them.
+        """
         result = []
         for c in categories:
             do_not_include = False
@@ -90,10 +91,11 @@ class TaskJob_Finance_Budget_AutoCategorize_Config(Config):
             ConfigField("msghub_regexes",   [BudgetMsghubRegexConfig], required=False, default=None)
         ]
 
-# This taskjob's purpose is to scan through transactions in YNAB and look for
-# ones that aren't categorized. If any are found, it should attempt to
-# categorize it using... ~AI~.
 class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
+    """This taskjob's purpose is to scan through transactions in YNAB and look for
+    ones that aren't categorized. If any are found, it should attempt to
+    categorize it using... ~AI~.
+    """
     def init(self):
         self.refresh_rate_default = 3600 * 4
         self.refresh_rate = self.refresh_rate_default
@@ -200,9 +202,11 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
 
         return success
     
-    # Processes a single budget.
-    # Returns `True` if changes were made.
     def process_budget(self, ynab: YNAB, budget):
+        """Processes a single budget.
+
+        Returns `True` if changes were made.
+        """
         # get all categories for this budget
         categories = ynab.get_categories(budget.id)
 
@@ -273,8 +277,6 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
         # return all update objects
         return updates
     
-    # Generates a `YNABTransactionUpdate` object given, which will be used
-    # later to update each YNAB transaction remotely.
     def create_transaction_update(self,
                                   ynab: YNAB,
                                   budget,
@@ -282,6 +284,9 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
                                   transaction,
                                   prompt_intro,
                                   speaker_session):
+        """Generates a `YNABTransactionUpdate` object given, which will be used
+        later to update each YNAB transaction remotely.
+        """
         prompt_main = self.create_prompt_main(ynab, budget, categories, transaction)
         
         # send the prompts to the speaker for processing; do this multiple
@@ -345,8 +350,8 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
 
         return result
 
-    # Creates the introductory ("system") prompt for the LLM.
     def create_prompt_intro(self, ynab: YNAB, budget, categories):
+        """Creates the introductory ("system") prompt for the LLM."""
         now = datetime.now()
 
         p = "You are an assistant designed to automatically process transactions in a budget.\n"
@@ -396,9 +401,10 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
 
         return p
     
-    # Creates the main prompt that occurs after the introductory ("system")
-    # prompt for the LLM.
     def create_prompt_main(self, ynab: YNAB, budget, categories, transaction):
+        """Creates the main prompt that occurs after the introductory ("system")
+        prompt for the LLM.
+        """
         jdata = self.transaction_to_prompt_json(transaction)
         return json.dumps(jdata, indent=4)
 

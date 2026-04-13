@@ -27,9 +27,10 @@ class GarminDatabaseEntryBase(Uniserdes):
             UniserdesField("id",               [str],      required=False, default=None),
         ]
 
-    # Turns the entry's start and end time into a unique ID string, such that
-    # the exact same start/end times will produce the same ID string.
     def get_id(self):
+        """Turns the entry's start and end time into a unique ID string, such that
+        the exact same start/end times will produce the same ID string.
+        """
         if self.id is None:
             # if this object has a start and end time, we'll use both of them
             # to generate a unique timestamp, along with the class name
@@ -56,8 +57,8 @@ class GarminDatabaseEntryBase(Uniserdes):
 
 
 # ================================ Step Data ================================= #
-# Represents a single database entry for Garmin step data.
 class GarminDatabaseStepsEntry(GarminDatabaseEntryBase):
+    """Represents a single database entry for Garmin step data."""
     def __init__(self):
         super().__init__()
         self.fields += [
@@ -165,8 +166,8 @@ class GarminDatabaseSleepHeartRateEntry(GarminDatabaseEntryBase):
     def sqlite3_fields_to_keep_visible(cls):
         return ["id", "time_start", "time_end", "heartrate"]
 
-# Represents a single database entry for Garmin sleep data.
 class GarminDatabaseSleepEntry(GarminDatabaseEntryBase):
+    """Represents a single database entry for Garmin sleep data."""
     def __init__(self):
         super().__init__()
         self.fields += [
@@ -273,8 +274,8 @@ class GarminDatabaseSleepEntry(GarminDatabaseEntryBase):
 
 
 # =============================== VO2Max Data ================================ #
-# Represents a single database entry for Garmin vo2max data.
 class GarminDatabaseVO2MaxEntry(GarminDatabaseEntryBase):
+    """Represents a single database entry for Garmin vo2max data."""
     def __init__(self):
         super().__init__()
         self.fields += [
@@ -327,8 +328,8 @@ class GarminDatabaseVO2MaxEntry(GarminDatabaseEntryBase):
 
 
 # ============================= Heart Rate Data ============================== #
-# Represents a single timestamped heart rate data point.
 class GarminDatabaseHeartRateEntry(GarminDatabaseEntryBase):
+    """Represents a single timestamped heart rate data point."""
     def __init__(self):
         super().__init__()
         self.fields += [
@@ -361,8 +362,8 @@ class GarminDatabaseHeartRateEntry(GarminDatabaseEntryBase):
     def sqlite3_fields_to_keep_visible(cls):
         return ["id", "timestamp", "heartrate"]
 
-# Represents a single database entry for Garmin daily heart rate summary.
 class GarminDatabaseHeartRateSummaryEntry(GarminDatabaseEntryBase):
+    """Represents a single database entry for Garmin daily heart rate summary."""
     def __init__(self):
         super().__init__()
         self.fields += [
@@ -406,8 +407,8 @@ class GarminDatabaseHeartRateSummaryEntry(GarminDatabaseEntryBase):
 
 
 # ============================== Activity Data =============================== #
-# Represents a single exercise set entry for a strength training activity.
 class GarminDatabaseExerciseSetEntry(GarminDatabaseEntryBase):
+    """Represents a single exercise set entry for a strength training activity."""
     def __init__(self):
         super().__init__()
         self.fields += [
@@ -432,9 +433,11 @@ class GarminDatabaseExerciseSetEntry(GarminDatabaseEntryBase):
         entry.get_id() # <-- generate the object's ID string
         return entry
 
-    # Overridden to generate an ID based on other fields.
-    # This ID isn't necessarily unique, but it's good enough for my purposes.
     def get_id(self):
+        """Overridden to generate an ID based on other fields.
+
+        This ID isn't necessarily unique, but it's good enough for my purposes.
+        """
         hash_str = self.__class__.__name__ + "|" + \
                    str(self.category) + "|" + \
                    str(self.reps) + "|" + \
@@ -447,8 +450,8 @@ class GarminDatabaseExerciseSetEntry(GarminDatabaseEntryBase):
         return self.id
 
 
-# Represents a single database entry for Garmin activity data.
 class GarminDatabaseActivityEntry(GarminDatabaseEntryBase):
+    """Represents a single database entry for Garmin activity data."""
     def __init__(self):
         super().__init__()
         self.fields += [
@@ -638,16 +641,16 @@ class GarminDatabaseActivityEntry(GarminDatabaseEntryBase):
 
 
 # ============================= Database Objects ============================= #
-# A configuration object for a database.
 class GarminDatabaseConfig(Config):
+    """A configuration object for a database."""
     def __init__(self):
         super().__init__()
         self.fields = [
             ConfigField("db_path",                  [str],      required=True),
         ]
 
-# An object used to interact with a Garmin step database.
 class GarminDatabase:
+    """An object used to interact with a Garmin step database."""
     def __init__(self, config: GarminDatabaseConfig):
         self.config = config
         self.table_steps_name = "steps"
@@ -657,8 +660,8 @@ class GarminDatabase:
         self.table_heart_rate_name = "heart_rate"
         self.table_activity_name = "activities"
 
-    # Determines if a table exists in the database.
     def table_exists(self, table: str) -> bool:
+        """Determines if a table exists in the database."""
         con = sqlite3.connect(self.config.db_path)
         cur = con.cursor()
         result = cur.execute("SELECT 1 FROM sqlite_master WHERE type == 'table' AND name == '%s';" % table)
@@ -666,8 +669,8 @@ class GarminDatabase:
         con.close()
         return table_exists
 
-    # Performs a search of the database and returns tuples in a list.
     def search(self, table: str, condition: str):
+        """Performs a search of the database and returns tuples in a list."""
         # if the table doesn't exist, return an empty list
         if not self.table_exists(table):
             return []
@@ -683,13 +686,14 @@ class GarminDatabase:
         result = cur.execute(cmd)
         return result
 
-    # Executes a search using `ORDER BY` to retrieve entries without needing a
-    # specific condition to identify them.
     def search_order_by(self,
                         table: str,
                         order_by_column: str,
                         desc: bool = False,
                         limit: int = None):
+        """Executes a search using `ORDER BY` to retrieve entries without needing a
+        specific condition to identify them.
+        """
         # if the table doesn't exist, return an empty list
         if not self.table_exists(table):
             return []
@@ -708,8 +712,8 @@ class GarminDatabase:
         return result
 
     # ------------------------------ Step Data ------------------------------- #
-    # Inserts the provided entry into the database.
     def save_steps(self, entry: GarminDatabaseStepsEntry):
+        """Inserts the provided entry into the database."""
         # connect and make sure the table exists
         con = sqlite3.connect(self.config.db_path)
         cur = con.cursor()
@@ -728,9 +732,11 @@ class GarminDatabase:
         con.commit()
         con.close()
 
-    # Searches for step entries with the given entry ID.
-    # Returns None if no entry was found, or the matching entry object.
     def search_steps_by_id(self, entry_id: str):
+        """Searches for step entries with the given entry ID.
+
+        Returns None if no entry was found, or the matching entry object.
+        """
         condition = "id == '%s'" % entry_id
         result = self.search(self.table_steps_name, condition)
 
@@ -748,8 +754,8 @@ class GarminDatabase:
                entry_id
         return entry
 
-    # Searches for step entries within the given time range.
     def search_steps_by_time_range(self, time_start: datetime, time_end: datetime):
+        """Searches for step entries within the given time range."""
         condition = "time_start >= %.f AND time_end <= %.f" % (
             time_start.timestamp(),
             time_end.timestamp()
@@ -763,9 +769,10 @@ class GarminDatabase:
             entries.append(entry)
         return entries
 
-    # Returns the entry with the latest `time_end` timestamp, or `None` if
-    # there are no entries.
     def search_steps_latest(self):
+        """Returns the entry with the latest `time_end` timestamp, or `None` if
+        there are no entries.
+        """
         result = self.search_order_by(
             self.table_steps_name,
             order_by_column="time_end",
@@ -778,8 +785,8 @@ class GarminDatabase:
         return None
 
     # ------------------------------ Step Data ------------------------------- #
-    # Inserts the provided entry into the database.
     def save_sleep(self, entry: GarminDatabaseSleepEntry):
+        """Inserts the provided entry into the database."""
         # connect and make sure the table exists
         con = sqlite3.connect(self.config.db_path)
         cur = con.cursor()
@@ -798,9 +805,11 @@ class GarminDatabase:
         con.commit()
         con.close()
 
-    # Searches for step entries with the given entry ID.
-    # Returns None if no entry was found, or the matching entry object.
     def search_sleep_by_id(self, entry_id: str):
+        """Searches for step entries with the given entry ID.
+
+        Returns None if no entry was found, or the matching entry object.
+        """
         condition = "id == '%s'" % entry_id
         result = self.search(self.table_sleep_name, condition)
 
@@ -818,8 +827,8 @@ class GarminDatabase:
                entry_id
         return entry
 
-    # Searches for sleep entries within the given time range.
     def search_sleep_by_time_range(self, time_start: datetime, time_end: datetime):
+        """Searches for sleep entries within the given time range."""
         condition = "time_start >= %.f AND time_end <= %.f" % (
             time_start.timestamp(),
             time_end.timestamp()
@@ -833,9 +842,10 @@ class GarminDatabase:
             entries.append(entry)
         return entries
 
-    # Returns the entry with the latest `time_end` timestamp, or `None` if
-    # there are no entries.
     def search_sleep_latest(self):
+        """Returns the entry with the latest `time_end` timestamp, or `None` if
+        there are no entries.
+        """
         result = self.search_order_by(
             self.table_sleep_name,
             order_by_column="time_end",
@@ -848,8 +858,8 @@ class GarminDatabase:
         return None
 
     # ----------------------------- VO2Max Data ------------------------------ #
-    # Inserts the provided entry into the database.
     def save_vo2max(self, entry: GarminDatabaseVO2MaxEntry):
+        """Inserts the provided entry into the database."""
         # connect and make sure the table exists
         con = sqlite3.connect(self.config.db_path)
         cur = con.cursor()
@@ -868,9 +878,11 @@ class GarminDatabase:
         con.commit()
         con.close()
 
-    # Searches for step entries with the given entry ID.
-    # Returns None if no entry was found, or the matching entry object.
     def search_vo2max_by_id(self, entry_id: str):
+        """Searches for step entries with the given entry ID.
+
+        Returns None if no entry was found, or the matching entry object.
+        """
         condition = "id == '%s'" % entry_id
         result = self.search(self.table_vo2max_name, condition)
 
@@ -888,8 +900,8 @@ class GarminDatabase:
                entry_id
         return entry
 
-    # Searches for vo2max entries within the given time range.
     def search_vo2max_by_day(self, timestamp: datetime):
+        """Searches for vo2max entries within the given time range."""
         condition = "timestamp >= %.f AND timestamp <= %.f" % (
             dtu.set_time_beginning_of_day(timestamp),
             dtu.set_time_end_of_day(timestamp),
@@ -903,9 +915,10 @@ class GarminDatabase:
             entries.append(entry)
         return entries
 
-    # Returns the entry with the latest timestamp, or `None` if there are no
-    # entries.
     def search_vo2max_latest(self):
+        """Returns the entry with the latest timestamp, or `None` if there are no
+        entries.
+        """
         result = self.search_order_by(
             self.table_vo2max_name,
             order_by_column="timestamp",
@@ -918,8 +931,8 @@ class GarminDatabase:
         return None
 
     # ----------------------- Heart Rate Summary Data ------------------------ #
-    # Inserts the provided entry into the database.
     def save_heart_rate_summary(self, entry: GarminDatabaseHeartRateSummaryEntry):
+        """Inserts the provided entry into the database."""
         # connect and make sure the table exists
         con = sqlite3.connect(self.config.db_path)
         cur = con.cursor()
@@ -938,9 +951,11 @@ class GarminDatabase:
         con.commit()
         con.close()
 
-    # Searches for step entries with the given entry ID.
-    # Returns None if no entry was found, or the matching entry object.
     def search_heart_rate_summary_by_id(self, entry_id: str):
+        """Searches for step entries with the given entry ID.
+
+        Returns None if no entry was found, or the matching entry object.
+        """
         condition = "id == '%s'" % entry_id
         result = self.search(self.table_heart_rate_summary_name, condition)
 
@@ -958,8 +973,8 @@ class GarminDatabase:
                entry_id
         return entry
 
-    # Searches for heart rate entries within the given time range.
     def search_heart_rate_summary_by_day(self, timestamp: datetime):
+        """Searches for heart rate entries within the given time range."""
         condition = "timestamp >= %.f AND timestamp <= %.f" % (
             dtu.set_time_beginning_of_day(timestamp),
             dtu.set_time_end_of_day(timestamp),
@@ -973,9 +988,10 @@ class GarminDatabase:
             entries.append(entry)
         return entries
 
-    # Returns the entry with the latest timestamp, or `None` if there are no
-    # entries.
     def search_heart_rate_summary_latest(self):
+        """Returns the entry with the latest timestamp, or `None` if there are no
+        entries.
+        """
         result = self.search_order_by(
             self.table_heart_rate_summary_name,
             order_by_column="timestamp",
@@ -988,8 +1004,8 @@ class GarminDatabase:
         return None
 
     # --------------------------- Heart Rate Data ---------------------------- #
-    # Inserts the provided entry into the database.
     def save_heart_rate(self, entry: GarminDatabaseHeartRateEntry):
+        """Inserts the provided entry into the database."""
         # connect and make sure the table exists
         con = sqlite3.connect(self.config.db_path)
         cur = con.cursor()
@@ -1035,9 +1051,11 @@ class GarminDatabase:
         con.commit()
         con.close()
 
-    # Searches for entries with the given entry ID.
-    # Returns None if no entry was found, or the matching entry object.
     def search_heart_rate_by_id(self, entry_id: str):
+        """Searches for entries with the given entry ID.
+
+        Returns None if no entry was found, or the matching entry object.
+        """
         condition = "id == '%s'" % entry_id
         result = self.search(self.table_heart_rate_name, condition)
 
@@ -1055,8 +1073,8 @@ class GarminDatabase:
                entry_id
         return entry
 
-    # Searches for heart rate entries within the given time range.
     def search_heart_rate_by_day(self, timestamp: datetime):
+        """Searches for heart rate entries within the given time range."""
         condition = "timestamp >= %.f AND timestamp <= %.f" % (
             dtu.set_time_beginning_of_day(timestamp),
             dtu.set_time_end_of_day(timestamp),
@@ -1070,9 +1088,10 @@ class GarminDatabase:
             entries.append(entry)
         return entries
 
-    # Returns the entry with the latest timestamp, or `None` if there are no
-    # entries.
     def search_heart_rate_latest(self):
+        """Returns the entry with the latest timestamp, or `None` if there are no
+        entries.
+        """
         result = self.search_order_by(
             self.table_heart_rate_name,
             order_by_column="timestamp",
@@ -1085,8 +1104,8 @@ class GarminDatabase:
         return None
 
     # ---------------------------- Activity Data ----------------------------- #
-    # Inserts the provided entry into the database.
     def save_activity(self, entry: GarminDatabaseActivityEntry):
+        """Inserts the provided entry into the database."""
         # connect and make sure the table exists
         con = sqlite3.connect(self.config.db_path)
         cur = con.cursor()
@@ -1105,9 +1124,11 @@ class GarminDatabase:
         con.commit()
         con.close()
 
-    # Searches for step entries with the given entry ID.
-    # Returns None if no entry was found, or the matching entry object.
     def search_activity_by_id(self, entry_id: str):
+        """Searches for step entries with the given entry ID.
+
+        Returns None if no entry was found, or the matching entry object.
+        """
         condition = "id == '%s'" % entry_id
         result = self.search(self.table_activity_name, condition)
 
@@ -1125,8 +1146,8 @@ class GarminDatabase:
                entry_id
         return entry
 
-    # Searches for activity entries within the given time range.
     def search_activity_by_day(self, timestamp: datetime):
+        """Searches for activity entries within the given time range."""
         condition = "time_start >= %.f AND time_start <= %.f" % (
             dtu.set_time_beginning_of_day(timestamp),
             dtu.set_time_end_of_day(timestamp),
@@ -1140,9 +1161,10 @@ class GarminDatabase:
             entries.append(entry)
         return entries
 
-    # Returns the entry with the latest timestamp, or `None` if there are no
-    # entries.
     def search_activity_latest(self):
+        """Returns the entry with the latest timestamp, or `None` if there are no
+        entries.
+        """
         result = self.search_order_by(
             self.table_activity_name,
             order_by_column="time_start",

@@ -7,8 +7,8 @@
 import sys
 import json
 
-# Main function.
 def main():
+    """Main function."""
     # check command-line arguments and attempt to parse as JSON
     data = {}
     if len(sys.argv) > 1:

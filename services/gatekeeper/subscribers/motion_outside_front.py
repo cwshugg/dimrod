@@ -55,8 +55,8 @@ light_colors = [
     [255,   215,    210],   # 11:00 pm
 ]
 
-# Helper function for talking with Lumen.
 def lumen_send(lid: str, action: str, color=None, brightness=None):
+    """Helper function for talking with Lumen."""
     # read the JSON config file to get Lumen credentials and create a session
     global lumen_config
     if lumen_config is None:
@@ -85,8 +85,8 @@ def lumen_send(lid: str, action: str, color=None, brightness=None):
     print("Lumen response: %d (%s)" % (r.status_code, json.dumps(r.json(), indent=4)))
     return r
 
-# Takes in the current datetime and returns a color to use for the front light.
 def get_color(now: datetime):
+    """Takes in the current datetime and returns a color to use for the front light."""
     # halloween colors
     if now.month == 10:
         # at night: spooky purple
@@ -119,8 +119,8 @@ def get_color(now: datetime):
     # default: warm white
     return [255, 235, 225]
 
-# Main function.
 def main():
+    """Main function."""
     # check command-line arguments and attempt to parse as JSON
     data = {}
     if len(sys.argv) > 1:

@@ -38,9 +38,10 @@ task_directory = os.path.join(fdir, "tasks")
 
 
 # ============================== Multithreading ============================== #
-# An object that allows the queue-user to wait on specific queued jobs to be
-# complete.
 class TaskmasterThreadQueueFuture:
+    """An object that allows the queue-user to wait on specific queued jobs to be
+    complete.
+    """
     def __init__(self):
         self.lock = threading.Lock()
         self.cond = threading.Condition(lock=self.lock)
@@ -58,21 +59,21 @@ class TaskmasterThreadQueueFuture:
         self.cond.notify()
         self.lock.release()
 
-# An object that is submitted to the thread queue.
 class TaskmasterThreadQueueEntry:
+    """An object that is submitted to the thread queue."""
     def __init__(self, taskjob: TaskJob):
         self.taskjob = taskjob
         self.future = TaskmasterThreadQueueFuture()
 
-# A queue used to submit taskjobs to taskmaster worker threads.
 class TaskmasterThreadQueue:
+    """A queue used to submit taskjobs to taskmaster worker threads."""
     def __init__(self):
         self.lock = threading.Lock()
         self.cond = threading.Condition(lock=self.lock)
         self.queue = []
 
-    # Pushes to the queue and alerts a waiting thread.
     def push(self, taskjob: TaskJob):
+        """Pushes to the queue and alerts a waiting thread."""
         # put together an entry object to submit to the queue
         entry = TaskmasterThreadQueueEntry(taskjob)
 
@@ -84,8 +85,8 @@ class TaskmasterThreadQueue:
         # return the future
         return entry.future
 
-    # Pops from the queue, blocking if the queue is empty.
     def pop(self):
+        """Pops from the queue, blocking if the queue is empty."""
         self.lock.acquire()
         while len(self.queue) == 0:
             self.cond.wait()
@@ -93,22 +94,24 @@ class TaskmasterThreadQueue:
         self.lock.release()
         return entry
 
-# Represents an individual thread used to handle the running of taskjobs.
-# Because some taskjob updates may have a noticeable latency, these threads
-# provide a way to parallelize things.
 class TaskmasterThread(threading.Thread):
+    """Represents an individual thread used to handle the running of taskjobs.
+
+    Because some taskjob updates may have a noticeable latency, these threads
+    provide a way to parallelize things.
+    """
     def __init__(self, service, queue: TaskmasterThreadQueue):
         super().__init__(target=self.run)
         self.service = service
         self.queue = queue
 
-    # Writes a log message using the lumen service's log object.
     def log(self, msg: str):
+        """Writes a log message using the lumen service's log object."""
         ct = threading.current_thread()
         self.service.log.write("[Worker Thread %d] %s" % (ct.native_id, msg))
 
-    # The thread's main function.
     def run(self):
+        """The thread's main function."""
         self.log("Spawned.")
 
         # loop forever
@@ -174,8 +177,8 @@ class TaskmasterService(Service):
             t.start()
             self.threads.append(t)
 
-    # Imports all task jobs in the task job directory.
     def get_jobs(self):
+        """Imports all task jobs in the task job directory."""
         assert os.path.isdir(task_directory), "missing task directory: %s" % task_directory
 
         # search the task directory for python files
@@ -207,16 +210,19 @@ class TaskmasterService(Service):
 
         return self.task_dict
 
-    # Uses the lumen configuration fields to retrieve and return an
-    # authenticated Lumen OracleSession.
     def get_lumen_session(self):
+        """Uses the lumen configuration fields to retrieve and return an
+        authenticated Lumen OracleSession.
+        """
         ls = OracleSession(self.config.lumen)
         ls.login()
         return ls
 
-    # Creates and returns a new OracleSession with the speaker.
-    # If authentication fails, None is returned.
     def get_speaker_session(self):
+        """Creates and returns a new OracleSession with the speaker.
+
+        If authentication fails, None is returned.
+        """
         s = OracleSession(self.config.speaker)
         r = s.login()
         if not OracleSession.get_response_success(r):
@@ -225,8 +231,8 @@ class TaskmasterService(Service):
             return None
         return s
 
-    # Performs a oneshot LLM call and response.
     def dialogue_oneshot(self, intro: str, message: str):
+        """Performs a oneshot LLM call and response."""
         # attempt to connect to the speaker
         speaker = self.get_speaker_session()
         if speaker is None:
@@ -246,16 +252,16 @@ class TaskmasterService(Service):
                        OracleSession.get_response_message(r))
         return message
 
-    # Returns a Todoist API object.
     def get_todoist(self):
+        """Returns a Todoist API object."""
         return Todoist(self.config.todoist)
 
-    # Returns a Google Calendar API object.
     def get_gcal(self):
+        """Returns a Google Calendar API object."""
         return GoogleCalendar(self.config.google_calendar)
 
-    # Overridden abstract class implementation for the service thread.
     def run(self):
+        """Overridden abstract class implementation for the service thread."""
         super().run()
 
         taskjobs_len = 0
@@ -332,8 +338,8 @@ class TaskmasterService(Service):
 
 # ============================== Service Oracle ============================== #
 class TaskmasterOracle(Oracle):
-    # Endpoint definition function.
     def endpoints(self):
+        """Endpoint definition function."""
         super().endpoints()
 
         # TODO

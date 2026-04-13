@@ -64,8 +64,8 @@ month_strings_full = [
 
 
 # ================================= Configs ================================== #
-# A sub-config class used to store date/time info for a trip.
 class TripTimeConfig(Config):
+    """A sub-config class used to store date/time info for a trip."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -124,28 +124,30 @@ class TripTimeConfig(Config):
                     ms.append(val)
         self.departure_months = sorted(ms)
 
-    # Examines the time config's weekdays/months/years/etc. and determines
-    # dates that match. A list of datetime.datetime objects are returned in a
-    # list of tuples:
-    #
-    #   [
-    #       [date0_embark, date0_return],
-    #       [date1_embark, date1_return],
-    #       ...
-    #   ]
-    #
-    # If `count` is specified, only up to the closest `count` dates will be
-    # returned.
-    # (By default, all dates within the configured `departure_years` are
-    # returned. If `departure_years` is not specified, a finite number of years
-    # ahead of `after` is examined.)
-    #
-    # If `after` is specified, only the dates occurring *after* `after` will be
-    # returned.
     def get_dates(self, count=None, after=None):
-        # Helper function that adds the given number of seconds to a datetime
-        # and returns a new version.
+        """Examines the time config's weekdays/months/years/etc. and determines
+        dates that match. A list of datetime.datetime objects are returned in a
+        list of tuples:
+
+          [
+              [date0_embark, date0_return],
+              [date1_embark, date1_return],
+              ...
+          ]
+
+        If `count` is specified, only up to the closest `count` dates will be
+        returned.
+        (By default, all dates within the configured `departure_years` are
+        returned. If `departure_years` is not specified, a finite number of years
+        ahead of `after` is examined.)
+
+        If `after` is specified, only the dates occurring *after* `after` will be
+        returned.
+        """
         def dt_add(dt: datetime, secs: int):
+            """Helper function that adds the given number of seconds to a datetime
+            and returns a new version.
+            """
             return datetime.fromtimestamp(dt.timestamp() + secs)
 
         # handle defaults
@@ -198,8 +200,8 @@ class TripTimeConfig(Config):
 
         return result
 
-# A sub-config class used to store flight info for a trip.
 class TripFlightConfig(Config):
+    """A sub-config class used to store flight info for a trip."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -211,8 +213,8 @@ class TripFlightConfig(Config):
             ConfigField("passengers_child",         [int],      required=False, default=0),
         ]
 
-# A sub-config class used to store all desired configurations to travelling.
 class TripConfig(Config):
+    """A sub-config class used to store all desired configurations to travelling."""
     def __init__(self):
         super().__init__()
         self.fields = [

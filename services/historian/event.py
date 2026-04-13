@@ -31,8 +31,8 @@ class HistorianEvent(Uniserdes):
         ]
         self.id = event_id
     
-    # Generates and returns a unique ID string for the event.
     def get_id(self):
+        """Generates and returns a unique ID string for the event."""
         # only generate once
         if self.id is not None:
             return self.id
@@ -44,15 +44,15 @@ class HistorianEvent(Uniserdes):
         return hashlib.sha256(idstr.encode() + salt).hexdigest()
     
     # --------------------------- JSON Conversion ---------------------------- #
-    # Overridden JSON parsing function.
     def parse_json(self, jdata: dict):
+        """Overridden JSON parsing function."""
         super().parse_json(jdata)
 
         # convert the timestamp from an integer to a datetime object
         self.timestamp = datetime.fromtimestamp(self.timestamp)
     
-    # Overridden JSON conversion function.
     def to_json(self, include_id=False):
+        """Overridden JSON conversion function."""
         # convert the timestamp back into an integer
         self.timestamp = int(self.timestamp.timestamp())
 
@@ -75,9 +75,10 @@ class HistorianEvent(Uniserdes):
             tagstr += "%s%s" % (t, event_tag_delimeter if i < len(tags) - 1 else "")
         return tagstr
     
-    # Converts the object to a tuple, useable by SQLite3 for inserting into a
-    # database.
     def to_sqlite3(self):
+        """Converts the object to a tuple, useable by SQLite3 for inserting into a
+        database.
+        """
         # there isn't a clean way to store a list of strings (the event's tags)
         # into the database, so we'll convert it to a concatenated string
         tagstr = self.tags_to_sqlite3(self.tags)

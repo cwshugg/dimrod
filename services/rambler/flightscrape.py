@@ -23,16 +23,16 @@ if pdir not in sys.path:
 from configs import *
 
 # ============================= Generic Objects ============================== #
-# Represents a single flight scraped from online.
 class FlightInfo:
+    """Represents a single flight scraped from online."""
     def __init__(self):
         # TODO
         pass
 
-# Represents a generic scraper that must be overridden by a subclass.
 class FlightScraper(abc.ABC):
-    # Constructor.
+    """Represents a generic scraper that must be overridden by a subclass."""
     def __init__(self, config):
+        """Constructor."""
         self.config = config
         self.browser = None
     
@@ -46,8 +46,8 @@ class FlightScraper(abc.ABC):
                count=10):
         pass
     
-    # Creates and returns a selenium browser object.
     def browser_open(self):
+        """Creates and returns a selenium browser object."""
         assert self.browser is None, "A browser already exists."
         # pass a number of arguments into firefox
         opts = webdriver.FirefoxOptions()
@@ -57,8 +57,8 @@ class FlightScraper(abc.ABC):
         opts.add_argument("--disable-gpu")
         self.browser = webdriver.Firefox(options=opts)
     
-    # Closes the current webdriver/browser instance.
     def browser_exit(self):
+        """Closes the current webdriver/browser instance."""
         assert self.browser is not None, "No browser has been opened."
         self.browser.quit()
         self.browser = None
@@ -135,21 +135,22 @@ class FlightScraper(abc.ABC):
 
 # ============================== Kayak Scraper =============================== #
 class FlightScraper_Kayak(FlightScraper):
-    # Constructor.
     def __init__(self, config):
+        """Constructor."""
         super().__init__(config)
         self.url = "https://www.kayak.com/flights"
    
-    # Creates and returns one or more Kayak URLs given the parameters and the
-    # desired embark and return dates.
-    # Example:
-    #   https://www.kayak.com/flights/SEA-DEN/2023-10-26/2023-11-02/1adults
-    #   https://www.kayak.com/flights/SEA-DEN/2023-10-26/1adults
     def make_urls(self, params: TripFlightConfig,
                   dt_embark: datetime,
                   dt_return: datetime):
-        # Helper function to construct a URL
+        """Creates and returns one or more Kayak URLs given the parameters and the
+        desired embark and return dates.
+        Example:
+          https://www.kayak.com/flights/SEA-DEN/2023-10-26/2023-11-02/1adults
+          https://www.kayak.com/flights/SEA-DEN/2023-10-26/1adults
+        """
         def make_url_helper(ap1, ap2, dt1, dt2, num_adults):
+            """Helper function to construct a URL"""
             url = "%s/%s-%s/" % (self.url, ap1, ap2)
             url += "%s/" % dt1.strftime("%Y-%m-%d")
             if dt2 is not None:

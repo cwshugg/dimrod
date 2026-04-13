@@ -31,8 +31,8 @@ from device import KnownDeviceConfig, DeviceHardwareAddress, \
 
 # =============================== Config Class =============================== #
 class WardenConfig(ServiceConfig):
-    # Constructor.
     def __init__(self):
+        """Constructor."""
         super().__init__()
         # create lumen-specific fields to append to the existing service fields
         fields = [
@@ -49,8 +49,8 @@ class WardenConfig(ServiceConfig):
 
 # ============================== Service Class =============================== #
 class WardenService(Service):
-    # Constructor.
     def __init__(self, config_path):
+        """Constructor."""
         super().__init__(config_path)
         self.config = WardenConfig()
         self.config.parse_file(config_path)
@@ -66,12 +66,12 @@ class WardenService(Service):
         self.last_sweep = datetime.fromtimestamp(0)
 
 
-    # Overridden main function implementation.
     def run(self):
+        """Overridden main function implementation."""
         super().run()
 
-        # Helper function to determine if it's time for a sweep.
         def can_sweep():
+            """Helper function to determine if it's time for a sweep."""
             time_to_sweep_threshold = now.timestamp() - self.last_sweep.timestamp()
             can_sweep = time_to_sweep_threshold >= self.config.sweep_threshold
             return can_sweep
@@ -125,20 +125,21 @@ class WardenService(Service):
 
 
     # ------------------------------- Caching -------------------------------- #
-    # Returns the matching device object, or None.
     def cache_get(self, macaddr: str):
+        """Returns the matching device object, or None."""
         macaddr = macaddr.lower()
         return None if macaddr not in self.cache else self.cache[macaddr]
 
-    # Takes a MAC address and adds an entry to the cache. The `Device` object is
-    # returned.
     def cache_set(self, device: Device):
+        """Takes a MAC address and adds an entry to the cache. The `Device` object is
+        returned.
+        """
         macaddr = device.hw_addr.macaddr.lower()
         self.cache[macaddr] = device
 
     # --------------------------------- API ---------------------------------- #
-    # Attempts to determine (and return) the IP address of the service.
     def get_address(self):
+        """Attempts to determine (and return) the IP address of the service."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(0)
         addr = None
@@ -153,8 +154,8 @@ class WardenService(Service):
         sock.close()
         return addr
 
-    # Gets the service's IP address with the "/24" netmask included at the end.
     def get_netmask(self):
+        """Gets the service's IP address with the "/24" netmask included at the end."""
         args = ["ip", "-o", "-f", "inet", "addr", "show"]
         result = subprocess.run(args, capture_output=True)
         assert len(result.stderr) == 0, "\"ip\" command produced error messages"
@@ -180,19 +181,21 @@ class WardenService(Service):
         # we shouldn't reach here...
         assert False, "failed to look up netmask"
 
-    # Returns a list of all the valid addresses on the same network as the
-    # service.
     def get_all_addresses(self):
+        """Returns a list of all the valid addresses on the same network as the
+        service.
+        """
         network = ipaddress.IPv4Network(self.get_netmask(), strict=False)
         result = []
         for addr in list(network.hosts()):
             result.append(str(addr))
         return result
 
-    # Sweeps the entire range of IP addresses in the same subnet as the
-    # service's IP address. Returns dictionary of IP addresses and MAC
-    # addresses corresponding to the devices that responded.
     def sweep(self):
+        """Sweeps the entire range of IP addresses in the same subnet as the
+        service's IP address. Returns dictionary of IP addresses and MAC
+        addresses corresponding to the devices that responded.
+        """
         self.last_sweep = datetime.now()
         # get all addresses, and our own address
         addr = self.get_address()
@@ -260,11 +263,12 @@ class WardenService(Service):
 
         return devices_found
 
-    # Attempts to do various nmap ping strategies to identify if a host is up or
-    # not. Used by `self.ping()`. Returns True if the host is up, False
-    # otherwise.
-    # https://nmap.org/book/host-discovery-techniques.html
     def ping_nmap(self, address: str, timeout: float, tries: int, pingtype=None):
+        """Attempts to do various nmap ping strategies to identify if a host is up or
+        not. Used by `self.ping()`. Returns True if the host is up, False
+        otherwise.
+        https://nmap.org/book/host-discovery-techniques.html
+        """
         tmpfile = ".warden.nmap.out"
 
         # select a ping type to attempt
@@ -331,10 +335,12 @@ class WardenService(Service):
             # return according to what we found in the output
             return host_is_up
 
-    # Pings a given IP address and returns True if the host is up.
-    # This may attempt multiple pings to reduce inaccuracy or unreturned pings
-    # due to network latency.
     def ping_classic(self, address: str, timeout=None, tries=None):
+        """Pings a given IP address and returns True if the host is up.
+
+        This may attempt multiple pings to reduce inaccuracy or unreturned pings
+        due to network latency.
+        """
         # establish defaults if none were given
         timeout = self.config.ping_timeout if timeout is None else timeout
         tries = self.config.ping_tries if tries is None else tries
@@ -361,9 +367,10 @@ class WardenService(Service):
             return True
         return False
 
-    # Attempts a variety of different pinging techniques to determine if a host
-    # is up and responding.
     def ping(self, address: str, timeout=None, tries=None):
+        """Attempts a variety of different pinging techniques to determine if a host
+        is up and responding.
+        """
         # establish limits and run the nmap helper
         timeout = self.config.ping_timeout if timeout is None else timeout
         tries = self.config.ping_tries if tries is None else tries
@@ -384,10 +391,11 @@ class WardenService(Service):
         # offline
         return False
 
-    # Look up the MAC address of the given IP address. If 'do_ping' is True, the
-    # address will be pinged beforehand (to fill up the ARP cache).
-    # The MAC address is returned as a string.
     def arp(self, address: str, do_ping=True):
+        """Look up the MAC address of the given IP address. If 'do_ping' is True, the
+        address will be pinged beforehand (to fill up the ARP cache).
+        The MAC address is returned as a string.
+        """
         # if specified, ping the address
         if do_ping:
             assert self.ping(address), "the address did not respond to a ping"
@@ -409,8 +417,8 @@ class WardenService(Service):
                 return pieces[2]
         return None
 
-    # Looks up the vendor for a given MAC address. Returns a string.
     def mac_vendor(self, macaddr: str):
+        """Looks up the vendor for a given MAC address. Returns a string."""
         # sanitize the MAC address
         macaddr_sanitized = macaddr.lower().replace("-", ":").replace(".", ":")
 
@@ -418,8 +426,8 @@ class WardenService(Service):
         mac = MacLookup()
         return mac.lookup(macaddr_sanitized)
 
-    # Refreshes the MAC address vendor cache.
     def mac_vendor_refresh_cache(self):
+        """Refreshes the MAC address vendor cache."""
         BaseMacLookup.cache_path = self.config.mac_vendor_cache_path
         mac = MacLookup()
         mac.update_vendors()
@@ -427,8 +435,8 @@ class WardenService(Service):
 
 # ============================== Service Oracle ============================== #
 class WardenOracle(Oracle):
-    # Endpoint definition function.
     def endpoints(self):
+        """Endpoint definition function."""
         super().endpoints()
 
         # This endpoint returns a list of all configured devices. The response

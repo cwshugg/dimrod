@@ -18,8 +18,8 @@ import lib.dtu as dtu
 from lib.config import Config, ConfigField
 from lib.oracle import OracleSession
 
-# Base class for medical-based tasks.
 class TaskJob_Medical(TaskJob):
+    """Base class for medical-based tasks."""
     def update(self, todoist, gcal):
         super().update(todoist, gcal)
         return False

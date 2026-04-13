@@ -14,9 +14,10 @@ if pdir not in sys.path:
 # Globals
 ntfy_url_base = "https://ntfy.sh"
 
-# Sends a request to ntfy.sh to deliver a simple string message to the given
-# topic.
 def ntfy_send(topic: str, message: str, title=None, tags=[], priority=3):
+    """Sends a request to ntfy.sh to deliver a simple string message to the given
+    topic.
+    """
     url = ntfy_url_base
     
     s = requests.Session()
@@ -45,12 +46,12 @@ def ntfy_send(topic: str, message: str, title=None, tags=[], priority=3):
     # post the request, with the message as the HTTP request body
     return s.post(url, json=jdata, headers=headers)
 
-# Represents an individual ntfy.sh topic.
 class NtfyChannel:
+    """Represents an individual ntfy.sh topic."""
     def __init__(self, name: str):
         self.name = name
     
-    # Wrapper function that invokes the above ntfy_send() function.
     def post(self, message: str, title=None, tags=[], priority=3):
+        """Wrapper function that invokes the above ntfy_send() function."""
         return ntfy_send(self.name, message, title=title, tags=tags, priority=priority)
 

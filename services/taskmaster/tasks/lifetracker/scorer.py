@@ -26,8 +26,8 @@ class ScoringTimeRange:
                (dtu.format_yyyymmdd(self.start), dtu.format_yyyymmdd(self.end))
 
 class TaskJob_LifeTracker_Scorer(TaskJob_LifeTracker):
-    # Overridden initialization function.
     def init(self):
+        """Overridden initialization function."""
         super().init()
         self.config_name = "main.json"
         self.refresh_rate = 520000 # about 6 days
@@ -114,9 +114,10 @@ class TaskJob_LifeTracker_Scorer(TaskJob_LifeTracker):
         self.send_message(tracker, msg)
         return True
     
-    # Computes a score for the given list of metric entries, with the provided
-    # metric to match it.
     def score_metric_entries(self, metric: LifeMetric, entries: list):
+        """Computes a score for the given list of metric entries, with the provided
+        metric to match it.
+        """
         total_score = 0
 
         # iterate across all entries

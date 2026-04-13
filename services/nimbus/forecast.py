@@ -16,8 +16,8 @@ if pdir not in sys.path:
 from lib.uniserdes import Uniserdes, UniserdesField
 
 class Forecast(Uniserdes):
-    # Constructor.
     def __init__(self):
+        """Constructor."""
         super().__init__()
         self.fields += [
             UniserdesField("name",                 [str],      required=True),
@@ -31,8 +31,8 @@ class Forecast(Uniserdes):
             UniserdesField("time_end",             [str],      required=True)
         ]
 
-    # Overridden JSON parsing function.
     def parse_json(self, jdata: dict):
+        """Overridden JSON parsing function."""
         # the API returns slightly different names, so I'll rename some
         # fields here
         renames = {
@@ -56,8 +56,8 @@ class Forecast(Uniserdes):
         self.time_start = dateutil.parser.parse(self.time_start)
         self.time_end = dateutil.parser.parse(self.time_end)
     
-    # Overridden JSON conversion function.
     def to_json(self):
+        """Overridden JSON conversion function."""
         jdata = super().to_json()
         jdata["time_start"] = self.time_start.timestamp()
         jdata["time_end"] = self.time_end.timestamp()

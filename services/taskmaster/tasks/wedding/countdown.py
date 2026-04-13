@@ -53,14 +53,14 @@ class TaskJob_Wedding_Countdown(TaskJob_Wedding):
             self.send_message(chat_id, "There are %d days until the wedding!" % days)
         return True
 
-    # Creates and returns an authenticated OracleSession with the telegram bot.
     def get_telegram_session(self):
+        """Creates and returns an authenticated OracleSession with the telegram bot."""
         s = OracleSession(self.service.config.telegram)
         s.login()
         return s
     
-    # Sends a message to Telegram.
     def send_message(self, chat_id: str, text: str):
+        """Sends a message to Telegram."""
         telegram_session = self.get_telegram_session()
 
         # create a payload and send it to Telegram to create the menu

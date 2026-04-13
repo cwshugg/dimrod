@@ -22,8 +22,8 @@ import lib.ntfy
 
 
 # ============================== Service Config ============================== #
-# A config class for a generic service.
 class ServiceConfig(lib.config.Config):
+    """A config class for a generic service."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -35,11 +35,12 @@ class ServiceConfig(lib.config.Config):
 
 
 # ================================ Main Class ================================ #
-# Main service class. Caller must 'start()' the service as if it was starting a
-# thread.
 class Service(threading.Thread):
-    # Constructor.
+    """Main service class. Caller must 'start()' the service as if it was starting a
+    thread.
+    """
     def __init__(self, config_path):
+        """Constructor."""
         threading.Thread.__init__(self, target=self.run)
         self.config = ServiceConfig()
         self.config.parse_file(config_path)
@@ -54,8 +55,9 @@ class Service(threading.Thread):
         # initialize the ntfy.sh topic class
         self.msghub = lib.ntfy.NtfyChannel(self.config.msghub_name)
 
-    # The service's main thread. This function must is where all the service's
-    # actual work will occur, and thus must be extended by subclasses.
     def run(self):
+        """The service's main thread. This function must is where all the service's
+        actual work will occur, and thus must be extended by subclasses.
+        """
         self.log.write("Running main thread.")
 

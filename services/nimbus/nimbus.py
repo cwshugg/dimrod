@@ -29,8 +29,8 @@ from forecast import Forecast
 
 # =============================== Config Class =============================== #
 class NimbusConfig(ServiceConfig):
-    # Constructor.
     def __init__(self):
+        """Constructor."""
         super().__init__()
         self.fields += [
             ConfigField("locations",            [list],     required=True),
@@ -43,8 +43,8 @@ class NimbusConfig(ServiceConfig):
 
 # ============================== Service Class =============================== #
 class NimbusService(Service):
-    # Constructor.
     def __init__(self, config_path):
+        """Constructor."""
         super().__init__(config_path)
         self.config = NimbusConfig()
         self.config.parse_file(config_path)
@@ -65,15 +65,17 @@ class NimbusService(Service):
             locs.append(loc)
         self.locations = locs
 
-    # Main runner function.
     def run(self):
+        """Main runner function."""
         super().run()
 
     # ------------------------------ Interface ------------------------------- #
-    # Accepts a Location object and attempts to look up its weather status.
-    # Returns a Forecast object, or None if a forecast according to the 'when'
-    # time can't be found.
     def forecast(self, location: Location, when: datetime):
+        """Accepts a Location object and attempts to look up its weather status.
+
+        Returns a Forecast object, or None if a forecast according to the 'when'
+        time can't be found.
+        """
         # make sure we have a longitude and latitude for the location
         if location.longitude is None or location.latitude is None:
             location.locate()
@@ -109,8 +111,8 @@ class NimbusService(Service):
 
 # ============================== Service Oracle ============================== #
 class NimbusOracle(Oracle):
-    # Endpoint definition function.
     def endpoints(self):
+        """Endpoint definition function."""
         super().endpoints()
 
         # Endpoint that takes in a location and looks up basic weather

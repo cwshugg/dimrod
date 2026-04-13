@@ -13,11 +13,12 @@ if pdir not in sys.path:
 # Local imports
 from lib.uniserdes import Uniserdes, UniserdesField
 
-# Class that represents a single known device's information, which can be
-# provided at runtime via a config file.
 class KnownDeviceConfig(Uniserdes):
-    # Constructor.
+    """Class that represents a single known device's information, which can be
+    provided at runtime via a config file.
+    """
     def __init__(self):
+        """Constructor."""
         super().__init__()
         self.fields = [
             UniserdesField("name",             [str],      required=True),
@@ -35,30 +36,31 @@ class KnownDeviceConfig(Uniserdes):
         # sanitize tags
         self.tags = [tag.strip().lower() for tag in self.tags]
 
-# Class that represents a device's unique hardware address.
 class DeviceHardwareAddress(Uniserdes):
-    # Constructor.
+    """Class that represents a device's unique hardware address."""
     def __init__(self):
+        """Constructor."""
         super().__init__()
         self.fields = [
             UniserdesField("macaddr",          [str],      required=True),
             UniserdesField("vendor",           [str],      required=False, default=None),
         ]
 
-# Class that represents a device's network connection address.
 class DeviceNetworkAddress(Uniserdes):
-    # Constructor.
+    """Class that represents a device's network connection address."""
     def __init__(self):
+        """Constructor."""
         super().__init__()
         self.fields = [
             UniserdesField("ipaddr",           [str],      required=True),
         ]
 
-# Class that represents a device. It has a configuration (`DeviceConfig`) and
-# can have a `DeviceAddress`.
 class Device(Uniserdes):
-    # Constructor.
+    """Class that represents a device. It has a configuration (`DeviceConfig`) and
+    can have a `DeviceAddress`.
+    """
     def __init__(self):
+        """Constructor."""
         super().__init__()
         self.fields = [
             UniserdesField("known_device",     [KnownDeviceConfig],        required=False, default=None),
@@ -67,20 +69,20 @@ class Device(Uniserdes):
             UniserdesField("last_seen",        [datetime],                 required=False, default=None),
         ]
 
-    # Assigns a known device configuration to this device.
     def set_known_device(self, known_dev: KnownDeviceConfig):
+        """Assigns a known device configuration to this device."""
         self.known_device = known_dev
 
-    # Sets the device's hardware address.
     def set_hardware_address(self, hw_addr: DeviceHardwareAddress):
+        """Sets the device's hardware address."""
         self.hw_addr = hw_addr
 
-    # Sets the device's network address.
     def set_network_address(self, net_addr: DeviceNetworkAddress):
+        """Sets the device's network address."""
         self.net_addr = net_addr
 
-    # Sets the time the device was last seen on the network.
     def set_last_seen(self, timestamp: datetime):
+        """Sets the time the device was last seen on the network."""
         self.last_seen = timestamp
 
     def to_str_brief(self):

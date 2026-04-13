@@ -18,9 +18,10 @@ from lib.google.google_calendar import GoogleCalendar, GoogleCalendarConfig
 
 
 # ================================= Helpers ================================== #
-# Creates and returns a GoogleCalendar instance to use for interacting with the
-# calendar.
 def get_google_calendar(service):
+    """Creates and returns a GoogleCalendar instance to use for interacting with the
+    calendar.
+    """
     conf = service.config.google_calendar_config
     gc = GoogleCalendar(conf)
     return gc

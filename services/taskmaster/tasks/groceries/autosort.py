@@ -18,54 +18,57 @@ import lib.dtu as dtu
 from lib.dialogue import DialogueInterface, DialogueAuthor, \
                          DialogueAuthorType
 
-# Helper class used to keep an on-disk record of the current grocery items and
-# the categories they've been assigned.
 class GrocerySortRecord:
+    """Helper class used to keep an on-disk record of the current grocery items and
+    the categories they've been assigned.
+    """
     def __init__(self):
         self.dict = {}
         self.fpath = os.path.join(os.path.realpath(os.path.dirname(__file__)),
                                   ".%s_grocery_sort_record.pkl" % os.path.basename(__file__).replace(".py", ""))
 
-    # Attempts to load from disk. Returns True on success and False on failure.
     def load(self):
+        """Attempts to load from disk. Returns True on success and False on failure."""
         if not os.path.isfile(self.fpath):
             return False
         with open(self.fpath, "rb") as fp:
             self.dict = pickle.load(fp)
 
-    # Attempts to save the dictionary to disk.
     def save(self):
+        """Attempts to save the dictionary to disk."""
         with open(self.fpath, "wb") as fp:
             pickle.dump(self.dict, fp)
 
-    # Returns the dictionary entry pertaining to the given key. None is
-    # returned if the key doesn't exist in the dictionary.
     def get(self, key: str):
+        """Returns the dictionary entry pertaining to the given key. None is
+        returned if the key doesn't exist in the dictionary.
+        """
         if key not in self.dict:
             return None
         return self.dict[key]
 
-    # Removes the given key and value. Returns True if the key was found, and
-    # False if not.
     def remove(self, key: str):
+        """Removes the given key and value. Returns True if the key was found, and
+        False if not.
+        """
         if key not in self.dict:
             return False
         self.dict.pop(key, None)
         return True
 
-    # Sets the dictionary entry pertaining to the given key.
     def set(self, key: str, data: any):
+        """Sets the dictionary entry pertaining to the given key."""
         self.dict[key] = data
 
-# The main taskjob class.
 class TaskJob_Groceries_Autosort(TaskJob_Groceries):
+    """The main taskjob class."""
     def init(self):
         self.refresh_rate = 120
         self.gsr = GrocerySortRecord()
         self.gsr.load()
 
-    # Builds a prompt to be passed to an LLM via the dialogue library.
     def build_prompt_intro(self):
+        """Builds a prompt to be passed to an LLM via the dialogue library."""
         r = "Your job is to sort a list of groceries by category. " \
             "You will be presented with a list of categories and a list of grocery items. " \
             "You must examine each grocery item and assign it a single category from the provided list of categories. " \
@@ -75,9 +78,10 @@ class TaskJob_Groceries_Autosort(TaskJob_Groceries):
             "Include the full list of grocery items and their assigned categories in your response; do not include anything else in your response."
         return r
 
-    # Builds a prompt to be passed to an LLM *after* the initial introduction
-    # prompt has been set.
     def build_prompt_message(self, proj, sections, tasks):
+        """Builds a prompt to be passed to an LLM *after* the initial introduction
+        prompt has been set.
+        """
         r = ""
         # add the section names as the list of categories
         r += "Here is the list of available categories to choose from:\n"

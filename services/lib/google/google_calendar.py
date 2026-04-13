@@ -19,8 +19,8 @@ if gpdir not in sys.path:
 # Imports
 from lib.config import Config, ConfigField
 
-# An object representing configured inputs for a GoogleCalendar object.
 class GoogleCalendarConfig(Config):
+    """An object representing configured inputs for a GoogleCalendar object."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -28,11 +28,12 @@ class GoogleCalendarConfig(Config):
             ConfigField("service_account_scopes",           [list], required=False, default=["https://www.googleapis.com/auth/calendar"]),
         ]
 
-# The main Google Calendar API object.
 class GoogleCalendar:
-    # Constructor. Takes in a path to the Google Credential Service Account
-    # file to use for authentication.
+    """The main Google Calendar API object."""
     def __init__(self, config: GoogleCalendarConfig):
+        """Constructor. Takes in a path to the Google Credential Service Account
+        file to use for authentication.
+        """
         self.config = config
         self.creds = GoogleCredentials(self.config.service_account_scopes,
                                        self.config.service_account_credentials_path)
@@ -103,13 +104,13 @@ class GoogleCalendar:
         return None if key not in event else event[key]
 
     # --------------------------- Event Retrieval ---------------------------- #
-    # Generic event-retrieving function.
     def get_events(self, calid: str,
                    dt_start=None,
                    dt_end=None,
                    count=None,
                    single_events=True,
                    order_by="startTime"):
+        """Generic event-retrieving function."""
         # create a list of arguments to pass into the API query
         args = {
             "calendarId": calid,
@@ -133,18 +134,17 @@ class GoogleCalendar:
             return []
         return events
 
-    # Gets the next `count` events occurring after `dt` (which is the current
-    # time by default). The calendar referenced by `calid` is searched.
     def get_events_after(self, calid: str, count=10, dt=None):
+        """Gets the next `count` events occurring after `dt` (which is the current
+        time by default). The calendar referenced by `calid` is searched.
+        """
         return self.get_events(calid, count=count, dt_start=dt)
 
-    # Returns all events between the given two datetime objects.
     def get_events_between(self, calid: str, dt_start: datetime, dt_end: datetime):
+        """Returns all events between the given two datetime objects."""
         return self.get_events(calid, dt_start=dt_start, dt_end=dt_end)
 
     # ---------------------------- Event Creation ---------------------------- #
-    # Creates an event, given the starting and ending datetimes, the title, and
-    # other optional parameters.
     def create_event(self, calid: str,
                      dt_start: datetime,
                      dt_end: datetime,
@@ -152,6 +152,9 @@ class GoogleCalendar:
                      time_zone=None,
                      description=None,
                      location=None):
+        """Creates an event, given the starting and ending datetimes, the title, and
+        other optional parameters.
+        """
         # create an event JSON object with the given parameters
         event = {
             "summary": title,

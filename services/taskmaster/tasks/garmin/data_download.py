@@ -22,8 +22,8 @@ from lib.garmin.database import GarminDatabaseStepsEntry, \
 import lib.dtu as dtu
 import lib.lu as lu
 
-# Downloads and stores Garmin data locally.
 class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
+    """Downloads and stores Garmin data locally."""
     def init(self):
         super().init()
         self.api_call_delay = 5 # delay between Garmin API calls, to avoid rate limiting
@@ -65,12 +65,13 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
             return True
         return False
 
-    # Takes in a timerange and turns it into a list of day chunks, each
-    # containing a timerange that is a subset of the overall range.
-    #
-    # This is used to query the Garmin API a little at a time, to avoid rate
-    # limiting.
     def get_day_chunks(self, timerange_start, timerange_end, day_chunk_size: int = 7):
+        """Takes in a timerange and turns it into a list of day chunks, each
+        containing a timerange that is a subset of the overall range.
+
+        This is used to query the Garmin API a little at a time, to avoid rate
+        limiting.
+        """
         # split the range into chunks, so we call the API several times,
         # instead of one massive, instant call, to avoid rate limiting
         day_chunks = []
@@ -89,8 +90,8 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
         return day_chunks
 
     # ------------------------------ Step Data ------------------------------- #
-    # Determines the timerange to download step data for.
     def get_timerange_steps(self, db: GarminDatabase):
+        """Determines the timerange to download step data for."""
         now = datetime.now()
         timerange_end = now
 
@@ -111,12 +112,14 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
 
         return [timerange_start, timerange_end]
 
-    # Downloads step data.
-    # Returns the number of writes made to the database.
     def download_steps(self,
                        g: Garmin,
                        db: GarminDatabase,
                        tz):
+        """Downloads step data.
+
+        Returns the number of writes made to the database.
+        """
         (timerange_start, timerange_end) = self.get_timerange_steps(db)
         day_chunks = self.get_day_chunks(timerange_start, timerange_end)
 
@@ -162,8 +165,8 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
         return successful_data_writes
 
     # ------------------------------ Sleep Data ------------------------------ #
-    # Determines the timerange to download sleep data for.
     def get_timerange_sleep(self, db: GarminDatabase):
+        """Determines the timerange to download sleep data for."""
         now = datetime.now()
         timerange_end = now
 
@@ -184,12 +187,14 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
 
         return [timerange_start, timerange_end]
 
-    # Downloads sleep data.
-    # Returns the number of writes made to the database.
     def download_sleep(self,
                        g: Garmin,
                        db: GarminDatabase,
                        tz):
+        """Downloads sleep data.
+
+        Returns the number of writes made to the database.
+        """
         (timerange_start, timerange_end) = self.get_timerange_sleep(db)
         day_chunks = self.get_day_chunks(timerange_start, timerange_end)
 
@@ -230,8 +235,8 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
         return successful_data_writes
 
     # ----------------------------- VO2Max Data ------------------------------ #
-    # Determines the timerange to download vo2max data for.
     def get_timerange_vo2max(self, db: GarminDatabase):
+        """Determines the timerange to download vo2max data for."""
         now = datetime.now()
         timerange_end = now
 
@@ -252,12 +257,14 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
 
         return [timerange_start, timerange_end]
 
-    # Downloads vo2max data.
-    # Returns the number of writes made to the database.
     def download_vo2max(self,
                        g: Garmin,
                        db: GarminDatabase,
                        tz):
+        """Downloads vo2max data.
+
+        Returns the number of writes made to the database.
+        """
         (timerange_start, timerange_end) = self.get_timerange_vo2max(db)
         day_chunks = self.get_day_chunks(timerange_start, timerange_end)
 
@@ -298,8 +305,8 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
         return successful_data_writes
 
     # --------------------------- Heart Rate Data ---------------------------- #
-    # Determines the timerange to download heart rate data for.
     def get_timerange_heart_rate(self, db: GarminDatabase):
+        """Determines the timerange to download heart rate data for."""
         now = datetime.now()
         timerange_end = now
 
@@ -320,12 +327,14 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
 
         return [timerange_start, timerange_end]
 
-    # Downloads heart rate data.
-    # Returns the number of writes made to the database.
     def download_heart_rate(self,
                             g: Garmin,
                             db: GarminDatabase,
                             tz):
+        """Downloads heart rate data.
+
+        Returns the number of writes made to the database.
+        """
         (timerange_start, timerange_end) = self.get_timerange_heart_rate(db)
         day_chunks = self.get_day_chunks(timerange_start, timerange_end)
 
@@ -414,8 +423,8 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
         return successful_data_writes
 
     # ---------------------------- Activity Data ----------------------------- #
-    # Determines the timerange to download activity data for.
     def get_timerange_activity(self, db: GarminDatabase):
+        """Determines the timerange to download activity data for."""
         now = datetime.now()
         timerange_end = now
 
@@ -436,12 +445,14 @@ class TaskJob_Garmin_DataDownload(TaskJob_Garmin):
 
         return [timerange_start, timerange_end]
 
-    # Downloads activity data.
-    # Returns the number of writes made to the database.
     def download_activity(self,
                           g: Garmin,
                           db: GarminDatabase,
                           tz):
+        """Downloads activity data.
+
+        Returns the number of writes made to the database.
+        """
         (timerange_start, timerange_end) = self.get_timerange_activity(db)
         day_chunks = self.get_day_chunks(timerange_start, timerange_end)
 

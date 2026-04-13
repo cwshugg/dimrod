@@ -16,8 +16,8 @@ from warden.device import Device
 
 
 # ================================= Helpers ================================== #
-# Creates and sends a list of cached devices, sorted by last-seen time.
 def network_list_times(service, message, args, devices):
+    """Creates and sends a list of cached devices, sorted by last-seen time."""
     msg = "<b>All Cached Devices</b>\n\n"
 
     # sort the devices into buckets based on last-seen time

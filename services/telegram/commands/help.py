@@ -12,8 +12,8 @@ if pdir not in sys.path:
 # Local imports
 from lib.oracle import OracleSession
 
-# Main function.
 def command_help(service, message, args: list):
+    """Main function."""
     # build a table of possible commands in HTML
     # https://core.telegram.org/bots/api#markdownv2-style
     msg = "<b>All possible commands</b>\n\n"

@@ -21,13 +21,13 @@ from lib.mail import MessengerConfig, Messenger
 config_name = "cwshugg_mail_config.json"
 config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), config_name)
 
-# Runs a command and returns the stdout.
 def run_command(args):
+    """Runs a command and returns the stdout."""
     result = subprocess.run(args, check=False, capture_output=True)
     return result.stdout.decode()
 
-# Returns a string containing various machine status information.
 def get_machine_status():
+    """Returns a string containing various machine status information."""
     msg = "<ul>"
 
     # get the system uptime
@@ -63,8 +63,8 @@ def get_machine_status():
     msg += "</ul>"
     return msg
 
-# Returns a string containing dimrod service status information.
 def get_service_status():
+    """Returns a string containing dimrod service status information."""
     # get a listing of all dimrod-prefixed systemd services
     lines = run_command(["systemctl", "list-units", "--type=service"]).split("\n")
     names = []
@@ -100,8 +100,8 @@ def get_service_status():
 
     return msg
 
-# Main function.
 def main():
+    """Main function."""
     # check command-line arguments and attempt to parse as JSON
     data = {}
     if len(sys.argv) > 1:

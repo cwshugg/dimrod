@@ -21,8 +21,8 @@ from lib.config import Config, ConfigField
 import wyze_sdk
 from wyze_sdk import Client
 
-# A configuration object for creating a Wyze client.
 class WyzeConfig(Config):
+    """A configuration object for creating a Wyze client."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -34,26 +34,27 @@ class WyzeConfig(Config):
             ConfigField("retry_delay",      [int],      required=False, default=1)
         ]
 
-# A class used to authenticate with the Wyze API via the Wyze SDK.
 class Wyze:
-    # Constructor.
+    """A class used to authenticate with the Wyze API via the Wyze SDK."""
     def __init__(self, config: WyzeConfig, debug_log=False):
+        """Constructor."""
         self.config = config
         self.client = None
         if debug_log:
             wyze_sdk.set_stream_logger("wyze_sdk", level=logging.DEBUG)
 
-    # Helper function for asserting that the current object is not logged in.
     def assert_not_authenticated(self):
+        """Helper function for asserting that the current object is not logged in."""
         assert self.client is None, "You have already logged in to Wyze."
 
-    # Helper function for asserting that the current object is not logged in.
     def assert_is_authenticated(self):
+        """Helper function for asserting that the current object is not logged in."""
         assert self.client is not None, "You have not logged in to Wyze."
 
-    # Attempts to authenticate with the Wyze API using the config object that
-    # was given during `__init__()`.
     def login(self):
+        """Attempts to authenticate with the Wyze API using the config object that
+        was given during `__init__()`.
+        """
         self.assert_not_authenticated()
         self.client = Client()
 
@@ -69,8 +70,8 @@ class Wyze:
                 time.sleep(self.config.retry_delay)
         raise err
 
-    # Refreshes the internal client after already logging in.
     def refresh(self):
+        """Refreshes the internal client after already logging in."""
         # attempt to log out (we don't care if this fails)
         try:
             self.client.logout()
@@ -82,8 +83,8 @@ class Wyze:
         self.login()
 
     # --------------------------- Device Retrieval --------------------------- #
-    # Retrieves and returns a list of all devices on your account.
     def get_devices(self):
+        """Retrieves and returns a list of all devices on your account."""
         self.assert_is_authenticated()
 
         err = None
@@ -95,8 +96,8 @@ class Wyze:
                 time.sleep(self.config.retry_delay)
         raise err
 
-    # Given a MAC address, this retrieves information on a specific plug.
     def get_plug(self, macaddr: str):
+        """Given a MAC address, this retrieves information on a specific plug."""
         self.assert_is_authenticated()
 
         err = None
@@ -110,9 +111,10 @@ class Wyze:
 
 
     # --------------------------- Device Toggling ---------------------------- #
-    # Helper function for toggling switches on and off. If `power_on` is True,
-    # the switch will be turned on. Otherwise, it will be turned off.
     def toggle_plug(self, macaddr: str, power_on: bool):
+        """Helper function for toggling switches on and off. If `power_on` is True,
+        the switch will be turned on. Otherwise, it will be turned off.
+        """
         self.assert_is_authenticated()
         plug = self.get_plug(macaddr)
         assert plug is not None, "Cannot find plug with MAC address \"%s\"" % macaddr

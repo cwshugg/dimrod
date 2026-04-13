@@ -33,8 +33,8 @@ from light import Light, LightConfig
 
 # =============================== Config Class =============================== #
 class LumenConfig(ServiceConfig):
-    # Constructor.
     def __init__(self):
+        """Constructor."""
         super().__init__()
         # create lumen-specific fields to append to the existing service fields
         fields = [
@@ -52,33 +52,34 @@ class LumenConfig(ServiceConfig):
 
 
 # ================================ Threading ================================= #
-# A simple class used to represent a single action to be carried out by Lumen
-# threads.
 class LumenThreadQueueAction:
-    # Constructor.
+    """A simple class used to represent a single action to be carried out by Lumen
+    threads.
+    """
     def __init__(self, action: str, lid: str, color=None, brightness=None):
+        """Constructor."""
         self.action = action.strip().lower()
         self.lid = lid
         self.color = color
         self.brightness = brightness
 
-# Represents a queue used to submit actions to lumen threads.
 class LumenThreadQueue:
-    # Constructor.
+    """Represents a queue used to submit actions to lumen threads."""
     def __init__(self):
+        """Constructor."""
         self.lock = threading.Lock()
         self.cond = threading.Condition(lock=self.lock)
         self.queue = []
 
-    # Pushes to the queue and alerts a waiting thread.
     def push(self, action: LumenThreadQueueAction):
+        """Pushes to the queue and alerts a waiting thread."""
         self.lock.acquire()
         self.queue.append(action)
         self.cond.notify()
         self.lock.release()
 
-    # Pops from the queue, blocking if the queue is empty.
     def pop(self):
+        """Pops from the queue, blocking if the queue is empty."""
         self.lock.acquire()
         while len(self.queue) == 0:
             self.cond.wait()
@@ -86,23 +87,24 @@ class LumenThreadQueue:
         self.lock.release()
         return action
 
-# Represents an individual thread used to handle lumen requests. Because the
-# activation of lights/devices may have some noticeable latency, these threads
-# provide a way to parallelize things.
 class LumenThread(threading.Thread):
-    # Constructor
+    """Represents an individual thread used to handle lumen requests. Because the
+    activation of lights/devices may have some noticeable latency, these threads
+    provide a way to parallelize things.
+    """
     def __init__(self, service, queue: LumenThreadQueue):
+        """Constructor"""
         super().__init__(target=self.run)
         self.service = service
         self.queue = queue
 
-    # Writes a log message using the lumen service's log object.
     def log(self, msg: str):
+        """Writes a log message using the lumen service's log object."""
         ct = threading.current_thread()
         self.service.log.write("[Action Thread %d] %s" % (ct.native_id, msg))
 
-    # The thread's main function.
     def run(self):
+        """The thread's main function."""
         self.log("Spawned.")
 
         # loop forever
@@ -132,10 +134,10 @@ class LumenThread(threading.Thread):
 
 
 # ================================= Service ================================== #
-# The main Lumen service class.
 class LumenService(Service):
-    # Constructor.
+    """The main Lumen service class."""
     def __init__(self, config_path):
+        """Constructor."""
         super().__init__(config_path)
         self.config = LumenConfig()
         self.config.parse_file(config_path)
@@ -204,16 +206,17 @@ class LumenService(Service):
             t.start()
             self.threads.append(t)
 
-    # Overridden main function implementation.
     def run(self):
+        """Overridden main function implementation."""
         super().run()
 
     # ------------------------------ Lumen API ------------------------------- #
-    # Takes in a light ID, and optional color and brightness parameters, and
-    # attempts to turn the corresponding light on.
-    #   - 'color' must be an array of 3 RGB integers
-    #   - 'brightness' must be a float between 0.0 and 1.0 (inclusive)
     def power_on(self, lid, color=None, brightness=None):
+        """Takes in a light ID, and optional color and brightness parameters, and
+        attempts to turn the corresponding light on.
+          - 'color' must be an array of 3 RGB integers
+          - 'brightness' must be a float between 0.0 and 1.0 (inclusive)
+        """
         light = self.search(lid)
         self.check(light, "unknown light specified: \"%s\"" % lid)
 
@@ -247,14 +250,14 @@ class LumenService(Service):
         light.unlock() # release the light's lock
         return r
 
-    # Adds a power_on action to the thread queue for asynchronous processing.
     def queue_power_on(self, lid, color=None, brightness=None):
+        """Adds a power_on action to the thread queue for asynchronous processing."""
         a = LumenThreadQueueAction("on", lid, color=color, brightness=brightness)
         self.log.write("Queueing ON action for %s." % lid)
         self.queue.push(a)
 
-    # Takes in a light ID and turns off the corresponding light.
     def power_off(self, lid):
+        """Takes in a light ID and turns off the corresponding light."""
         light = self.search(lid)
         self.check(light, "unknown light specified: \"%s\"" % lid)
 
@@ -274,15 +277,15 @@ class LumenService(Service):
         light.set_power(False)
         return r
 
-    # Adds a power_off action to the thread queue for asynchronous processing.
     def queue_power_off(self, lid):
+        """Adds a power_off action to the thread queue for asynchronous processing."""
         a = LumenThreadQueueAction("off", lid)
         self.log.write("Queueing OFF action for %s." % lid)
         self.queue.push(a)
 
     # ------------------------------- Helpers -------------------------------- #
-    # Uses IFTTT webhooks to toggle a light.
     def toggle_webhook(self, light: Light, action: str, color=None, brightness=None):
+        """Uses IFTTT webhooks to toggle a light."""
         action = action.strip().lower()
         assert action in ["on", "off"]
 
@@ -298,8 +301,8 @@ class LumenService(Service):
         light.set_power(True if action == "on" else False)
         return self.webhooker.send(self.config.webhook_event, jdata)
 
-    # Uses the Wyze API to toggle a light.
     def toggle_wyze(self, light: Light, action: str, color=None, brightness=None):
+        """Uses the Wyze API to toggle a light."""
         action = action.strip().lower()
         assert action in ["on", "off"]
 
@@ -317,8 +320,8 @@ class LumenService(Service):
         self.log.write("Toggling Wyze device \"%s\" to \"%s\"." % (light.lid, action))
         return self.wyze.toggle_plug(device.mac, power_on)
 
-    # Uses the LIFX LAN SDK to toggle LIFX devices.
     def toggle_lifx(self, light: Light, action: str, color=None, brightness=None):
+        """Uses the LIFX LAN SDK to toggle LIFX devices."""
         action = action.strip().lower()
         assert action in ["on", "off"]
 
@@ -340,9 +343,10 @@ class LumenService(Service):
         if brightness is not None:
             self.lifx.set_light_brightness(l, brightness)
 
-    # Searches for a Wyze device with the given ID string and returns it (or
-    # None).
     def search_wyze(self, lid: str):
+        """Searches for a Wyze device with the given ID string and returns it (or
+        None).
+        """
         self.wyze.refresh()
         devices = self.wyze.get_devices()
         for dev in devices:
@@ -350,24 +354,25 @@ class LumenService(Service):
                 return dev
         return None
 
-    # Searches lumen's light array and returns a Light object if one with a
-    # matching light ID is found. Otherwise, None is returned.
     def search(self, lid):
+        """Searches lumen's light array and returns a Light object if one with a
+        matching light ID is found. Otherwise, None is returned.
+        """
         for light in self.lights:
             if light.lid == lid:
                 return light
         return None
 
-    # Custom assertion function.
     def check(self, condition, msg):
+        """Custom assertion function."""
         if not condition:
             raise Exception("Lumen Error: %s" % msg)
 
 
 # ============================== Service Oracle ============================== #
 class LumenOracle(Oracle):
-    # Endpoint definition function.
     def endpoints(self):
+        """Endpoint definition function."""
         super().endpoints()
 
         # Endpoint that retrieves information about which lights are available

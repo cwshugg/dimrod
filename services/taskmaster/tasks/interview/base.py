@@ -18,8 +18,8 @@ import lib.dtu as dtu
 from lib.config import Config, ConfigField
 from lib.oracle import OracleSession
 
-# Config object used for interview taskjobs.
 class TaskJob_Interview_Config(Config):
+    """Config object used for interview taskjobs."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -27,9 +27,10 @@ class TaskJob_Interview_Config(Config):
         ]
 
 
-# Base class for "interviews" (using the Telegram service to send queries to
-# the user to get information and decide what to do.
 class TaskJob_Interview(TaskJob):
+    """Base class for "interviews" (using the Telegram service to send queries to
+    the user to get information and decide what to do.
+    """
     def __init__(self, service):
         super().__init__(service)
         self.thread_class = TaskJob_Interview_Thread
@@ -44,9 +45,10 @@ class TaskJob_Interview(TaskJob):
         config.parse_file(config_path)
         return config
 
-    # Helper function that can be overridden by subclasses to determine if it's
-    # time to update. Returns True if an update should be done.
     def is_ready_to_update(self, todoist, gcal):
+        """Helper function that can be overridden by subclasses to determine if it's
+        time to update. Returns True if an update should be done.
+        """
         return False
 
     def update(self, todoist, gcal):
@@ -60,29 +62,32 @@ class TaskJob_Interview(TaskJob):
         thrd.start()
         return True
 
-# An class that is spawned upon a successful call to `update()` (i.e.
-# when `update()` return True. This is used to send and manage the
-# communication with Telegram.
 class TaskJob_Interview_Thread(threading.Thread):
+    """An class that is spawned upon a successful call to `update()` (i.e.
+
+    when `update()` return True. This is used to send and manage the
+    communication with Telegram.
+    """
     def __init__(self, taskjob, todoist, gcal):
         threading.Thread.__init__(self, target=self.run)
         self.taskjob = taskjob
         self.todoist = todoist
         self.gcal = gcal
 
-    # Creates and returns an authenticated OracleSession with the telegram bot.
     def get_telegram_session(self):
+        """Creates and returns an authenticated OracleSession with the telegram bot."""
         s = OracleSession(self.taskjob.service.config.telegram)
         s.login()
         return s
 
-    # Main function for the thread. Must be overridden by the child class of
-    # `TaskJob_interview`.
     def run(self):
+        """Main function for the thread. Must be overridden by the child class of
+        `TaskJob_interview`.
+        """
         pass
 
-    # Sends the menu to Telegram for the first time.
     def create_menu(self, menu: dict):
+        """Sends the menu to Telegram for the first time."""
         telegram_session = self.get_telegram_session()
 
         # create a payload and send it to Telegram to create the menu
@@ -103,8 +108,8 @@ class TaskJob_Interview_Thread(threading.Thread):
         created_menu = telegram_session.get_response_json(r)
         return created_menu
 
-    # Updates a menu via Telegram.
     def update_menu(self, chat_id: str, message_id: str, menu: dict):
+        """Updates a menu via Telegram."""
         telegram_session = self.get_telegram_session()
 
         # create a payload and send it to Telegram to create the menu
@@ -126,8 +131,8 @@ class TaskJob_Interview_Thread(threading.Thread):
         updated_menu = telegram_session.get_response_json(r)
         return updated_menu
 
-    # Retrieves the menu from Telegram.
     def get_menu(self, menu_id: str, telegram_session=None):
+        """Retrieves the menu from Telegram."""
         if telegram_session is None:
             telegram_session = self.get_telegram_session()
 
@@ -147,8 +152,8 @@ class TaskJob_Interview_Thread(threading.Thread):
         new_menu = telegram_session.get_response_json(r)
         return new_menu
 
-    # Updates a message's text via Telegram.
     def update_message(self, chat_id: str, message_id: str, text: str):
+        """Updates a message's text via Telegram."""
         telegram_session = self.get_telegram_session()
 
         # send a request to telegram to update the message
@@ -161,8 +166,8 @@ class TaskJob_Interview_Thread(threading.Thread):
             self.taskjob.log("Failed to update message via Telegram: %s" % msg)
             return None
 
-    # Updates a message's text via Telegram.
     def remove_menu(self, chat_id: str, message_id: str):
+        """Updates a message's text via Telegram."""
         telegram_session = self.get_telegram_session()
 
         # send a request to telegram to remove the menu
@@ -175,10 +180,11 @@ class TaskJob_Interview_Thread(threading.Thread):
             self.taskjob.log("Failed to remove menu via Telegram: %s" % msg)
             return None
 
-    # Takes in a Telegram menu object and repeatedly polls Telegram for
-    # information on the menu. As soon as a change with the menu is seen, a new
-    # menu object is returned.
     def await_menu_update(self, menu: dict, telegram_session=None) -> dict:
+        """Takes in a Telegram menu object and repeatedly polls Telegram for
+        information on the menu. As soon as a change with the menu is seen, a new
+        menu object is returned.
+        """
         if telegram_session is not None:
             telegram_session = self.get_telegram_session()
 

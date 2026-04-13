@@ -9,8 +9,8 @@ pdir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 if pdir not in sys.path:
     sys.path.append(pdir)
 
-# Main function.
 def command_event(service, message, args: list):
+    """Main function."""
     msg = "TODO - event"
     service.send_message(message.chat.id, msg)
 

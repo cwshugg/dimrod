@@ -65,9 +65,10 @@ transaction_context_parse_intro = "" \
 
 
 # ================================= Helpers ================================== #
-# Builds and returns a string prompt to feed to an LLM for processing the
-# context of a transaction message.
 def build_transaction_parse_prompt(categories: list, accounts: list, entities: list):
+    """Builds and returns a string prompt to feed to an LLM for processing the
+    context of a transaction message.
+    """
     # build a string listing all categories
     category_str = ""
     for c in categories:
@@ -86,9 +87,11 @@ def build_transaction_parse_prompt(categories: list, accounts: list, entities: l
     p = transaction_context_parse_intro % (category_str, account_str, entity_str)
     return p
 
-# Attempts to parse a currency amount from the given string.
-# The amount is returned, or `None` is returned if parsing failed.
 def parse_currency(text: str):
+    """Attempts to parse a currency amount from the given string.
+
+    The amount is returned, or `None` is returned if parsing failed.
+    """
     text = text.strip().lower()
 
     # check to ensure the string begins with a currency symbol. It can be
@@ -131,8 +134,8 @@ def parse_currency(text: str):
 
 
 # =================================== Main =================================== #
-# Main function.
 def command_budget(service, message, args: list):
+    """Main function."""
     # look for an argument that represents some amount of currency
     currency_amount = None
     currency_index = None

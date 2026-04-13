@@ -15,24 +15,25 @@ if pdir not in sys.path:
 
 from lib.config import Config, ConfigField
 
-# Represent a database configuration.
 class DatabaseConfig(Config):
+    """Represent a database configuration."""
     def __init__(self):
         super().__init__()
         self.fields = [
             ConfigField("path",          [str],      required=True),
         ]
 
-# Represent a database interface.
 class Database:
-    # Initializes a new database object with the provided config.
+    """Represent a database interface."""
     def __init__(self, config: DatabaseConfig):
+        """Initializes a new database object with the provided config."""
         self.config = config
         self.conn = None
 
-    # Retrieves the current connection cached in the object, or creates a new
-    # one if it doesn't exist.
     def get_connection(self, reset=False):
+        """Retrieves the current connection cached in the object, or creates a new
+        one if it doesn't exist.
+        """
         # If we don't have a connection, create one.
         if self.conn is None:
             self.conn = sqlite3.connect(self.config.path)
@@ -45,25 +46,27 @@ class Database:
 
         return self.conn
 
-    # Closes the object's cached connection.
     def close_connection(self):
+        """Closes the object's cached connection."""
         if self.conn is not None:
             self.conn.close()
             self.conn = None
 
-    # Deletes the databsae file, completely wiping all data and removing it from
-    # the filesystem.
     def delete(self):
+        """Deletes the databsae file, completely wiping all data and removing it from
+        the filesystem.
+        """
         self.close_connection()
         if os.path.exists(self.config.path):
             os.remove(self.config.path)
 
-    # Executes the provided query and returns the result of
-    # `connection.execute()`.
-    #
-    # If `do_commit` is set to `True`, the transaction will be committed after
-    # executing the query.
     def execute(self, query: str, do_commit=False):
+        """Executes the provided query and returns the result of
+        `connection.execute()`.
+
+        If `do_commit` is set to `True`, the transaction will be committed after
+        executing the query.
+        """
         conn = self.get_connection()
         cursor = conn.cursor()
         result = cursor.execute(query)
@@ -73,30 +76,30 @@ class Database:
             conn.commit()
         return result
 
-    # Determines if a table exists in the database.
     def table_exists(self, table: str) -> bool:
+        """Determines if a table exists in the database."""
         conn = self.get_connection()
         cur = conn.cursor()
         result = cur.execute("SELECT 1 FROM sqlite_master WHERE type == 'table' AND name == '%s';" % table)
         table_exists = result.fetchone() is not None
         return table_exists
 
-    # Returns a list of all tables present in the database.
     def get_all_table_names(self):
+        """Returns a list of all tables present in the database."""
         conn = self.get_connection()
         cur = conn.cursor()
         result = cur.execute("SELECT name FROM sqlite_master WHERE type == 'table';")
         return [row[0] for row in result]
 
-    # Returns a list of all column names in the provided table.
     def get_table_column_names(self, table: str):
+        """Returns a list of all column names in the provided table."""
         conn = self.get_connection()
         cur = conn.cursor()
         result = cur.execute("PRAGMA table_info(%s);" % table)
         return [row[1] for row in result]
 
-    # Performs a search of the database and returns tuples in a list.
     def search(self, table: str, condition: str):
+        """Performs a search of the database and returns tuples in a list."""
         # If the table doesn't exist, return an empty list
         if not self.table_exists(table):
             return []
@@ -112,13 +115,14 @@ class Database:
         result = cur.execute(cmd)
         return result
 
-    # Executes a search using `ORDER BY` to retrieve entries without needing a
-    # specific condition to identify them.
     def search_order_by(self,
                         table: str,
                         order_by_column: str,
                         desc: bool = False,
                         limit: int = None):
+        """Executes a search using `ORDER BY` to retrieve entries without needing a
+        specific condition to identify them.
+        """
         # If the table doesn't exist, return an empty list
         if not self.table_exists(table):
             return []
@@ -136,15 +140,17 @@ class Database:
         result = cur.execute(cmd)
         return result
 
-    # Queries the database and returns a table's values, filtered using
-    # `condition` as a CSV string.
     def table_to_csv(self, table: str, condition: str):
+        """Queries the database and returns a table's values, filtered using
+        `condition` as a CSV string.
+        """
         result = self.search(table, condition)
         return "\n".join([",".join(row) for row in result])
 
-    # Exports all tables present (or only the ones specified in `table_names`)
-    # in the database to an Excel (spreadsheet) file at the provided path.
     def export_to_excel(self, path: str, table_names: list[str] = None):
+        """Exports all tables present (or only the ones specified in `table_names`)
+        in the database to an Excel (spreadsheet) file at the provided path.
+        """
         wb = openpyxl.Workbook()
 
         # If no table names were provided, export all tables.

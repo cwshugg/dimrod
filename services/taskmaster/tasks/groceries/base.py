@@ -25,8 +25,8 @@ EXPANDED_RECIPE_INGREDIENT_MAGIC = "dimrod::expanded_recipe_ingredient"
 RECIPE_RESOLUTION_FAILURE_MAGIC = "dimrod::recipe_resolution_failure"
 AUTOSORT_IGNORE_MAGIC = "dimrod::autosort_ignore"
 
-# Base class for the grocery list.
 class TaskJob_Groceries(TaskJob):
+    """Base class for the grocery list."""
     def update(self, todoist, gcal):
         super().update(todoist, gcal)
         return False

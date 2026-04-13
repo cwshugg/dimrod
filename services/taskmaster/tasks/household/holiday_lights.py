@@ -36,8 +36,8 @@ class TaskJob_Household_Holiday_Lights(TaskJob_Household):
         self.sunrise_window = 30
         self.sunset_window = 30
 
-    # Returns True if the given datetime is the holiday season.
     def is_holiday_season(self, dt: datetime):
+        """Returns True if the given datetime is the holiday season."""
         # if it's the last half of september through
         # november, we'll return true, so the halloween
         # lights can be turned on
@@ -126,8 +126,8 @@ class TaskJob_Household_Holiday_Lights(TaskJob_Household):
         # otherwise, there's nothing to do
         return False
 
-    # Retrieves all lights tagged for holidays within Lumen.
     def get_all_holiday_lights(self, lumen: OracleSession):
+        """Retrieves all lights tagged for holidays within Lumen."""
         # ping lumen for all known lights
         r = lumen.get("/lights")
         lights = []
@@ -147,8 +147,8 @@ class TaskJob_Household_Holiday_Lights(TaskJob_Household):
 
         return lights
 
-    # Toggles lights on or off.
     def toggle_lights(self, lumen: OracleSession, action: str):
+        """Toggles lights on or off."""
         action = action.strip().lower()
         assert action in ["on", "off"]
 

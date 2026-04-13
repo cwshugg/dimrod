@@ -20,8 +20,8 @@ import lib.dtu as dtu
 # LIFX imports
 from lifxlan import LifxLAN, Light
 
-# An object used to configure the LIFX object.
 class LIFXConfig(Config):
+    """An object used to configure the LIFX object."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -30,10 +30,10 @@ class LIFXConfig(Config):
             ConfigField("retry_delay",      [int, float],  required=False, default=0.1)
         ]
 
-# The wrapper around the LIFX LAN SDK.
 class LIFX:
-    # Constructor.
+    """The wrapper around the LIFX LAN SDK."""
     def __init__(self, config: LIFXConfig):
+        """Constructor."""
         self.lifx = LifxLAN()
         self.config = config
 
@@ -43,15 +43,16 @@ class LIFX:
     def refresh(self):
         self.lifx = LifxLAN()
 
-    # Takes in an error, resets the LifxLAN object (for future calls to use a
-    # fresh instance, in case this helps avoid unexpected errors), then throws
-    # the error.
     def handle_error(self, err):
+        """Takes in an error, resets the LifxLAN object (for future calls to use a
+        fresh instance, in case this helps avoid unexpected errors), then throws
+        the error.
+        """
         self.refresh()
         raise err
 
-    # Retrieves and returns a list of online light objects.
     def get_lights(self, refresh=False):
+        """Retrieves and returns a list of online light objects."""
         # we only want to perform the LAN search if we've reached out refresh
         # time, or if the caller forces our hand
         now = datetime.now()
@@ -95,9 +96,10 @@ class LIFX:
 
         return self.lights
 
-    # Attempts to retrieve and find a light by its name. Returns the matching
-    # object, or None.
     def get_light_by_name(self, name: str):
+        """Attempts to retrieve and find a light by its name. Returns the matching
+        object, or None.
+        """
         query = name.strip()
 
         err = None
@@ -117,9 +119,11 @@ class LIFX:
         # if we reached here, handle the error
         self.handle_error(err)
 
-    # Attempts to retrieve and find a light by its MAC and IP addresses.
-    # Returns the matching object, or None.
     def get_light_by_address(self, macaddr: str, ipaddr: str):
+        """Attempts to retrieve and find a light by its MAC and IP addresses.
+
+        Returns the matching object, or None.
+        """
         err = None
         for i in range(self.config.retry_attempts):
             try:
@@ -132,8 +136,8 @@ class LIFX:
                 self.refresh()
         self.handle_error(err)
 
-    # Toggles a light with the given fields.
     def set_light_power(self, light: Light, action: str):
+        """Toggles a light with the given fields."""
         action = action.strip().lower()
         assert action in ["on", "off"]
 

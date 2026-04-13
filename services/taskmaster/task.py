@@ -18,8 +18,8 @@ if pdir not in sys.path:
 # Local imports
 from lib.config import Config, ConfigField
 
-# A config class used to pull in task information from external files.
 class TaskConfig(Config):
+    """A config class used to pull in task information from external files."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -31,18 +31,20 @@ class TaskConfig(Config):
             ConfigField("section_name", [str],  required=False, default=None),
         ]
 
-    # Returns the task's content. The content will either be the string
-    # given in 'content', or, if 'content' is a valid file path, the
-    # contents of the specified file.
     def get_content(self):
+        """Returns the task's content. The content will either be the string
+        given in 'content', or, if 'content' is a valid file path, the
+        contents of the specified file.
+        """
         if os.path.isfile(self.content):
             with open(self.content, "r") as fp:
                 return fp.read()
         return self.content
 
-# A class for running custom conditions and interacting with Todoist to
-# add/update tasks.
 class TaskJob:
+    """A class for running custom conditions and interacting with Todoist to
+    add/update tasks.
+    """
     def __init__(self, service):
         self.service = service
         self.refresh_rate = 43200
@@ -54,21 +56,23 @@ class TaskJob:
                                                self.__class__.__name__.lower())
         self.init()
 
-    # Function that can be optionally overridden by subclasses to run
-    # initialization code before any calls to the taskjob's "update()" are
-    # made.
     def init(self):
+        """Function that can be optionally overridden by subclasses to run
+        initialization code before any calls to the taskjob's "update()" are
+        made.
+        """
         pass
 
-    # Function that uses the provided API objects to update any tasks, events,
-    # etc. This must be implemented by subclasses.
-    # Must return True if the update succeeded (some sort of update was made).
-    # Otherwise, must return False.
     def update(self, todoist, gcal):
+        """Function that uses the provided API objects to update any tasks, events,
+        etc. This must be implemented by subclasses.
+        Must return True if the update succeeded (some sort of update was made).
+        Otherwise, must return False.
+        """
         return False
 
-    # Writes a log message specific to this TaskJob to the service' log.
     def log(self, msg: str):
+        """Writes a log message specific to this TaskJob to the service' log."""
         pfx = "[%s]" % self.__class__.__name__
         self.service.log.write("%s %s" % (pfx, msg))
 
@@ -79,59 +83,64 @@ class TaskJob:
         with open(self.last_success_fpath, "wb") as fp:
             pickle.dump(dt, fp)
 
-    # Returns the last time the task job's update() function succeeded. The
-    # value is returned from disk. Returns None if no record has been saved
-    # yet.
     def get_last_success_datetime(self):
+        """Returns the last time the task job's update() function succeeded. The
+        value is returned from disk. Returns None if no record has been saved
+        yet.
+        """
         if not os.path.isfile(self.last_success_fpath):
             return None
         with open(self.last_success_fpath, "rb") as fp:
             return pickle.load(fp)
 
-    # Saves a given timestamp to disk to reference as the last time the task
-    # job's update() function was executed (either failing or succeeding).
     def set_last_update_datetime(self, dt: datetime):
+        """Saves a given timestamp to disk to reference as the last time the task
+        job's update() function was executed (either failing or succeeding).
+        """
         with open(self.last_update_fpath, "wb") as fp:
             pickle.dump(dt, fp)
 
-    # Returns the last time the task job's update() function was executed
-    # (either failing or succeeding). The value is returned from disk. Returns
-    # None if no record has been saved yet.
     def get_last_update_datetime(self):
+        """Returns the last time the task job's update() function was executed
+        (either failing or succeeding). The value is returned from disk. Returns
+        None if no record has been saved yet.
+        """
         if not os.path.isfile(self.last_update_fpath):
             return None
         with open(self.last_update_fpath, "rb") as fp:
             return pickle.load(fp)
 
-    # Uses the stored "last update datetime" to calculate the next time this
-    # taskjob should be updated. If there is no saved timestamp, then
-    # datetime.now() is returned.
     def get_next_update_datetime(self):
+        """Uses the stored "last update datetime" to calculate the next time this
+        taskjob should be updated. If there is no saved timestamp, then
+        datetime.now() is returned.
+        """
         lut = self.get_last_update_datetime()
         if lut is None:
             return datetime.now()
         return datetime.fromtimestamp(lut.timestamp() + self.refresh_rate)
 
-    # Performs the same function as "get_next_update_datetime()", but instead
-    # returns the number of seconds the next update time is from the given
-    # datetime (which, by default, is datetime.now())
     def get_next_update_datetime_relative(self, dt=None):
+        """Performs the same function as "get_next_update_datetime()", but instead
+        returns the number of seconds the next update time is from the given
+        datetime (which, by default, is datetime.now())
+        """
         if dt is None:
             dt = datetime.now()
         return self.get_next_update_datetime().timestamp() - dt.timestamp()
 
-    # Returns the name of the task job.
     def get_name(self):
+        """Returns the name of the task job."""
         return self.__class__.__name__.lower().replace("taskjob_", "")
 
-    # Returns a unique identifier for this object
     def get_id(self):
+        """Returns a unique identifier for this object"""
         return "%s_%s" % (self.get_name(), id(self))
 
-    # Creates and returns the project with the given name.
     def get_project_by_name(self, todoist, name: str,
                             color="grey", parent_id=None,
                             is_favorite=False, view_style="list"):
+        """Creates and returns the project with the given name."""
         rate_limit_retries_attempted = 0
         for attempt in range(self.todoist_rate_limit_retries):
             try:
@@ -151,9 +160,9 @@ class TaskJob:
         if rate_limit_retries_attempted >= self.todoist_rate_limit_retries:
             raise Exception("Exceeded maximum retries due to Todoist rate limiting")
 
-    # Creates and returns the section with the given name.
     def get_section_by_name(self, todoist, project_id: str, name: str,
                             order=None):
+        """Creates and returns the section with the given name."""
         rate_limit_retries_attempted = 0
         for attempt in range(self.todoist_rate_limit_retries):
             try:

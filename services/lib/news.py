@@ -22,16 +22,16 @@ import lib.dtu as dtu
 # News API imports
 from newsapi import NewsApiClient
 
-# Used to configure the `NewsAPI` object.
 class NewsAPIConfig(Config):
+    """Used to configure the `NewsAPI` object."""
     def __init__(self):
         super().__init__()
         self.fields = [
             ConfigField("api_key",          [str],  required=True),
         ]
 
-# Used to construct a query for news articles.
 class NewsAPIQueryArticles(Uniserdes):
+    """Used to construct a query for news articles."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -50,8 +50,8 @@ class NewsAPIQueryArticles(Uniserdes):
             return None
         return ",".join(self.sources)
 
-# Used to construct a query for news sources.
 class NewsAPIQuerySources(Uniserdes):
+    """Used to construct a query for news sources."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -61,16 +61,16 @@ class NewsAPIQuerySources(Uniserdes):
             UniserdesField("category",     [list], required=False, default=None)
         ]
 
-# The main news API object.
 class NewsAPI:
+    """The main news API object."""
     def __init__(self, config: NewsAPIConfig):
         self.config = config
 
     def api(self):
         return NewsApiClient(api_key=self.config.api_key)
 
-    # Queries the API for news providers/sources and returns them.
     def query_sources(self, query: NewsAPIQuerySources):
+        """Queries the API for news providers/sources and returns them."""
         api = self.api()
         args = {
             "country": query.country_code,
@@ -90,8 +90,8 @@ class NewsAPI:
         # otherwise, extract the sources and return the list
         return result["sources"]
 
-    # Queries the API for articles and returns them.
     def query_articles(self, query: NewsAPIQueryArticles):
+        """Queries the API for articles and returns them."""
         api = self.api()
         args = {
             "q": query.query,

@@ -54,8 +54,8 @@ from commands.s_menu import command_s_menu
 
 
 class TelegramConfig(ServiceConfig):
-    # Constructor.
     def __init__(self):
+        """Constructor."""
         super().__init__()
         self.fields += [
             ConfigField("bot_api_key",              [str],      required=True),
@@ -82,8 +82,8 @@ class TelegramConfig(ServiceConfig):
 
 
 class TelegramService(Service):
-    # Constructor.
     def __init__(self, config_path):
+        """Constructor."""
         super().__init__(config_path)
         self.config = TelegramConfig()
         self.config.parse_file(config_path)
@@ -157,13 +157,14 @@ class TelegramService(Service):
         self.menu_thread = TelegramService_MenuThread(self)
 
     # ------------------------------- Helpers -------------------------------- #
-    # Sets up a new TeleBot instance.
     def refresh(self):
+        """Sets up a new TeleBot instance."""
         self.bot = telebot.TeleBot(self.config.bot_api_key)
 
-    # Takes in a message and checks the chat-of-origin (or user-of-origin) and
-    # returns True if the user/chat is whitelisted. Returns False otherwise.
     def check_message(self, message):
+        """Takes in a message and checks the chat-of-origin (or user-of-origin) and
+        returns True if the user/chat is whitelisted. Returns False otherwise.
+        """
         # first, check the chat ID
         chat_id = str(message.chat.id)
         chat_is_valid = False
@@ -188,9 +189,11 @@ class TelegramService(Service):
             self.log.write("Message from unrecognized user: %s" % user_id)
         return user_is_valid
 
-    # Creates and returns a new OracleSession with the speaker.
-    # If authentication fails, None is returned.
     def get_speaker_session(self):
+        """Creates and returns a new OracleSession with the speaker.
+
+        If authentication fails, None is returned.
+        """
         s = OracleSession(self.config.speaker)
         r = s.login()
         if not OracleSession.get_response_success(r):
@@ -199,8 +202,8 @@ class TelegramService(Service):
             return None
         return s
 
-    # Performs a oneshot LLM call and response.
     def dialogue_oneshot(self, intro: str, message: str):
+        """Performs a oneshot LLM call and response."""
         # attempt to connect to the speaker
         speaker = self.get_speaker_session()
         if speaker is None:
@@ -220,9 +223,10 @@ class TelegramService(Service):
                        OracleSession.get_response_message(r))
         return message
 
-    # Takes in a string message and attempts to reword it. On failure, it will
-    # return the original string.
     def dialogue_reword(self, message: str):
+        """Takes in a string message and attempts to reword it. On failure, it will
+        return the original string.
+        """
         # attempt to connect to the speaker
         speaker = self.get_speaker_session()
         if speaker is None:
@@ -242,9 +246,10 @@ class TelegramService(Service):
                        OracleSession.get_response_message(r))
         return message
 
-    # Takes in a message and communicates with DImROD's dialogue system to
-    # converse with the telegram user.
     def dialogue_talk(self, message: any, conversation_id=None):
+        """Takes in a message and communicates with DImROD's dialogue system to
+        converse with the telegram user.
+        """
         # attempt to connect to the speaker
         speaker = self.get_speaker_session()
         if speaker is None:
@@ -273,11 +278,11 @@ class TelegramService(Service):
                        OracleSession.get_response_message(r))
         return None
 
-    # Searches for a message object and returns a list of matches.
     def dialogue_message_search(self,
                                 message_id=None,
                                 telegram_message_id=None,
                                 telegram_chat_id=None):
+        """Searches for a message object and returns a list of matches."""
         speaker = self.get_speaker_session()
         if speaker is None:
             self.log.write("Failed to connect to the speaker.")
@@ -302,11 +307,11 @@ class TelegramService(Service):
                        OracleSession.get_response_message(r))
         return None
 
-    # Updates the message pointed at by `message_id` with the given parameters.
     def dialogue_message_update(self,
                                 message_id: str,
                                 telegram_message_id=None,
                                 telegram_chat_id=None):
+        """Updates the message pointed at by `message_id` with the given parameters."""
         speaker = self.get_speaker_session()
         if speaker is None:
             self.log.write("Failed to connect to the speaker.")
@@ -329,8 +334,8 @@ class TelegramService(Service):
                        OracleSession.get_response_message(r))
         return None
 
-    # Creates a new conversation.
     def dialogue_conversation_create(self, convo: DialogueConversation):
+        """Creates a new conversation."""
         speaker = self.get_speaker_session()
         if speaker is None:
             self.log.write("Failed to connect to the speaker.")
@@ -371,9 +376,10 @@ class TelegramService(Service):
         return None
 
     # ------------------------------ Messaging ------------------------------- #
-    # Helper function for properly formatting and sanitizing text to be used in
-    # a Telegram message.
     def sanitize_message_text(self, text: str, parse_mode=None):
+        """Helper function for properly formatting and sanitizing text to be used in
+        a Telegram message.
+        """
         if parse_mode is None:
             return text
 
@@ -392,10 +398,10 @@ class TelegramService(Service):
 
         return text
 
-    # Wrapper for sending a message.
     def send_message(self, chat_id, text,
                      parse_mode=None,
                      reply_markup=None):
+        """Wrapper for sending a message."""
         text = self.sanitize_message_text(text, parse_mode=parse_mode)
 
         # try sending the message a finite number of times
@@ -418,10 +424,10 @@ class TelegramService(Service):
         self.log.write("Failed to send message. Giving up.")
         return None
 
-    # Wrapper for updating a message's text.
     def update_message(self, chat_id, message_id,
                        new_text: str,
                        parse_mode=None):
+        """Wrapper for updating a message's text."""
         new_text = self.sanitize_message_text(new_text, parse_mode=parse_mode)
 
         for i in range(self.config.bot_error_retry_attempts):
@@ -442,8 +448,8 @@ class TelegramService(Service):
                 time.sleep(self.config.bot_error_retry_delay)
         self.log.write("Failed to update message. Giving up.")
 
-    # Wrapper for deleting an existing message.
     def delete_message(self, chat_id, message_id):
+        """Wrapper for deleting an existing message."""
         for i in range(self.config.bot_error_retry_attempts):
             try:
                 return self.bot.delete_message(chat_id, message_id)
@@ -460,11 +466,12 @@ class TelegramService(Service):
                 time.sleep(self.config.bot_error_retry_delay)
         self.log.write("Failed to delete message. Giving up.")
 
-    # Sends a message that is intended to pose a question (and ask for a
-    # response from) the user. The message is sent, and a conversation is sent
-    # to Speaker for storage. The details of the conversation are returned, so
-    # the caller can check in for a response later.
     def send_question(self, chat_id, question: str, parse_mode=None):
+        """Sends a message that is intended to pose a question (and ask for a
+        response from) the user. The message is sent, and a conversation is sent
+        to Speaker for storage. The details of the conversation are returned, so
+        the caller can check in for a response later.
+        """
         # send the message, and receive the telegram message object
         message = self.send_message(chat_id, question, parse_mode=parse_mode)
 
@@ -491,9 +498,9 @@ class TelegramService(Service):
         # return the conversation object that was returned by Speaker
         return DialogueConversation.from_json(convo_data)
 
-    # Builds and sends a menu of buttons.
     def send_menu(self, chat_id, m: Menu,
                   parse_mode=None):
+        """Builds and sends a menu of buttons."""
         markup = m.get_markup()
         msg = self.send_message(chat_id, m.title,
                                 parse_mode=parse_mode,
@@ -512,8 +519,8 @@ class TelegramService(Service):
 
         return m
 
-    # Updates the menu for an existing message.
     def update_menu(self, chat_id, message_id, m: Menu = None):
+        """Updates the menu for an existing message."""
        # try updating the message's menu a finite number of times
         for i in range(self.config.bot_error_retry_attempts):
             try:
@@ -542,12 +549,12 @@ class TelegramService(Service):
                 time.sleep(self.config.bot_error_retry_delay)
         self.log.write("Failed to update menu. Giving up.")
 
-    # Removes a menu from a message.
     def remove_menu(self, chat_id, message_id):
+        """Removes a menu from a message."""
         return self.update_menu(chat_id, message_id, m=None)
 
-    # Adds a reaction to a message.
     def react_to_message(self, chat_id, message_id, emoji="👍", is_big=False):
+        """Adds a reaction to a message."""
         for i in range(self.config.bot_error_retry_attempts):
             try:
                 return self.bot.set_message_reaction(
@@ -569,8 +576,8 @@ class TelegramService(Service):
                 time.sleep(self.config.bot_error_retry_delay)
         self.log.write("Failed to react to message. Giving up.")
 
-    # Removes reactions from a message.
     def remove_message_reactions(self, chat_id, message_id):
+        """Removes reactions from a message."""
         for i in range(self.config.bot_error_retry_attempts):
             try:
                 return self.bot.set_message_reaction(
@@ -592,8 +599,8 @@ class TelegramService(Service):
         self.log.write("Failed to remove message reactions. Giving up.")
 
     # ----------------------------- Bot Behavior ----------------------------- #
-    # Main runner function.
     def run(self):
+        """Main runner function."""
         super().run()
 
         # start up auxiliary threads
@@ -881,15 +888,16 @@ class TelegramService(Service):
                 time.sleep(5)
                 self.refresh()
 
-# A class instantiated by the main `TelegramService` class whose job is to
-# routinely examine and prune the database of Telegram menus.
 class TelegramService_MenuThread(threading.Thread):
+    """A class instantiated by the main `TelegramService` class whose job is to
+    routinely examine and prune the database of Telegram menus.
+    """
     def __init__(self, service: TelegramService):
         threading.Thread.__init__(self, target=self.run)
         self.service = service
 
-    # Main runner function for the thread.
     def run(self):
+        """Main runner function for the thread."""
         while True:
             now = datetime.now()
 
@@ -913,9 +921,10 @@ class TelegramService_MenuThread(threading.Thread):
 
 # ============================== Service Oracle ============================== #
 class TelegramOracle(Oracle):
-    # Helper function used to determine what chat ID to use when sending a
-    # message in the below endpoint handlers.
     def resolve_chat_id(self, jdata: dict):
+        """Helper function used to determine what chat ID to use when sending a
+        message in the below endpoint handlers.
+        """
         # look for a "chat" object in the JSON data
         if "chat" in jdata:
             try:

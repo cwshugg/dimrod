@@ -28,8 +28,8 @@ import lib.config
 
 
 # ============================== Oracle Config =============================== #
-# A config class for a generic oracle.
 class OracleConfig(lib.config.Config):
+    """A config class for a generic oracle."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -47,13 +47,14 @@ class OracleConfig(lib.config.Config):
 
 
 # ========================== Service Oracle Server =========================== #
-# Service "oracle" thread that runs a flask server to act as a middleman
-# between the user and the server. Each service I implement will not only have
-# an extended 'Service' class, but also an extended 'Oracle' class as
-# well.
 class Oracle(threading.Thread):
-    # Constructor.
+    """Service "oracle" thread that runs a flask server to act as a middleman
+    between the user and the server. Each service I implement will not only have
+    an extended 'Service' class, but also an extended 'Oracle' class as
+    well.
+    """
     def __init__(self, config, service):
+        """Constructor."""
         threading.Thread.__init__(self, target=self.run)
         self.service = service
         self.config = config
@@ -87,16 +88,19 @@ class Oracle(threading.Thread):
         log_name = self.service.config.service_name + "-oracle"
         self.log = lib.log.Log(log_name, stream=log_file)
 
-    # Initialize the Oracle's NLA endpoints list.
-    # This should be overridden by subclasses.
     def init_nla(self):
+        """Initialize the Oracle's NLA endpoints list.
+
+        This should be overridden by subclasses.
+        """
         # initialize an empty list of NLA endpoints; subclasses should add to
         # this class field
         self.nla_endpoints = []
 
-    # Thread main function. Configures the flask server to invoke the class'
-    # various handler functions, then launches it.
     def run(self):
+        """Thread main function. Configures the flask server to invoke the class'
+        various handler functions, then launches it.
+        """
         self.log.write("Establishing endpoints...")
         # PRE-PROCESSING
         @self.server.before_request
@@ -135,9 +139,10 @@ class Oracle(threading.Thread):
             serv.serve_forever()
 
     # ------------------- Server Processing and Endpoints -------------------- #
-    # Function that defines a number of endpoints for the oracle. This is
-    # invoked when the oracle is started, before the flask server is launched.
     def endpoints(self):
+        """Function that defines a number of endpoints for the oracle. This is
+        invoked when the oracle is started, before the flask server is launched.
+        """
         # Default handler for '/'
         @self.server.route("/")
         def endpoint_root():
@@ -253,8 +258,8 @@ class Oracle(threading.Thread):
                     return self.make_response(msg="Error processing NLA endpoint: %s" % str(e),
                                               success=False, rstatus=400)
 
-    # Invoked directly before a request's main handler is invoked.
     def pre_process(self):
+        """Invoked directly before a request's main handler is invoked."""
         # parse the JSON data (if any was given)
         try:
             flask.g.jdata = self.get_request_json(flask.request)
@@ -264,8 +269,8 @@ class Oracle(threading.Thread):
         # attempt to decode the JWT (if present)
         flask.g.user = self.auth_check_cookie(flask.request.headers.get("Cookie"))
 
-    # Invoked directly after a request's main handler is invoked.
     def post_process(self, response):
+        """Invoked directly after a request's main handler is invoked."""
         # get the origin URL from the request headers to use for the
         # Access-Control-Allow-Origin response header
         origin = flask.request.headers.get("Origin")
@@ -276,17 +281,19 @@ class Oracle(threading.Thread):
         response.headers["Access-Control-Expose-Headers"] = "*, Set-Cookie"
         return response
 
-    # Invoked to clean up resources after handling a request - even in the event
-    # of an error.
     def post_process_cleanup(self, error=None):
+        """Invoked to clean up resources after handling a request - even in the event
+        of an error.
+        """
         pass
 
 
     # ---------------------------- Authentication ---------------------------- #
-    # Takes in a JSON object from an incoming request and attempts to verify a
-    # login attempt. Returns the matching user object on a successful login and
-    # None on a failed login.
     def auth_check_login(self, jdata):
+        """Takes in a JSON object from an incoming request and attempts to verify a
+        login attempt. Returns the matching user object on a successful login and
+        None on a failed login.
+        """
         # extract the username and password from the JSON data
         username = "" if "username" not in jdata else jdata["username"]
         password = "" if "password" not in jdata else jdata["password"]
@@ -300,10 +307,11 @@ class Oracle(threading.Thread):
                 return u
         return None
 
-    # Takes in a cookie from a request and attempts to verify the cookie's
-    # validity. Returns None if the cookie isn't valid, or the user object
-    # that corresponds to the cookie if the cookie *is* valid.
     def auth_check_cookie(self, cookie):
+        """Takes in a cookie from a request and attempts to verify the cookie's
+        validity. Returns None if the cookie isn't valid, or the user object
+        that corresponds to the cookie if the cookie *is* valid.
+        """
         if cookie == None:
             return None
 
@@ -359,9 +367,10 @@ class Oracle(threading.Thread):
         # if we passed all the above checks, they must be authenticated
         return user
 
-    # Takes in a user and generates a fresh JWT token as proof of
-    # authentication.
     def auth_make_cookie(self, user):
+        """Takes in a user and generates a fresh JWT token as proof of
+        authentication.
+        """
         now = int(datetime.now().timestamp())
         data = {
             "iat": now,
@@ -372,16 +381,17 @@ class Oracle(threading.Thread):
         return token
 
     # ------------------------------- Helpers -------------------------------- #
-    # Takes in the HTTP request object and parses out any JSON data in the
-    # message body. Returns None, a dictionary, or throws an exception.
     def get_request_json(self, request):
+        """Takes in the HTTP request object and parses out any JSON data in the
+        message body. Returns None, a dictionary, or throws an exception.
+        """
         raw = request.get_data()
         if len(raw) == 0:
             return {}
         return json.loads(raw.decode())
 
-    # Used to construct a JSON object to be sent in a response message.
     def make_response(self, success=True, msg=None, payload={}, rstatus=200, rheaders={}):
+        """Used to construct a JSON object to be sent in a response message."""
         # update the message if necessary
         if msg == None or msg == "":
             if rstatus == 404:
@@ -409,8 +419,8 @@ class Oracle(threading.Thread):
 
 
 # =============================== Oracle Users =============================== #
-# User Config object.
 class UserConfig(lib.config.Config):
+    """User Config object."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -421,21 +431,21 @@ class UserConfig(lib.config.Config):
 
 
 
-# User object.
 class User:
-    # Constructor.
+    """User object."""
     def __init__(self, jdata):
+        """Constructor."""
         self.config = UserConfig()
         self.config.parse_json(jdata)
 
-    # Returns a string representation of the object.
     def __str__(self):
+        """Returns a string representation of the object."""
         return self.config.username
 
 
 # ============================== Oracle Session ============================== #
-# A config class for a generic oracle session.
 class OracleSessionConfig(lib.config.Config):
+    """A config class for a generic oracle session."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -445,19 +455,21 @@ class OracleSessionConfig(lib.config.Config):
             lib.config.ConfigField("auth_password",  [str],     required=True),
         ]
 
-# The OracleSession object serves as an interface for interacting with a
-# service's oracle. This is useful for scripts, or other services, that wish to
-# talk with oracles via HTTP.
 class OracleSession:
-    # Constructor. Takes in a config and sets up internal state.
+    """The OracleSession object serves as an interface for interacting with a
+    service's oracle. This is useful for scripts, or other services, that wish to
+    talk with oracles via HTTP.
+    """
     def __init__(self, config: OracleSessionConfig):
+        """Constructor. Takes in a config and sets up internal state."""
         self.config = config
         self.url_base = "http://%s:%d" % (self.config.addr, self.config.port)
         self.session = requests.Session()
 
-    # Logs into the service, using the username/password provided in
-    # `self.config`.
     def login(self):
+        """Logs into the service, using the username/password provided in
+        `self.config`.
+        """
         url = self.url_base + "/auth/login"
         login_data = {
             "username": self.config.auth_username,
@@ -465,13 +477,13 @@ class OracleSession:
         }
         return self.session.post(url, json=login_data)
 
-    # Sends a POST request.
     def post(self, endpoint: str, payload=None):
+        """Sends a POST request."""
         url = self.url_base + "/" + endpoint
         return self.session.post(url, json=payload)
 
-    # Sends a GET request.
     def get(self, endpoint: str):
+        """Sends a GET request."""
         url = self.url_base + "/" + endpoint
         return self.session.get(url)
 

@@ -36,8 +36,8 @@ from lib.nla import NLAService, NLAEndpoint, NLAResult, NLAEndpointInvokeParamet
 
 # =============================== Config Class =============================== #
 class SpeakerConfig(ServiceConfig):
-    # Constructor.
     def __init__(self):
+        """Constructor."""
         super().__init__()
         self.fields += [
             ConfigField("dialogue",         [DialogueConfig], required=True),
@@ -50,16 +50,17 @@ class SpeakerConfig(ServiceConfig):
 
 
 # ============================== NLA Threading =============================== #
-# An enum representing the different states a NLA queue entry can be in.
 class SpeakerNLAQueueEntryStatus(enum.Enum):
+    """An enum representing the different states a NLA queue entry can be in."""
     PENDING = 0
     PROCESSING = 1
     SUCCESS = 2
     FAILURE = 3
 
-# An object used to store NLA information pushed to the queue, as well as store
-# the entry's status and result.
 class SpeakerNLAQueueEntry:
+    """An object used to store NLA information pushed to the queue, as well as store
+    the entry's status and result.
+    """
     def __init__(self, nla_info: dict):
         self.info = nla_info
         self.status = SpeakerNLAQueueEntryStatus.PENDING
@@ -88,16 +89,16 @@ class SpeakerNLAQueueEntry:
         self.lock.release()
         return self.result
 
-# Represents a queue used to submit NLA endpoint actions to the NLA threads.
 class SpeakerNLAQueue:
-    # Constructor.
+    """Represents a queue used to submit NLA endpoint actions to the NLA threads."""
     def __init__(self):
+        """Constructor."""
         self.lock = threading.Lock()
         self.cond = threading.Condition(lock=self.lock)
         self.queue = []
 
-    # Pushes to the queue and alerts a waiting thread.
     def push(self, data: dict):
+        """Pushes to the queue and alerts a waiting thread."""
         self.lock.acquire()
         entry = SpeakerNLAQueueEntry(data)
         self.queue.append(entry)
@@ -106,8 +107,8 @@ class SpeakerNLAQueue:
 
         return entry
 
-    # Pops from the queue, blocking if the queue is empty.
     def pop(self):
+        """Pops from the queue, blocking if the queue is empty."""
         self.lock.acquire()
         while len(self.queue) == 0:
             self.cond.wait()
@@ -115,23 +116,25 @@ class SpeakerNLAQueue:
         self.lock.release()
         return entry
 
-# Represents an individual thread used to handle NLA endpoint invocations.
-# A pool of these threads will be created by the speaker service, and will
-# repeatedly pull from the queue to execute NLA endpoint invocations.
 class SpeakerNLAThread(threading.Thread):
-    # Constructor
+    """Represents an individual thread used to handle NLA endpoint invocations.
+
+    A pool of these threads will be created by the speaker service, and will
+    repeatedly pull from the queue to execute NLA endpoint invocations.
+    """
     def __init__(self, service, queue: SpeakerNLAQueue):
+        """Constructor"""
         super().__init__(target=self.run)
         self.service = service
         self.queue = queue
 
-    # Writes a log message using the speaker service's log object.
     def log(self, msg: str):
+        """Writes a log message using the speaker service's log object."""
         ct = threading.current_thread()
         self.service.log.write("[NLA Thread %d] %s" % (ct.native_id, msg))
 
-    # The thread's main function.
     def run(self):
+        """The thread's main function."""
         self.log("Spawned.")
 
         # loop forever
@@ -191,8 +194,8 @@ class SpeakerNLAThread(threading.Thread):
 
 # ============================== Service Class =============================== #
 class SpeakerService(Service):
-    # Constructor.
     def __init__(self, config_path):
+        """Constructor."""
         super().__init__(config_path)
         self.config = SpeakerConfig()
         self.config.parse_file(config_path)
@@ -213,8 +216,8 @@ class SpeakerService(Service):
             self.nla_threads.append(t)
 
 
-    # Overridden main function implementation.
     def run(self):
+        """Overridden main function implementation."""
         super().run()
 
         self.remood()
@@ -228,16 +231,17 @@ class SpeakerService(Service):
             # sleep before re-looping
             time.sleep(self.config.tick_rate)
 
-    # Sets a new mood in the Dialogue library.
     def remood(self, new_mood=None):
+        """Sets a new mood in the Dialogue library."""
         mood = self.dialogue.remood(new_mood=new_mood)
         self.mood_timestamp = datetime.now()
         self.log.write("Setting dialogue mood to: \"%s\"" % mood.name)
 
-    # Takes in a message and attempts to find (and invoke) one or more NLA
-    # endpoints across the various configured services.
-    # Returns a list of NLAResults for each action that was executed.
     def nla_process(self, message: str, request_data: dict):
+        """Takes in a message and attempts to find (and invoke) one or more NLA
+        endpoints across the various configured services.
+        Returns a list of NLAResults for each action that was executed.
+        """
         results = []
 
         # the loop below will construct a dictionary of endpoints to search
@@ -423,9 +427,10 @@ class SpeakerService(Service):
 
         return results
 
-    # Takes a list of dictionary objects (returned by `nla_process()`) and
-    # builds a nicely-formatted message that can be sent back to the user.
     def nla_compose_message(self, nla_results: list):
+        """Takes a list of dictionary objects (returned by `nla_process()`) and
+        builds a nicely-formatted message that can be sent back to the user.
+        """
         raw_combined_msg = ""
         raw_combined_msg_ctx = ""
         nla_results_len = len(nla_results)
@@ -481,8 +486,8 @@ class SpeakerService(Service):
 
 # ============================== Service Oracle ============================== #
 class SpeakerOracle(Oracle):
-    # Endpoint definition function.
     def endpoints(self):
+        """Endpoint definition function."""
         super().endpoints()
 
         # An endpoint used to retrieve the status of an existing message

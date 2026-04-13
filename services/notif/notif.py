@@ -32,8 +32,8 @@ from reminder import Reminder
 
 # =============================== Config Class =============================== #
 class NotifConfig(ServiceConfig):
-    # Constructor.
     def __init__(self):
+        """Constructor."""
         super().__init__()
         self.fields += [
             ConfigField("reminder_dir",             [str],  required=True),
@@ -47,8 +47,8 @@ class NotifConfig(ServiceConfig):
 
 # ============================== Service Class =============================== #
 class NotifService(Service):
-    # Constructor.
     def __init__(self, config_path):
+        """Constructor."""
         super().__init__(config_path)
         self.config = NotifConfig()
         self.config.parse_file(config_path)
@@ -58,8 +58,8 @@ class NotifService(Service):
         mconf.parse_file(config_path)
         self.emailer = Messenger(mconf)
 
-    # Overridden main function implementation.
     def run(self):
+        """Overridden main function implementation."""
         super().run()
 
         # if the reminder directory doesn't exist, make it
@@ -87,12 +87,13 @@ class NotifService(Service):
             time.sleep(60)
 
     # ------------------------------- File IO -------------------------------- #
-    # Iterates through the configured reminder directory and loads all
-    # reminders that were found.
-    #
-    # This function also prunes expired reminders by deleting reminder JSON
-    # files that contain only expired reminders.
     def load_all_reminders_and_prune(self):
+        """Iterates through the configured reminder directory and loads all
+        reminders that were found.
+
+        This function also prunes expired reminders by deleting reminder JSON
+        files that contain only expired reminders.
+        """
         prune_list = []
 
         # iterate through all files in the reminder directory
@@ -144,9 +145,10 @@ class NotifService(Service):
 
         return all_rems
 
-    # Loads reminders in from a JSON file and returns a list of Reminder
-    # objects.
     def load_reminders_from_file(self, fpath: str):
+        """Loads reminders in from a JSON file and returns a list of Reminder
+        objects.
+        """
         rems = []
         with open(fpath, "r") as fp:
             jdata = json.load(fp)
@@ -156,17 +158,18 @@ class NotifService(Service):
                 rems.append(r)
         return rems
 
-    # Saves the given reminder to its own file in the reminder directory.
     def save_reminder(self, rem: Reminder):
+        """Saves the given reminder to its own file in the reminder directory."""
         fname = ".%s.json" % rem.get_id()
         fpath = os.path.join(self.config.reminder_dir, fname)
         with open(fpath, "w") as fp:
             fp.write(json.dumps([rem.to_json()], indent=4))
 
-    # Accepts a reminder ID string and deletes the corresponding reminder, if
-    # it was found. Returns the reminder object that was deleted, or None, if
-    # no matching reminder was found.
     def delete_reminder(self, rem_id: str):
+        """Accepts a reminder ID string and deletes the corresponding reminder, if
+        it was found. Returns the reminder object that was deleted, or None, if
+        no matching reminder was found.
+        """
         rems = self.load_all_reminders_and_prune()
         if rem_id not in rems:
             return None
@@ -177,9 +180,10 @@ class NotifService(Service):
         return rem
 
     # --------------------------- Reminder Sending --------------------------- #
-    # Sends a reminder over one or more mediums, depending on how the reminder
-    # was configured.
     def send_reminder(self, rem: Reminder):
+        """Sends a reminder over one or more mediums, depending on how the reminder
+        was configured.
+        """
         # send to all listed emails
         for email in rem.send_emails:
             subject = "DImROD - %s" % rem.title
@@ -257,8 +261,8 @@ class NotifService(Service):
             r = ntfy_send(str(channel), rem.message, title=title_str)
             self.log.write("    - Ntfy responded with code %d." % r.status_code)
 
-    # Creates and returns an authenticated OracleSession with the telegram bot.
     def get_telegram_session(self):
+        """Creates and returns an authenticated OracleSession with the telegram bot."""
         s = OracleSession(self.config.telegram)
         s.login()
         return s
@@ -266,8 +270,8 @@ class NotifService(Service):
 
 # ============================== Service Oracle ============================== #
 class NotifOracle(Oracle):
-    # Endpoint definition function.
     def endpoints(self):
+        """Endpoint definition function."""
         super().endpoints()
 
         # Creates a reminder.

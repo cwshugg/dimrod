@@ -19,8 +19,8 @@ from lib.ifttt import WebhookConfig, Webhook
 
 
 # =============================== Config Class =============================== #
-# Configuration for the messenger.
 class MessengerConfig(Config):
+    """Configuration for the messenger."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -29,19 +29,20 @@ class MessengerConfig(Config):
 
 
 # ============================= Messenger Class ============================== #
-# Main messenger class.
 class Messenger:
-    # Constructor.
+    """Main messenger class."""
     def __init__(self, config):
+        """Constructor."""
         self.config = config
         # set up a IFTTT webhook object
         wbconf = WebhookConfig()
         wbconf.parse_json(config.to_json())
         self.webhooker = Webhook(wbconf)
 
-    # Takes in an email address, a subject string, and a content string, and
-    # sends an email.
     def send(self, email: str, subject: str, content: str):
+        """Takes in an email address, a subject string, and a content string, and
+        sends an email.
+        """
         email_data = {
             "to": email,
             "subject": subject,

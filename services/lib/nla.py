@@ -23,9 +23,10 @@ from lib.oracle import Oracle, OracleSessionConfig
 # for a single NLA endpoint.
 NLAEndpointHandlerFunction = Callable[[Oracle, dict], dict]
 
-# Defines an object used to represent a single service that supports one or
-# more NLA endpoints.
 class NLAService(Uniserdes):
+    """Defines an object used to represent a single service that supports one or
+    more NLA endpoints.
+    """
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -33,8 +34,8 @@ class NLAService(Uniserdes):
             UniserdesField("oracle", [OracleSessionConfig], required=True),
         ]
 
-# Defines information regarding a specific NLA HTTP endpoint.
 class NLAEndpoint(Uniserdes):
+    """Defines information regarding a specific NLA HTTP endpoint."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -42,18 +43,19 @@ class NLAEndpoint(Uniserdes):
             UniserdesField("description",  [str],      required=True),
         ]
 
-    # Returns the full URL to invoke this NLA endpoint.
     def get_url(self):
+        """Returns the full URL to invoke this NLA endpoint."""
         return "/nla/invoke/" + self.name
 
-    # Passes in a pointer to a function that will be invoked by the Oracle
-    # endpoint corresponding to this NLAEndpoint.
     def set_handler(self, func: NLAEndpointHandlerFunction):
+        """Passes in a pointer to a function that will be invoked by the Oracle
+        endpoint corresponding to this NLAEndpoint.
+        """
         self.handler = func
         return self
 
-# Defines fields used to invoke an NLA endpoint.
 class NLAEndpointInvokeParameters(Uniserdes):
+    """Defines fields used to invoke an NLA endpoint."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -67,8 +69,8 @@ class NLAEndpointInvokeParameters(Uniserdes):
                self.substring is not None and \
                len(str(self.substring).strip()) > 0
 
-# Defines the result of an NLA invocation.
 class NLAResult(Uniserdes):
+    """Defines the result of an NLA invocation."""
     def __init__(self):
         super().__init__()
         self.fields = [

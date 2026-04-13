@@ -15,9 +15,10 @@ from lumen.light import LightConfig, Light
 
 
 # ================================= Helpers ================================== #
-# Takes in a list of words and a list of Lights and returns those lights whose
-# names and/or tags match all of the words.
 def match_lights(words: list, lights: list):
+    """Takes in a list of words and a list of Lights and returns those lights whose
+    names and/or tags match all of the words.
+    """
     matches = []
     for light in lights:
         count = 0
@@ -30,8 +31,8 @@ def match_lights(words: list, lights: list):
             matches.append(light)
     return matches
 
-# Turns the lights on.
 def lights_on(service, message, args: list, session, lights: list):
+    """Turns the lights on."""
     # if no third argument was given, we'll turn ALL lights on
     if len(args) < 3:
         successes = 0
@@ -83,8 +84,8 @@ def lights_on(service, message, args: list, session, lights: list):
             msg += "• <code>%s</code>\n" % lid
         service.send_message(message.chat.id, msg, parse_mode="HTML")
 
-# Turns the lights off.
 def lights_off(service, message, args: list, session, lights: list):
+    """Turns the lights off."""
     # if no third argument was given, we'll turn ALL lights off
     if len(args) < 3:
         successes = 0
@@ -136,8 +137,8 @@ def lights_off(service, message, args: list, session, lights: list):
 
 
 # =================================== Main =================================== #
-# Main function.
 def command_lights(service, message, args: list):
+    """Main function."""
     # create a HTTP session with lumen
     session = OracleSession(service.config.lumen)
     try:

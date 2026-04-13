@@ -25,9 +25,10 @@ from lib.uniserdes import Uniserdes, UniserdesField
 
 
 # ================================= Helpers ================================== #
-# Takes in an existing dialogue conversation and sends it to OpenAI for
-# completion of the next message.
 def dialogue_chat_completion(api_key: str, **kwargs):
+    """Takes in an existing dialogue conversation and sends it to OpenAI for
+    completion of the next message.
+    """
     openai_client = openai.AsyncOpenAI(api_key=api_key)
     return asyncio.run(openai_client.chat.completions.create(**kwargs))
 
@@ -74,9 +75,10 @@ openai_outro = (
 
 
 # ================================== Moods =================================== #
-# Represents a single "mood" that DImROD can be in. Used to give DImROD some
-# variance in terms of how it responds to users.
 class DialogueMood(Uniserdes):
+    """Represents a single "mood" that DImROD can be in. Used to give DImROD some
+    variance in terms of how it responds to users.
+    """
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -85,9 +87,10 @@ class DialogueMood(Uniserdes):
             UniserdesField("chance",        [float],    required=True)
         ]
 
-    # Uses RNG and the configured chance value to determine if this mood should
-    # be chosen for activation.
     def should_activate(self):
+        """Uses RNG and the configured chance value to determine if this mood should
+        be chosen for activation.
+        """
         # make sure the chance is configured correctly
         assert self.chance >= 0.0 and self.chance <= 1.0, \
                "the configured chance for dialogue mood \"%s\" must be between [0.0, 1.0]" % (self.name)
@@ -161,8 +164,8 @@ openai_moods_json = [
 
 
 # =============================== Conversation =============================== #
-# This enum represents the various types of speakers in dialogue.
 class DialogueAuthorType(Enum):
+    """This enum represents the various types of speakers in dialogue."""
     UNKNOWN = -1
     # DImROD author types
     SYSTEM = 0                  # default author type for a message sent by DImROD
@@ -171,11 +174,12 @@ class DialogueAuthorType(Enum):
     USER = 1000                 # default author type for a message sent by a user
     USER_ANSWER_TO_QUERY = 1001 # user answering a `SYSTEM_QUERY_TO_USER` message
 
-# This class represents a single speaker in a dialogue (ex: DImROD itself, a
-# telegram user, etc.)
 class DialogueAuthor(Uniserdes):
-    # Constructor.
+    """This class represents a single speaker in a dialogue (ex: DImROD itself, a
+    telegram user, etc.)
+    """
     def __init__(self):
+        """Constructor."""
         super().__init__()
         self.fields = [
             UniserdesField("id",        [str],             required=False, default=None),
@@ -188,37 +192,38 @@ class DialogueAuthor(Uniserdes):
         if self.id is None:
             self.get_id()
 
-    # Returns a string representation of the object.
     def to_str_brief(self):
+        """Returns a string representation of the object."""
         return "DialogueAuthor: [%d-%s] %s" % \
                (self.type.name, self.type.name, self.name)
 
-    # Returns the author's unique ID. If one hasn't been created yet for this
-    # instance, one is generated here.
     def get_id(self):
+        """Returns the author's unique ID. If one hasn't been created yet for this
+        instance, one is generated here.
+        """
         if self.id is None:
             data = "%s-%s" % (self.name, self.type.name)
             data = data.encode("utf-8")
             self.id = hashlib.sha256(data).hexdigest()
         return self.id
 
-    # Returns, based on the author's type, if it's a system author.
     def is_system(self):
+        """Returns, based on the author's type, if it's a system author."""
         return self.type.value >= DialogueAuthorType.SYSTEM.value and \
                self.type.value < DialogueAuthorType.USER.value
 
-    # Returns, based on the author's type, if it's a user author.
     def is_user(self):
+        """Returns, based on the author's type, if it's a user author."""
         return self.type.value >= DialogueAuthorType.USER.value
 
     @classmethod
     def get_sqlite3_table_fields_kept_visible(self):
         return ["id", "type", "name"]
 
-# This class represents a single message passed between a user and DImROD.
 class DialogueMessage(Uniserdes):
-    # Constructor.
+    """This class represents a single message passed between a user and DImROD."""
     def __init__(self):
+        """Constructor."""
         super().__init__()
         self.fields = [
             UniserdesField("author",       [DialogueAuthor],   required=True),
@@ -237,14 +242,15 @@ class DialogueMessage(Uniserdes):
         if self.id is None:
             self.get_id()
 
-    # Returns a string representation of the message.
     def to_str_brief(self):
+        """Returns a string representation of the message."""
         return "DialogueMessage: %s [author: %s] \"%s\"" % \
                (self.get_id(), self.author.get_id(), self.content)
 
-    # Returns the message ID. If one hasn't been created yet for this instance,
-    # one is generated here.
     def get_id(self):
+        """Returns the message ID. If one hasn't been created yet for this instance,
+        one is generated here.
+        """
         if self.id is None:
             # combine the author, content, and timestamp into a collection of
             # bytes (with a few extra bytes thrown in for good measure), then
@@ -254,8 +260,8 @@ class DialogueMessage(Uniserdes):
             self.id = hashlib.sha256(data).hexdigest()
         return self.id
 
-    # Converts the message into a JSON dictionary formatted for the OpenAI API.
     def to_openai_json(self):
+        """Converts the message into a JSON dictionary formatted for the OpenAI API."""
         name = "user"
         if self.author.is_system():
             name = "assistant"
@@ -265,12 +271,13 @@ class DialogueMessage(Uniserdes):
     def get_sqlite3_table_fields_kept_visible(self):
         return ["id", "timestamp", "telegram_chat_id", "telegram_message_id"]
 
-# This class represents a single conversation had between a user and DImROD. It
-# retains messages and can be used to have an extended conversation (via the
-# Dialogue class).
 class DialogueConversation(Uniserdes):
-    # Constructor. Accepts an optional conversation ID.
+    """This class represents a single conversation had between a user and DImROD. It
+    retains messages and can be used to have an extended conversation (via the
+    Dialogue class).
+    """
     def __init__(self):
+        """Constructor. Accepts an optional conversation ID."""
         super().__init__()
         self.fields = [
             UniserdesField("messages",     [DialogueMessage],  required=False, default=[]),
@@ -292,46 +299,48 @@ class DialogueConversation(Uniserdes):
         if self.time_latest is None:
             self.time_latest = now
 
-    # Returns a string representation of the conversation object.
     def to_str_brief(self):
+        """Returns a string representation of the conversation object."""
         return "DialogueConversation: %s [%d messages]" % (self.get_id(), len(self.messages))
 
-    # Returns the conversation ID. If one hasn't been created yet for this
-    # instance, one is generated here.
     def get_id(self):
+        """Returns the conversation ID. If one hasn't been created yet for this
+        instance, one is generated here.
+        """
         if self.id is None:
             data = str(id).encode("utf-8") + os.urandom(8)
             self.id = hashlib.sha256(data).hexdigest()
         return self.id
 
-    # Adds a role/message pair to the conversation.
     def add(self, msg: DialogueMessage):
+        """Adds a role/message pair to the conversation."""
         self.messages.append(msg)
         self.time_latest = datetime.now()
 
-    # Returns the latest user request (role = "user"), or None.
     def latest_request(self):
+        """Returns the latest user request (role = "user"), or None."""
         for m in list(reversed(self.messages)):
             if m.author.is_user():
                 return m
         return None
 
-    # Returns the latest DImROD answer, or None.
     def latest_response(self):
+        """Returns the latest DImROD answer, or None."""
         for m in list(reversed(self.messages)):
             if m.author.is_system():
                 return m
         return None
 
-    # Returns the latest message in the conversation.
     def latest_message(self):
+        """Returns the latest message in the conversation."""
         if len(self.messages) == 0:
             return None
         return self.messages[-1]
 
-    # Converts the conversation's messages to a JSON dictionary suitable for
-    # OpenAI's API.
     def to_openai_json(self):
+        """Converts the conversation's messages to a JSON dictionary suitable for
+        OpenAI's API.
+        """
         result = []
         for m in self.messages:
             result.append(m.to_openai_json())
@@ -377,8 +386,8 @@ class DialogueConfig(Config):
 
 # ============================ Dialogue Interface ============================ #
 class DialogueInterface:
-    # Constructor.
     def __init__(self, conf: DialogueConfig):
+        """Constructor."""
         self.conf = conf
         # set the OpenAI API key
         openai.api_key = self.conf.openai_api_key
@@ -395,11 +404,12 @@ class DialogueInterface:
         self.conf.openai_chat_moods = moods
         self.remood() # select the first mood
 
-    # "Re-moods" the dialogue interface by randomly choosing a mood from the
-    # configured mood list, and setting the OpenAI intro prompt accordingly.
-    # If 'new_mood' is set, it will be used as the new mood (instead of randomly
-    # picking one).
     def remood(self, new_mood=None):
+        """"Re-moods" the dialogue interface by randomly choosing a mood from the
+        configured mood list, and setting the OpenAI intro prompt accordingly.
+        If 'new_mood' is set, it will be used as the new mood (instead of randomly
+        picking one).
+        """
         if new_mood is not None:
             self.mood = new_mood
         else:
@@ -426,17 +436,18 @@ class DialogueInterface:
         # set the interface's mood and return it
         return self.mood
 
-    # Takes in a question, request, or statement, and passes it along to the
-    # OpenAI chat API. If 'conversation' is specified, the given message will be
-    # appended to the conversation's internal list, and the conversation's
-    # existing context will be passed to OpenAI. If no conversation is specified
-    # then a new one will be created and returned.
-    # Returns the resulting converstaion, which includes DImROD's response.
-    # This may throw an exception if contacting OpenAI failed somehow.
-    # If 'intro' is specified, it is interpreted as a string and used as a
-    # drop-in replacement for the default "system" message used by OpenAI to
-    # set the initial conditions for the LLM.
     def talk(self, prompt: str, conversation=None, author=None, intro=None):
+        """Takes in a question, request, or statement, and passes it along to the
+        OpenAI chat API. If 'conversation' is specified, the given message will be
+        appended to the conversation's internal list, and the conversation's
+        existing context will be passed to OpenAI. If no conversation is specified
+        then a new one will be created and returned.
+        Returns the resulting converstaion, which includes DImROD's response.
+        This may throw an exception if contacting OpenAI failed somehow.
+        If 'intro' is specified, it is interpreted as a string and used as a
+        drop-in replacement for the default "system" message used by OpenAI to
+        set the initial conditions for the LLM.
+        """
         # set up the conversation to use
         c = conversation
         if c is None:
@@ -494,12 +505,13 @@ class DialogueInterface:
         self.save_conversation(c)
         return c
 
-    # Runs a single, "oneshot" prompt with the LLM, given the system `intro`
-    # message, which is used to set the context for the LLM, and the `prompt`
-    # itself.
-    #
-    # The string response is returned.
     def oneshot(self, intro: str, prompt: str):
+        """Runs a single, "oneshot" prompt with the LLM, given the system `intro`
+        message, which is used to set the context for the LLM, and the `prompt`
+        itself.
+
+        The string response is returned.
+        """
         # create the conversation object, and add the intro system message
         c = DialogueConversation.from_json({})
         a = DialogueAuthor.from_json({
@@ -530,10 +542,11 @@ class DialogueInterface:
         result = result.choices[0].message.content
         return result
 
-    # Takes in a sentence and rewords it such that it appears to have come from
-    # the mouth of DImROD. It pings OpenAI's API. It's essentially a way to give
-    # some AI-assisted variance to the same message.
     def reword(self, prompt: str, extra_context: str = None):
+        """Takes in a sentence and rewords it such that it appears to have come from
+        the mouth of DImROD. It pings OpenAI's API. It's essentially a way to give
+        some AI-assisted variance to the same message.
+        """
         # set up the intro prompt and build a message
         intro = openai_behavior_intro + \
                 openai_behavior_identity + \
@@ -549,9 +562,10 @@ class DialogueInterface:
         return self.oneshot(intro, prompt)
 
     # -------------------------- SQLite3 Databasing -------------------------- #
-    # Deletes old conversations whose last-updated-time have passed the
-    # configured threshold. Returns the number of deleted conversations.
     def prune(self):
+        """Deletes old conversations whose last-updated-time have passed the
+        configured threshold. Returns the number of deleted conversations.
+        """
         db_path = self.conf.dialogue_db
         convos = self.search_conversation()
         now = datetime.now()
@@ -579,8 +593,8 @@ class DialogueInterface:
         con.close()
         return deletions
 
-    # Performs a search of the database and returns tuples in a list.
     def search(self, table: str, condition: str):
+        """Performs a search of the database and returns tuples in a list."""
         db_path = self.conf.dialogue_db
 
         # build a SELECT command
@@ -594,8 +608,8 @@ class DialogueInterface:
         result = cur.execute(cmd)
         return result
 
-    # Saves an author to the author database.
     def save_author(self, author: DialogueAuthor):
+        """Saves an author to the author database."""
         db_path = self.conf.dialogue_db
 
         table_fields_kept_visible = DialogueAuthor.get_sqlite3_table_fields_kept_visible()
@@ -622,10 +636,12 @@ class DialogueInterface:
         if self.last_prune.timestamp() < prune_threshold:
             self.prune()
 
-    # Searches for authors in the database based on one or more authors fields.
-    # (If NO fields are specified, all stored authors are returned.)
-    # Returns an empty list or a list of matching DialogueAuthor objects.
     def search_author(self, aid=None, name=None, atype=None):
+        """Searches for authors in the database based on one or more authors fields.
+
+        (If NO fields are specified, all stored authors are returned.)
+        Returns an empty list or a list of matching DialogueAuthor objects.
+        """
         db_path = self.conf.dialogue_db
         if not os.path.isfile(db_path):
             return []
@@ -699,10 +715,11 @@ class DialogueInterface:
         if self.last_prune.timestamp() < prune_threshold:
             self.prune()
 
-    # Searches for a conversation based on ID and/or start-time range. Returns
-    # all matching conversations (or ALL conversations if no parameters are
-    # specified).
     def search_conversation(self, cid=None, time_range=None):
+        """Searches for a conversation based on ID and/or start-time range. Returns
+        all matching conversations (or ALL conversations if no parameters are
+        specified).
+        """
         db_path = self.conf.dialogue_db
         if not os.path.isfile(db_path):
             return []
@@ -730,8 +747,8 @@ class DialogueInterface:
 
         return result
 
-    # Saves the provided message into its appropriate conversation table.
     def save_message(self, msg: DialogueMessage, cid=None):
+        """Saves the provided message into its appropriate conversation table."""
         db_path = self.conf.dialogue_db
 
         # query for the conversation; it must already exist
@@ -796,13 +813,6 @@ class DialogueInterface:
         if self.last_prune.timestamp() < prune_threshold:
             self.prune()
 
-    # Searches all conversation tables for any messages with the matching
-    # parameters. Reeturns a list of tuples containing:
-    #
-    #   (DialogueMessage, DialogueConversation)
-    #
-    # Where the `DialogueConversation` object corresponds to the conversation
-    # that the message belongs to.
     def search_message(self,
                        mid=None,
                        aid=None,
@@ -810,6 +820,14 @@ class DialogueInterface:
                        keywords=[],
                        telegram_chat_id=None,
                        telegram_message_id=None):
+        """Searches all conversation tables for any messages with the matching
+        parameters. Reeturns a list of tuples containing:
+
+          (DialogueMessage, DialogueConversation)
+
+        Where the `DialogueConversation` object corresponds to the conversation
+        that the message belongs to.
+        """
         db_path = self.conf.dialogue_db
         if not os.path.isfile(db_path):
             return []

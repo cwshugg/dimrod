@@ -16,10 +16,12 @@ from lib.config import Config, ConfigField
 from lib.oracle import OracleSession, OracleSessionConfig
 from chef.recipe import Recipe, Ingredient, IngredientReplenishType
 
-# A taskjob that scans the grocery list for mention of recipe names.
-# If a recipe name is found, the taskjob polls the chef service for the
-# recipe's ingredients and adds them to the grocery list.
 class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
+    """A taskjob that scans the grocery list for mention of recipe names.
+
+    If a recipe name is found, the taskjob polls the chef service for the
+    recipe's ingredients and adds them to the grocery list.
+    """
     def __init__(self, service):
         super().__init__(service)
         self.refresh_rate = 120
@@ -30,8 +32,8 @@ class TaskJob_Groceries_RecipeResolver(TaskJob_Groceries):
         )
         self.chef_config = None
 
-    # Initializes and returns an authenticated session with the chef service.
     def get_chef_session(self):
+        """Initializes and returns an authenticated session with the chef service."""
         # Attempt to load the chef config file, if it hasn't been loaded yet.
         if self.chef_config is None:
             self.chef_config = OracleSessionConfig.from_file(self.chef_config_path)

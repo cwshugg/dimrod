@@ -18,8 +18,8 @@ import lib.dtu as dtu
 from lib.config import Config, ConfigField
 from lib.oracle import OracleSession
 
-# Base class for family-related tasks.
 class TaskJob_Family(TaskJob):
+    """Base class for family-related tasks."""
     def update(self, todoist, gcal):
         super().update(todoist, gcal)
         return False

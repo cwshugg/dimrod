@@ -20,9 +20,10 @@ from subscriber import GatekeeperSubscriber
 
 
 # =============================== Event Config =============================== #
-# This config class represents the required data to be included in the Gatekeeper
-# config file.
 class GatekeeperEventConfig(Config):
+    """This config class represents the required data to be included in the Gatekeeper
+    config file.
+    """
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -30,9 +31,10 @@ class GatekeeperEventConfig(Config):
             ConfigField("subscribers",  [list],     required=True)
         ]
 
-# This config class represents the required data to be sent to Gatekeeper when an
-# event is posted from across the internet (via the oracle).
 class GatekeeperEventPostConfig(Config):
+    """This config class represents the required data to be sent to Gatekeeper when an
+    event is posted from across the internet (via the oracle).
+    """
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -43,8 +45,8 @@ class GatekeeperEventPostConfig(Config):
 
 # =============================== Event Class ================================ #
 class GatekeeperEvent:
-    # Constructor. Takes in JSON data and parses it as a GatekeeperEventConfig.
     def __init__(self, jdata: dict):
+        """Constructor. Takes in JSON data and parses it as a GatekeeperEventConfig."""
         self.config = GatekeeperEventConfig()
         self.config.parse_json(jdata)
 
@@ -56,8 +58,8 @@ class GatekeeperEvent:
             sub = GatekeeperSubscriber(sdata)
             self.subscribers.append(sub)
 
-    # String representation.
     def __str__(self):
+        """String representation."""
         return "%s: %d subscriber(s)" % (self.config.name, len(self.config.subscribers))
 
     # Fires the event, which executes all subscribers. Takes in an optional data

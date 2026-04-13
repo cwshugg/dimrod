@@ -15,8 +15,8 @@ import lib.dtu as dtu
 from lib.config import Config, ConfigField
 
 class TaskJob_LifeTracker_Main(TaskJob_LifeTracker):
-    # Overridden initialization function.
     def init(self):
+        """Overridden initialization function."""
         super().init()
         self.config_name = "main.json"
 

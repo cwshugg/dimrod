@@ -15,8 +15,8 @@ from tasks.services.base import *
 import lib.dtu as dtu
 from lib.wyze import Wyze
 
-# A taskjob that routinely checks my current Wyze API key for expiration.
 class TaskJob_Services_WyzeAPIKey(TaskJob_Services):
+    """A taskjob that routinely checks my current Wyze API key for expiration."""
     def init(self):
         self.refresh_rate = 3600 * 24 # check every day
 

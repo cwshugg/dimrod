@@ -49,8 +49,8 @@ class ChefService(Service):
 
         self.recipes = {}
 
-    # Overridden main function implementation.
     def run(self):
+        """Overridden main function implementation."""
         super().run()
 
         # If the recipe directory doesn't exist, make it
@@ -85,16 +85,18 @@ class ChefService(Service):
             # Sleep for a short time before looping again:
             time.sleep(self.config.recipe_refresh_rate)
 
-    # Returns the recipe object with the specified ID, or None if no such
-    # recipe exists.
     def get_recipe_by_id(self, r_id: str):
+        """Returns the recipe object with the specified ID, or None if no such
+        recipe exists.
+        """
         r_id = r_id.strip().lower()
         return self.recipes.get(r_id, None)
 
     # ---------------------------- Recipe Loading ---------------------------- #
-    # Iterates through the configured recipe directory and loads all recipes that
-    # were found. Returns a dictionary mapping recipe IDs to recipe objects.
     def load_all_recipes(self):
+        """Iterates through the configured recipe directory and loads all recipes that
+        were found. Returns a dictionary mapping recipe IDs to recipe objects.
+        """
         all_recipes = {}
         for (root, dirs, files) in os.walk(self.config.recipe_dir):
             for f in files:
@@ -128,10 +130,12 @@ class ChefService(Service):
 
         return all_recipes
 
-    # Attempts to load one or more recipes from a single JSON file.
-    # A dictionary of recipe objects, keyed by recipe ID string, is returned on
-    # success.
     def load_recipes_from_file(self, fpath: str):
+        """Attempts to load one or more recipes from a single JSON file.
+
+        A dictionary of recipe objects, keyed by recipe ID string, is returned on
+        success.
+        """
         recipes = {}
         with open(fpath, "r") as fp:
             jdata = json.load(fp)
@@ -160,9 +164,10 @@ class ChefService(Service):
                 recipes[r.id] = r
         return recipes
 
-    # Uses an LLM to resolve the provided text to one of the recipes saved in
-    # the chef service. Returns None, or the matching recipe object.
     def resolve_recipe(self, text: str):
+        """Uses an LLM to resolve the provided text to one of the recipes saved in
+        the chef service. Returns None, or the matching recipe object.
+        """
         # Does the text contain the ID or name of any of the recipes? If so,
         # we'll use the recipe ID to inject a hint into the LLM prompt to steer
         # it in the right direction.
@@ -252,8 +257,8 @@ class ChefService(Service):
 
 # ============================== Service Oracle ============================== #
 class ChefOracle(Oracle):
-    # Endpoint definition function.
     def endpoints(self):
+        """Endpoint definition function."""
         super().endpoints()
 
         # Searches for a reminder by ID.

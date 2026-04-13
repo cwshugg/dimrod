@@ -53,16 +53,17 @@ class GatekeeperService(Service):
             self.events.append(e)
             self.log.write("Loaded event: %s" % str(e))
 
-    # Overridden abstract class implementation for the service thread.
     def run(self):
+        """Overridden abstract class implementation for the service thread."""
         super().run()
 
-    # Accepts a GatekeeperEventPostConfig and searches the service's events for one
-    # with a matching name. Returns the number of events that were fired as a
-    # result.
     def post(self, pconf: GatekeeperEventPostConfig):
-        # Helper function that fires a single event and all of its subscribers.
+        """Accepts a GatekeeperEventPostConfig and searches the service's events for one
+        with a matching name. Returns the number of events that were fired as a
+        result.
+        """
         def run_event(e: GatekeeperEvent, out_fd, err_fd):
+            """Helper function that fires a single event and all of its subscribers."""
             asyncio.run(e.fire(data=pconf.data,
                                stdout_fd=out_fd,
                                stderr_fd=err_fd))
@@ -107,8 +108,8 @@ class GatekeeperService(Service):
 
 # ============================== Service Oracle ============================== #
 class GatekeeperOracle(Oracle):
-    # Endpoint definition function.
     def endpoints(self):
+        """Endpoint definition function."""
         super().endpoints()
 
         # Endpoint for a simple greeting.

@@ -13,11 +13,13 @@ pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 if pdir not in sys.path:
     sys.path.append(pdir)
 
-# Log class
 class Log:
-    # Constructor. Requires a name for the log.
-    #   stream      can be either sys.stdout, sys.stderr, or a file path
+    """Log class"""
     def __init__(self, name, stream=sys.stdout):
+        """Constructor. Requires a name for the log.
+
+          stream      can be either sys.stdout, sys.stderr, or a file path
+        """
         self.name = name
 
         # check the log stream. If it's a string, we'll parse it and open a file
@@ -39,9 +41,11 @@ class Log:
                     fp = open(stream, "w")
                     fp.close()
 
-    # Writes a new line to the log with the given message.
-    # If 'show_prefix' is set to False, the prefix will not be printed.
     def write(self, msg, begin="", end="\n", show_prefix=True):
+        """Writes a new line to the log with the given message.
+
+        If 'show_prefix' is set to False, the prefix will not be printed.
+        """
         # rent a file descriptor
         stream = self.rent_fd()
         
@@ -59,18 +63,19 @@ class Log:
         # return the file descriptor
         self.return_fd(stream)
     
-    # Retrieves a file descriptor that's "rented" by the caller for a brief
-    # period of time. Once the caller is done writing to the file, it must
-    # then call return_fd() to close it properly.
     def rent_fd(self):
+        """Retrieves a file descriptor that's "rented" by the caller for a brief
+        period of time. Once the caller is done writing to the file, it must
+        then call return_fd() to close it properly.
+        """
         is_file = type(self.stream) == str
         stream = self.stream
         if is_file:
             stream = open(self.stream, "a")
         return stream
     
-    # Takes in the FD returned by rent_fd() and closes it properly.
     def return_fd(self, fd):
+        """Takes in the FD returned by rent_fd() and closes it properly."""
         is_file = type(self.stream) == str
         if is_file:
             fd.close()

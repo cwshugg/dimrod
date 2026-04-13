@@ -38,8 +38,8 @@ class Reminder(Uniserdes):
             UniserdesField("id",               [str],      required=False,     default=None)
         ]
 
-    # String representation
     def __str__(self):
+        """String representation"""
         return "[R-%s] %s: %s" % (self.get_id(), self.title, self.message)
 
     def get_trigger_str(self):
@@ -58,9 +58,10 @@ class Reminder(Uniserdes):
             parts.append("Minutes: " + ", ".join([str(m) for m in self.trigger_minutes]))
         return "; ".join(parts)
 
-    # Returns the reminder's unique ID string. (If one hasn't been set, this
-    # generates one.)
     def get_id(self):
+        """Returns the reminder's unique ID string. (If one hasn't been set, this
+        generates one.)
+        """
         if self.id is None:
             h = hashlib.sha256()
             text = self.message + \
@@ -78,8 +79,8 @@ class Reminder(Uniserdes):
         return self.id
 
     # ------------------------------- Triggers ------------------------------- #
-    # Checks the values of each trigger to ensure it's in a valid range.
     def check_triggers(self):
+        """Checks the values of each trigger to ensure it's in a valid range."""
         for y in self.trigger_years:
             assert type(y) == int, "trigger_years must be a list of ints"
         for m in self.trigger_months:
@@ -98,8 +99,8 @@ class Reminder(Uniserdes):
             assert type(m) == int, "trigger_minutes must be a list of ints"
             assert m in range(0, 60), "trigger_minutes must be within 0-59"
 
-    # Returns True if all trigger conditions are satisfied.
     def ready(self):
+        """Returns True if all trigger conditions are satisfied."""
         now = datetime.now()
         result = True
 
@@ -172,8 +173,8 @@ class Reminder(Uniserdes):
 
         return result
 
-    # Returns True if the reminder will never be triggered again.
     def expired(self):
+        """Returns True if the reminder will never be triggered again."""
         now = datetime.now()
 
         # if no year is defined, then immediately return false (by default, all

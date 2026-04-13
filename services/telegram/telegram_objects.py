@@ -14,8 +14,8 @@ if pdir not in sys.path:
 # Local imports
 from lib.uniserdes import Uniserdes, UniserdesField
 
-# Parent class for all Telegram objects.
 class TelegramObject(Uniserdes):
+    """Parent class for all Telegram objects."""
     @classmethod
     def from_telegram_to_obj(cls, obj):
         result = cls()

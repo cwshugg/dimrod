@@ -13,13 +13,13 @@ if pdir not in sys.path:
 
 
 # ================================= Helpers ================================== #
-# Runs a command and returns the stdout.
 def run_command(args):
+    """Runs a command and returns the stdout."""
     result = subprocess.run(args, check=False, capture_output=True)
     return result.stdout.decode()
 
-# Gets the system uptime.
 def get_uptime():
+    """Gets the system uptime."""
     ut = run_command(["uptime", "-p"]).replace("\n", "")
     ut = ut.replace("up", "")
     ut = ut.replace("weeks", "w")
@@ -32,12 +32,12 @@ def get_uptime():
     ut = ut.replace("minute", "m")
     return ut.strip()
 
-# Returns the CPU load average.
 def get_loadavg():
+    """Returns the CPU load average."""
     return run_command(["cat", "/proc/loadavg"]).replace("\n", "")
 
-# Returns the memory info as a dictionary.
 def get_mem_info():
+    """Returns the memory info as a dictionary."""
     memdata = run_command(["cat", "/proc/meminfo"]).split("\n")
     memdict = {}
     for line in memdata:
@@ -47,15 +47,15 @@ def get_mem_info():
         memdict[key] = value
     return memdict
 
-# Returns a list of running processes.
 def get_process_count():
+    """Returns a list of running processes."""
     procs = run_command(["ps", "-aux"]).split("\n")
     return len(procs)
 
 
 # ================================ Messaging ================================= #
-# Sends a summary of the system.
 def summarize(service, message, args):
+    """Sends a summary of the system."""
     msg = "<b>Machine Status</b>\n\n"
 
     # system uptime
@@ -86,8 +86,8 @@ def summarize(service, message, args):
 
 
 # ================================= Services ================================= #
-# Gets and returns the names of currently-active DImROD services.
 def get_services():
+    """Gets and returns the names of currently-active DImROD services."""
     lines = run_command(["systemctl", "list-units", "--type=service", "--all"]).split("\n")
     names = []
     for sdata in lines:
@@ -108,8 +108,8 @@ def get_services():
         names.append(name)
     return names
 
-# Attempts to find an active DImROD service with the given name.
 def find_service(name: str):
+    """Attempts to find an active DImROD service with the given name."""
     n = name.strip().lower()
     # search for any service name that contains the given name
     for s in get_services():
@@ -117,8 +117,8 @@ def find_service(name: str):
             return s
     return None
 
-# Sends a report of DImROD's Python services.
 def report_services(service, message, args):
+    """Sends a report of DImROD's Python services."""
     msg = "<b>DImROD Service Status</b>\n\n"
     
     # get a list of all active services
@@ -135,8 +135,8 @@ def report_services(service, message, args):
     # send the message
     service.send_message(message.chat.id, msg, parse_mode="HTML")
 
-# Reports information on a specific DImROD service.
 def report_service(service, message, args, name):
+    """Reports information on a specific DImROD service."""
     name_short = name.replace("dimrod_", "").replace(".service", "")
     msg = "<b>%s Status</b>\n\n" % name_short.title()
     
@@ -206,16 +206,16 @@ def report_service(service, message, args, name):
     # send the message
     service.send_message(message.chat.id, msg, parse_mode="HTML")
 
-# Restarts the dimrod service daemon.
 def restart_service(service, message, args, name):
+    """Restarts the dimrod service daemon."""
     name_short = name.replace("dimrod_", "").replace(".service", "")
     service.send_message(message.chat.id,
                          "I'll try to restart %s. "
                          "Try checking the status in a minute." % name_short)
     run_command(["systemctl", "restart", name])
 
-# Main handler for the 'services' sub-command.
 def subcmd_services(service, message, args):
+    """Main handler for the 'services' sub-command."""
     # if not subcommand was given, send a summary
     if len(args) == 2:
         return report_services(service, message, args)
@@ -242,8 +242,8 @@ def subcmd_services(service, message, args):
 
 
 # =================================== Main =================================== #
-# Main function.
 def command_system(service, message, args: list):
+    """Main function."""
     # if no arguments were given, show a summary
     if len(args) == 1:
         return summarize(service, message, args)

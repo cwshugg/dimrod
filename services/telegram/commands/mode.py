@@ -15,8 +15,8 @@ from lumen.light import LightConfig, Light
 
 
 # =================================== Main =================================== #
-# Main function.
 def command_mode(service, message, args: list):
+    """Main function."""
     # create a HTTP session with moder
     session = OracleSession(service.config.moder)
     try:

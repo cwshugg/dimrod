@@ -22,14 +22,14 @@ if pdir not in sys.path:
 # Local imports
 from lib.uniserdes import Uniserdes, UniserdesField
 
-# Represents a single config file field.
 class ConfigField(UniserdesField):
+    """Represents a single config file field."""
     def __init__(self, name, types, required=False, default=None):
         super().__init__(name, types, required=required, default=default)
 
 
-# Config class.
 class Config(Uniserdes):
+    """Config class."""
     def __init__(self):
         super().__init__()
 

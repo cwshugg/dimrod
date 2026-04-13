@@ -14,15 +14,16 @@ if pdir not in sys.path:
 # Local imports
 from lib.uniserdes import Uniserdes, UniserdesField
 
-# An enum representing the rough frequency at which the supply of an ingredient
-# should be replenished.
 class IngredientReplenishType(enum.Enum):
+    """An enum representing the rough frequency at which the supply of an ingredient
+    should be replenished.
+    """
     ALWAYS = 0
     SOMETIMES = 1
     RARELY = 2
 
-# Represents a single ingredient in a recipe.
 class Ingredient(Uniserdes):
+    """Represents a single ingredient in a recipe."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -38,8 +39,8 @@ class Ingredient(Uniserdes):
         # Strip whitespace and force the ID string to be lowercase:
         self.id = self.id.strip().lower()
 
-# Represents a single step to follow in a recipe.
 class RecipeStep(Uniserdes):
+    """Represents a single step to follow in a recipe."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -48,8 +49,8 @@ class RecipeStep(Uniserdes):
             UniserdesField("description",   [str],      required=False, default=None),
         ]
 
-# Represents a combination of ingredients that form a recipe.
 class Recipe(Uniserdes):
+    """Represents a combination of ingredients that form a recipe."""
     def __init__(self):
         super().__init__()
         self.fields = [

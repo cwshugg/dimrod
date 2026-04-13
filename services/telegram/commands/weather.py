@@ -9,8 +9,8 @@ pdir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 if pdir not in sys.path:
     sys.path.append(pdir)
 
-# Main function.
 def command_weather(service, message, args: list):
+    """Main function."""
     msg = "TODO - weather"
     service.send_message(message.chat.id, msg)
 

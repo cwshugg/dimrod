@@ -48,13 +48,13 @@ class MenuObject(Uniserdes):
             UniserdesField("id",           [str],      required=False, default=None),
         ]
 
-    # Overloaded JSON parsing function from parent.
     def parse_json(self, jdata: dict):
+        """Overloaded JSON parsing function from parent."""
         super().parse_json(jdata)
         self.get_id()
 
-    # Generates and returns a unique ID for this option.
     def get_id(self):
+        """Generates and returns a unique ID for this option."""
         if self.id is None:
             data = str(id(self)).encode("utf-8") + bytes(os.urandom(16))
             self.id = hashlib.sha256(data).hexdigest()
@@ -62,8 +62,8 @@ class MenuObject(Uniserdes):
 
 
 # ================================= Objects ================================== #
-# Uniserdes object used to create a MenuOption object.
 class MenuOption(MenuObject):
+    """Uniserdes object used to create a MenuOption object."""
     def __init__(self):
         super().__init__()
         self.fields += [
@@ -72,25 +72,25 @@ class MenuOption(MenuObject):
             UniserdesField("selection_count",  [int],      required=False, default=0),
         ]
 
-    # Generates a Telegram Bot button and returns it.
     def get_button(self):
+        """Generates a Telegram Bot button and returns it."""
         return InlineKeyboardButton(self.title,
                                     callback_data=self.get_id())
 
-    # Stores the menu option's corresponding button object.
     def set_telegram_button(self, btn: telebot.types.InlineKeyboardButton):
+        """Stores the menu option's corresponding button object."""
         self.telegram_btn_info = TelegramButton.from_telegram_to_obj(btn)
 
-    # Sets the option's selection count flat-out to the given value.
     def select_set(self, value: int):
+        """Sets the option's selection count flat-out to the given value."""
         self.selection_count = value
 
-    # Increments the option's selection count by the given value.
     def select_add(self, value: int = 1):
+        """Increments the option's selection count by the given value."""
         self.selection_count += value
 
-# An enum used to specify differences in behavior for a menu.
 class MenuBehaviorType(Enum):
+    """An enum used to specify differences in behavior for a menu."""
     # Accumulate: all options can be selected, but each accumulates a count of
     # the number of times they were selected.
     ACCUMULATE = 0
@@ -104,8 +104,8 @@ class MenuBehaviorType(Enum):
     # can have a value of 1.
     SINGLE_CHOICE = 2
 
-# Uniserdes object used to create a Menu object.
 class Menu(MenuObject):
+    """Uniserdes object used to create a Menu object."""
     def __init__(self):
         super().__init__()
         self.fields += [
@@ -118,8 +118,8 @@ class Menu(MenuObject):
             UniserdesField("telegram_msg_info", [TelegramMessage], required=False, default=None),
         ]
 
-    # Overridden `parse_json()`.
     def parse_json(self, jdata: dict):
+        """Overridden `parse_json()`."""
         super().parse_json(jdata)
         if self.birth_time is None:
             self.birth_time = datetime.now()
@@ -131,13 +131,14 @@ class Menu(MenuObject):
         for op in self.options:
             op.menu_id = self.get_id()
 
-    # Stores the menu's corresponding message object.
     def set_telegram_message(self, msg: telebot.types.Message):
+        """Stores the menu's corresponding message object."""
         self.telegram_msg_info = TelegramMessage.from_telegram_to_obj(msg)
 
-    # Generates a Telegram Bot markup, with all options included as buttons,
-    # and returns it.
     def get_markup(self, buttons_per_row=2):
+        """Generates a Telegram Bot markup, with all options included as buttons,
+        and returns it.
+        """
         markup = InlineKeyboardMarkup(row_width=buttons_per_row)
 
         # add all options as buttons
@@ -146,15 +147,17 @@ class Menu(MenuObject):
             markup.add(op.get_button())
         return markup
 
-    # Examines the menu's "birth time" against the current time, and returns
-    # True if it has exceeded its timeout time.
     def is_expired(self, now=None):
+        """Examines the menu's "birth time" against the current time, and returns
+        True if it has exceeded its timeout time.
+        """
         now = datetime.now() if now is None else now
         return dtu.diff_in_seconds(now, self.birth_time) > self.timeout
 
-    # Gets and returns one of the menu's inner `MenuOption` objects, given its
-    # ID. If a match isn't found, `None` if returned.
     def get_option(self, option_id: str):
+        """Gets and returns one of the menu's inner `MenuOption` objects, given its
+        ID. If a match isn't found, `None` if returned.
+        """
         for op in self.options:
             if option_id == op.get_id():
                 return op
@@ -162,16 +165,16 @@ class Menu(MenuObject):
 
 
 # ============================= Menu Databasing ============================== #
-# Implements an SQLite3 database to store Telegram menus and buttons.
 class MenuDatabase:
+    """Implements an SQLite3 database to store Telegram menus and buttons."""
     def __init__(self, path: str):
         self.db_path = path
         self.visible_fields_menu_option = ["id", "menu_id"]
         self.visible_fields_menu = ["id", "birth_time", "death_time"]
         self.lock = threading.Lock()
 
-    # Saves a Menu option to the database.
     def save_menu_option_locked(self, op: MenuOption, connection=None):
+        """Saves a Menu option to the database."""
         # establish a connection, if one wasn't already passed in
         connection_was_provided = connection is not None
         if not connection_was_provided:
@@ -195,9 +198,10 @@ class MenuDatabase:
         if not connection_was_provided:
             connection.close()
 
-    # Wrapper around `save_menu_option_locked` that acquires and released the
-    # lock, if specified by `use_lock`.
     def save_menu_option(self, op: MenuOption, connection=None, use_lock=True):
+        """Wrapper around `save_menu_option_locked` that acquires and released the
+        lock, if specified by `use_lock`.
+        """
         if use_lock:
             self.lock.acquire()
 
@@ -213,8 +217,8 @@ class MenuDatabase:
         if use_lock:
             self.lock.release()
 
-    # Saves a menu, and all of its options, into the database.
     def save_menu_locked(self, m: Menu, connection=None):
+        """Saves a menu, and all of its options, into the database."""
         # establish a connection, if one wasn't already passed in
         connection_was_provided = connection is not None
         if not connection_was_provided:
@@ -243,9 +247,10 @@ class MenuDatabase:
         if not connection_was_provided:
             connection.close()
 
-    # Wrapper around `save_menu_locked` that acquires and released the lock, if
-    # specified by `use_lock`.
     def save_menu(self, m: Menu, connection=None, use_lock=True):
+        """Wrapper around `save_menu_locked` that acquires and released the lock, if
+        specified by `use_lock`.
+        """
         if use_lock:
             self.lock.acquire()
 
@@ -261,8 +266,8 @@ class MenuDatabase:
         if use_lock:
             self.lock.release()
 
-    # Performs a generic result and returns the SQLite3 result.
     def search_locked(self, table: str, condition: str):
+        """Performs a generic result and returns the SQLite3 result."""
         # construct a condition string
         cmd = "SELECT * FROM %s" % table
         if condition is not None and len(condition) > 0:
@@ -274,9 +279,10 @@ class MenuDatabase:
         result = cur.execute(cmd)
         return result
 
-    # Wrapper around `search_locked` that acquires and released the lock, if
-    # specified by `use_lock`.
     def search(self, table: str, condition: str, use_lock=True):
+        """Wrapper around `search_locked` that acquires and released the lock, if
+        specified by `use_lock`.
+        """
         if use_lock:
             self.lock.acquire()
 
@@ -292,9 +298,10 @@ class MenuDatabase:
                 self.lock.release()
                 raise e
 
-    # Searches for a menu option by its ID and returns it if found. Returns
-    # None if no match is found.
     def search_menu_option(self, option_id: str):
+        """Searches for a menu option by its ID and returns it if found. Returns
+        None if no match is found.
+        """
         # return early if the database doesn't exist
         if not os.path.isfile(self.db_path):
             return None
@@ -312,9 +319,10 @@ class MenuDatabase:
             return op
         return None
 
-    # Searches for menus, with a condition string, instead of a menu ID. A list
-    # of matching Menu objects are returned.
     def search_menu_by_condition(self, condition: str):
+        """Searches for menus, with a condition string, instead of a menu ID. A list
+        of matching Menu objects are returned.
+        """
         # return early if the database doesn't exist
         if not os.path.isfile(self.db_path):
             return []
@@ -331,9 +339,10 @@ class MenuDatabase:
             result.append(m)
         return result
 
-    # Searches for a menu by its ID and returns it if found. Returns None if no
-    # match is found.
     def search_menu(self, menu_id: str):
+        """Searches for a menu by its ID and returns it if found. Returns None if no
+        match is found.
+        """
         cond = "id == \"%s\"" % menu_id
         result = self.search_menu_by_condition(cond)
         result_len = len(result)
@@ -345,8 +354,8 @@ class MenuDatabase:
                "duplicate menu ID found in database: %s" % menu_id
         return result[0]
 
-    # Deletes a menu option from the database.
     def delete_menu_option_locked(self, op_id: str, connection=None):
+        """Deletes a menu option from the database."""
         connection_was_provided = connection is not None
         if not connection_was_provided:
             connection = sqlite3.connect(self.db_path)
@@ -363,9 +372,10 @@ class MenuDatabase:
         if not connection_was_provided:
             connection.close()
 
-    # Wrapper around `delete_menu_locked` that acquires and released the lock,
-    # if specified by `use_lock`.
     def delete_menu_option(self, op_id: str, connection=None, use_lock=True):
+        """Wrapper around `delete_menu_locked` that acquires and released the lock,
+        if specified by `use_lock`.
+        """
         if use_lock:
             self.lock.acquire()
 
@@ -379,8 +389,8 @@ class MenuDatabase:
         if use_lock:
             self.lock.release()
 
-    # Deletes a menu (and its menu options) from the database.
     def delete_menu_locked(self, menu_id: str, connection=None):
+        """Deletes a menu (and its menu options) from the database."""
         connection_was_provided = connection is not None
         if not connection_was_provided:
             connection = sqlite3.connect(self.db_path)
@@ -401,9 +411,10 @@ class MenuDatabase:
         if not connection_was_provided:
             connection.close()
 
-    # Wrapper around `delete_menu_locked` that acquires and released the lock,
-    # if specified by `use_lock`.
     def delete_menu(self, menu_id: str, connection=None, use_lock=True):
+        """Wrapper around `delete_menu_locked` that acquires and released the lock,
+        if specified by `use_lock`.
+        """
         if use_lock:
             self.lock.acquire()
 

@@ -12,8 +12,8 @@ if pdir not in sys.path:
 # Service imports
 from menu import Menu
 
-# Main function.
 def command_s_menu(service, message, args: list):
+    """Main function."""
     m = Menu()
     m.parse_json({
         "title": "This is a menu",

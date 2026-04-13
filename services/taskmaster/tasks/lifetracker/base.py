@@ -22,9 +22,10 @@ from lib.oracle import OracleSession
 import lib.dtu as dtu
 from lib.db import Database, DatabaseConfig
 
-# A class representing the trigger conditions for a LifeMetric to be sent to
-# the user. These work similar to the Notif service's reminder objects.
 class LifeMetricTrigger(Uniserdes):
+    """A class representing the trigger conditions for a LifeMetric to be sent to
+    the user. These work similar to the Notif service's reminder objects.
+    """
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -42,9 +43,10 @@ class LifeMetricTrigger(Uniserdes):
         self.check_triggers()
         return result
 
-    # Function borrowed from notif's Reminder object that makes sure all
-    # trigger values are within the expected range.
     def check_triggers(self):
+        """Function borrowed from notif's Reminder object that makes sure all
+        trigger values are within the expected range.
+        """
         for y in self.years:
             assert type(y) == int, "years must be a list of ints"
         for m in self.months:
@@ -64,9 +66,10 @@ class LifeMetricTrigger(Uniserdes):
             assert m in range(0, 60), "minutes must be within 0-59"
         assert self.cooldown > 0, "cooldown must be a positive integer"
 
-    # Returns True if the given datetime (which defaults to the current
-    # datetime) matches the trigger conditions.
     def is_ready(self, dt: datetime = None, last_trigger: datetime = None):
+        """Returns True if the given datetime (which defaults to the current
+        datetime) matches the trigger conditions.
+        """
         if dt is None:
             dt = datetime.now()
         result = True
@@ -102,8 +105,8 @@ class LifeMetricTrigger(Uniserdes):
 
         return result
 
-# A class representing a single choice/value for a metric.
 class LifeMetricValue(Uniserdes):
+    """A class representing a single choice/value for a metric."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -118,13 +121,14 @@ class LifeMetricValue(Uniserdes):
     def get_sqlite3_column_name_score_per_count(self):
         return "%s__score_per_count" % self.name
 
-# A class representing a single metric. One metric corresponds to one menu in
-# Telegram, where the user selects one of N possible answers, and the result is
-# logged in a database with a timestamp.
-#
-# One metric contains several metric values, each of which has a score that is
-# awarded to the user if the option is selected.
 class LifeMetric(Uniserdes):
+    """A class representing a single metric. One metric corresponds to one menu in
+    Telegram, where the user selects one of N possible answers, and the result is
+    logged in a database with a timestamp.
+
+    One metric contains several metric values, each of which has a score that is
+    awarded to the user if the option is selected.
+    """
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -136,22 +140,25 @@ class LifeMetric(Uniserdes):
             UniserdesField("telegram_menu_behavior_type", [str],   required=False, default="SINGLE_CHOICE"),
         ]
 
-    # Returns True if any one of the possible options has a non-zero score.
-    # Returns False is *all* options have a score of zero.
     def has_nonzero_scores(self):
+        """Returns True if any one of the possible options has a non-zero score.
+
+        Returns False is *all* options have a score of zero.
+        """
         for v in self.values:
             if v.score_points != 0:
                 return True
         return False
 
-    # Iterates through the metric's values and determines the maximum possible
-    # score that could be achieved.
-    #
-    # The `minimum` field can be set to force the value returned from this
-    # function to never drop below `minimum`. This handy, for example, for
-    # ensuring a life metric with *negative* scores never returns a maximum
-    # score less than zero.
     def get_score_max(self, minimum: int = None):
+        """Iterates through the metric's values and determines the maximum possible
+        score that could be achieved.
+
+        The `minimum` field can be set to force the value returned from this
+        function to never drop below `minimum`. This handy, for example, for
+        ensuring a life metric with *negative* scores never returns a maximum
+        score less than zero.
+        """
         result = max([v.score_points for v in self.values])
 
         # if a minimum value is set, make sure we aren't below it
@@ -159,9 +166,10 @@ class LifeMetric(Uniserdes):
             return minimum
         return result
 
-    # Returns a JSON object used to represent a telegram menu containing the
-    # metric's title and all of its values.
     def get_telegram_menu(self, title_prefix: str = ""):
+        """Returns a JSON object used to represent a telegram menu containing the
+        metric's title and all of its values.
+        """
         menu = {
             "title": title_prefix + self.title,
             "timeout": self.telegram_menu_timeout,
@@ -179,8 +187,8 @@ class LifeMetric(Uniserdes):
         return menu
 
 # ============================= Database Entries ============================= #
-# An enum class used to represent the status of a database entry for a metric.
 class LifeMetricEntryStatus(Enum):
+    """An enum class used to represent the status of a database entry for a metric."""
     # Alive: the Telegram menu is still open and its values can be modified.
     ALIVE = 0
 
@@ -188,8 +196,8 @@ class LifeMetricEntryStatus(Enum):
     # modified.
     DEAD = 1
 
-# A class representing a single database entry for a metric.
 class LifeMetricEntry(Uniserdes):
+    """A class representing a single database entry for a metric."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -199,9 +207,10 @@ class LifeMetricEntry(Uniserdes):
             UniserdesField("telegram_menu_id", [str], required=False, default=None)
         ]
 
-    # Takes a metric and modifies the entry to contain fields that match the
-    # metric's values. This is needed in order to form a SQL entry.
     def init_from_metric(self, metric: LifeMetric):
+        """Takes a metric and modifies the entry to contain fields that match the
+        metric's values. This is needed in order to form a SQL entry.
+        """
         self.metric_name = metric.name
 
         # add new fields to the object for each of the metric's values
@@ -218,8 +227,8 @@ class LifeMetricEntry(Uniserdes):
             setattr(self, score_per_count_name, value.score_points)
             setattr(self, selection_count_name, 0)
 
-    # Initializes certain fields of the object from the provided Telegram menu.
     def init_from_telegram_menu(self, menu: dict):
+        """Initializes certain fields of the object from the provided Telegram menu."""
         self.telegram_menu_id = menu["id"]
 
     def get_sqlite3_fields_to_keep_visible(self):
@@ -241,8 +250,8 @@ class LifeMetricEntry(Uniserdes):
 
 
 # ========================== Main LifeTracker Class ========================== #
-# A class reprsenting a collection of life metrics, along with other metadata.
 class LifeTracker(Uniserdes):
+    """A class reprsenting a collection of life metrics, along with other metadata."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -251,23 +260,24 @@ class LifeTracker(Uniserdes):
             UniserdesField("telegram_chat_id", [str],      required=True),
         ]
 
-    # Returns a `Database` wrapper interface to interact with the tracker's
-    # database.
     def get_database(self):
+        """Returns a `Database` wrapper interface to interact with the tracker's
+        database.
+        """
         config = DatabaseConfig.from_json({
             "path": self.db_path
         })
         return Database(config)
 
-    # Retrieves a metric, given its name.
     def get_metric_by_name(self, name: str):
+        """Retrieves a metric, given its name."""
         for m in self.metrics:
             if m.name == name:
                 return m
         return None
 
-    # Saves the given entry to the database.
     def save_metric_entry(self, entry: LifeMetricEntry):
+        """Saves the given entry to the database."""
         con = sqlite3.connect(self.db_path)
         cur = con.cursor()
 
@@ -282,8 +292,8 @@ class LifeTracker(Uniserdes):
         con.commit()
         con.close()
 
-    # Returns True if a table exists.
     def get_table_exists(self, name: str):
+        """Returns True if a table exists."""
         con = sqlite3.connect(self.db_path)
         cur = con.cursor()
 
@@ -296,10 +306,11 @@ class LifeTracker(Uniserdes):
         con.close()
         return False
 
-    # Queries the database and returns a list of `LifeMetricEntry` objects,
-    # representing the entries that are still "alive" (i.e. whose Telegram
-    # menus have not yet expired).
     def get_alive_metrics(self):
+        """Queries the database and returns a list of `LifeMetricEntry` objects,
+        representing the entries that are still "alive" (i.e. whose Telegram
+        menus have not yet expired).
+        """
         con = sqlite3.connect(self.db_path)
         cur = con.cursor()
 
@@ -328,8 +339,8 @@ class LifeTracker(Uniserdes):
         con.close()
         return entries
 
-    # Deletes the given `LifeMetricEntry` from the database.
     def delete_metric(self, entry: LifeMetricEntry):
+        """Deletes the given `LifeMetricEntry` from the database."""
         con = sqlite3.connect(self.db_path)
         cur = con.cursor()
 
@@ -342,9 +353,10 @@ class LifeTracker(Uniserdes):
         con.commit()
         con.close()
 
-    # Returns the latest (according to timestamp) database entry for the
-    # provided metric.
     def get_latest_metric_entry(self, metric: LifeMetric):
+        """Returns the latest (according to timestamp) database entry for the
+        provided metric.
+        """
         # if the metric's table doesn't exist yet, return early
         if not self.get_table_exists(metric.name):
             return None
@@ -372,20 +384,21 @@ class LifeTracker(Uniserdes):
         con.close()
         return entry
 
-    # Takes in a LifeMetric and two timestamps, and returns a list of all
-    # metric entries that fall between the beginning and ending timestamps.
-    #
-    # If `begin` is left as `None`, all entries leading up to
-    # `end` will be returned.
-    #
-    # If `end` is left as `None`, all entries occurring after
-    # `begin` will be returned.
-    #
-    # If both timestamps are `None`, an error is thrown.
     def get_metric_entries_by_timestamp(self,
                                         metric: LifeMetric,
                                         begin: datetime = None,
                                         end: datetime = None):
+        """Takes in a LifeMetric and two timestamps, and returns a list of all
+        metric entries that fall between the beginning and ending timestamps.
+
+        If `begin` is left as `None`, all entries leading up to
+        `end` will be returned.
+
+        If `end` is left as `None`, all entries occurring after
+        `begin` will be returned.
+
+        If both timestamps are `None`, an error is thrown.
+        """
         assert begin is not None or \
                end is not None, \
                "At least one timestamp must be provided"
@@ -426,35 +439,36 @@ class LifeTracker(Uniserdes):
 
 
 # =============================== Base TaskJob =============================== #
-# Base class for a LifeTracker task job. Implements some common functionality
-# useful for all subclasses.
 class TaskJob_LifeTracker(TaskJob):
-    # Overridden initialization function.
+    """Base class for a LifeTracker task job. Implements some common functionality
+    useful for all subclasses.
+    """
     def init(self):
+        """Overridden initialization function."""
         self.refresh_rate = 5 * 60 # updates every 5 minutes
         self.config_name = os.path.basename(__file__).replace(".py", ".json")
 
-    # Returns the path to where the JSON config file is expected to be.
     def get_config_path(self):
+        """Returns the path to where the JSON config file is expected to be."""
         this_file = inspect.getfile(self.__class__)
         config_dir = os.path.dirname(os.path.realpath(this_file))
         return os.path.join(config_dir, self.config_name)
 
-    # Parses the tracker config file and returns a `LifeTracker` object.
     def get_tracker(self):
+        """Parses the tracker config file and returns a `LifeTracker` object."""
         tracker = LifeTracker()
         tracker.parse_file(self.get_config_path())
         return tracker
 
     # -------------------------- Telegram Interface -------------------------- #
-    # Creates and returns an authenticated OracleSession with the telegram bot.
     def get_telegram_session(self):
+        """Creates and returns an authenticated OracleSession with the telegram bot."""
         s = OracleSession(self.service.config.telegram)
         s.login()
         return s
 
-    # Sends a message to Telegram.
     def send_message(self, tracker: LifeTracker, text: str):
+        """Sends a message to Telegram."""
         telegram_session = self.get_telegram_session()
 
         # create a payload and send it to Telegram to create the menu
@@ -472,8 +486,8 @@ class TaskJob_LifeTracker(TaskJob):
         message = telegram_session.get_response_json(r)
         return message
 
-    # Sends LifeMetric to be completed via a Telegram menu.
     def send_metric_menu(self, tracker: LifeTracker, metric: LifeMetric):
+        """Sends LifeMetric to be completed via a Telegram menu."""
         telegram_session = self.get_telegram_session()
 
         # create a payload and send it to Telegram to create the menu

@@ -29,13 +29,13 @@ class TaskJob_News_HeadlineReport_Config(Config):
         ]
 
 class TaskJob_News_HeadlineReport(TaskJob):
-    # Overridden initialization function.
     def init(self):
+        """Overridden initialization function."""
         self.refresh_rate = 60 * 30
         self.config_name = os.path.basename(__file__).replace(".py", ".json")
 
-    # Returns the path to where the JSON config file is expected to be.
     def get_config_path(self):
+        """Returns the path to where the JSON config file is expected to be."""
         this_file = inspect.getfile(self.__class__)
         config_dir = os.path.dirname(os.path.realpath(this_file))
         return os.path.join(config_dir, self.config_name)
@@ -46,14 +46,14 @@ class TaskJob_News_HeadlineReport(TaskJob):
         return config
 
     # -------------------------- Telegram Interface -------------------------- #
-    # Creates and returns an authenticated OracleSession with the telegram bot.
     def get_telegram_session(self):
+        """Creates and returns an authenticated OracleSession with the telegram bot."""
         s = OracleSession(self.service.config.telegram)
         s.login()
         return s
 
-    # Sends a message to Telegram.
     def send_message(self, chat_id: str, text: str):
+        """Sends a message to Telegram."""
         telegram_session = self.get_telegram_session()
 
         # create a payload and send it to Telegram to create the menu

@@ -19,8 +19,8 @@ from lib.garmin.database import GarminDatabaseConfig, GarminDatabase
 from lib.dialogue import DialogueConversation, DialogueMessage, \
                          DialogueAuthorType
 
-# Base class for all Garmin-based taskjobs.
 class TaskJob_Garmin(TaskJob):
+    """Base class for all Garmin-based taskjobs."""
     def init(self):
         self.refresh_rate = 3600 * 4 # by default, refresh every few hours
 
@@ -44,20 +44,23 @@ class TaskJob_Garmin(TaskJob):
         self.db_config_fname = "garmin_database.json"
         self.db_config_fpath = os.path.join(fdir, self.db_config_fname)
 
-    # Update function to be overridden by subclasses.
     def update(self, todoist, gcal):
+        """Update function to be overridden by subclasses."""
         pass
 
-    # Loads the database config object and creates (and returns) a
-    # `GarminDatabase` object.
     def get_database(self):
+        """Loads the database config object and creates (and returns) a
+        `GarminDatabase` object.
+        """
         db_config = GarminDatabaseConfig.from_file(self.db_config_fpath)
         return GarminDatabase(db_config)
 
-    # Retrieves an authenticated Garmin client.
-    # If retrieving the client fails, this object's refresh rate is updated to
-    # try again sooner, and `None` if returned.
     def get_client(self):
+        """Retrieves an authenticated Garmin client.
+
+        If retrieving the client fails, this object's refresh rate is updated to
+        try again sooner, and `None` if returned.
+        """
         g = self.authenticate()
         if g is not None:
             return g
@@ -66,11 +69,12 @@ class TaskJob_Garmin(TaskJob):
                  "Will retry in %d seconds." % self.refresh_rate)
         return None
 
-    # Performs authentication with Garmin (including handling 2FA, if
-    # necessary).
-    #
-    # Returns the authenticated Garmin object, or `None` on failure.
     def authenticate(self):
+        """Performs authentication with Garmin (including handling 2FA, if
+        necessary).
+
+        Returns the authenticated Garmin object, or `None` on failure.
+        """
         # attempt to log in with an existing, local token store. If this
         # succeeded, then the token is still valid and no further action is
         # needed
@@ -118,14 +122,14 @@ class TaskJob_Garmin(TaskJob):
 
         return g
 
-    # Creates and returns an authenticated OracleSession with the telegram bot.
     def get_telegram_session(self):
+        """Creates and returns an authenticated OracleSession with the telegram bot."""
         s = OracleSession(self.service.config.telegram)
         s.login()
         return s
 
-    # Sends a question via Telegram.
     def send_question(self, chat_id: str, text: str):
+        """Sends a question via Telegram."""
         telegram_session = self.get_telegram_session()
 
         # create a payload and send it to telegram to deliver the question to
@@ -189,8 +193,8 @@ class TaskJob_Garmin(TaskJob):
                 poll_idx += 1
             time.sleep(poll_time)
 
-    # Sends a message to Telegram.
     def send_message(self, chat_id: str, text: str):
+        """Sends a message to Telegram."""
         telegram_session = self.get_telegram_session()
 
         # create a payload and send it to Telegram to create the menu

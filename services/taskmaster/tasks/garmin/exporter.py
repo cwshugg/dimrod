@@ -23,8 +23,8 @@ import lib.dtu as dtu
 import lib.lu as lu
 from lib.db import Database, DatabaseConfig
 
-# Exports data from the database into a spreadsheet.
 class TaskJob_Garmin_Exporter(TaskJob_Garmin):
+    """Exports data from the database into a spreadsheet."""
     def init(self):
         super().init()
         self.refresh_rate = 604800 # (one week)

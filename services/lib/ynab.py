@@ -24,8 +24,8 @@ from lib.config import Config, ConfigField
 from lib.uniserdes import Uniserdes, UniserdesField
 import lib.dtu as dtu
 
-# An object used for updating an existing YNAB transaction.
 class YNABTransactionUpdate(Uniserdes):
+    """An object used for updating an existing YNAB transaction."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -61,8 +61,8 @@ class YNABTransactionUpdate(Uniserdes):
                self.update_approved is not None or \
                self.update_approved is not None
 
-    # Returns a dictionary containing all YNAB-friendly update fields.
     def to_update_dict(self):
+        """Returns a dictionary containing all YNAB-friendly update fields."""
         tdata = {}
 
         # conditionally add fields
@@ -109,9 +109,11 @@ class YNABTransactionUpdate(Uniserdes):
             return None
         return tdata
 
-    # Returns a YNAB API object with which a transaction can be updated.
-    # If no updates are actually being made, `None` is returned
     def to_update_ynab_obj(self):
+        """Returns a YNAB API object with which a transaction can be updated.
+
+        If no updates are actually being made, `None` is returned
+        """
         d = self.to_update_dict()
         if d is None:
             return None
@@ -120,9 +122,10 @@ class YNABTransactionUpdate(Uniserdes):
         d.update({"id": self.id})
         return SaveTransactionWithIdOrImportId.from_dict(d)
 
-# A wrapper class for a YNAB transaction object to make working with its data
-# easier.
 class YNABTransactionInfo:
+    """A wrapper class for a YNAB transaction object to make working with its data
+    easier.
+    """
     def __init__(self, transaction):
         self.transaction = transaction
 
@@ -179,8 +182,8 @@ class YNABTransactionInfo:
             r += " Description=\"%s\"" % self.get_description()
         return r
 
-# An object representing configured inputs for a GoogleCalendar object.
 class YNABConfig(Config):
+    """An object representing configured inputs for a GoogleCalendar object."""
     def __init__(self):
         super().__init__()
         self.fields = [
@@ -188,14 +191,15 @@ class YNABConfig(Config):
         ]
 
 class YNAB:
-    # Constructor. Takes in a Todoist API key.
     def __init__(self, config: YNABConfig):
+        """Constructor. Takes in a Todoist API key."""
         self.config = config
         self.client = None
 
-    # Initializes the class' API instance (if it's not yet initialized). The
-    # API object is returned.
     def api(self):
+        """Initializes the class' API instance (if it's not yet initialized). The
+        API object is returned.
+        """
         if self.client is None:
             # create a configuration object, then use it to create an API
             # Client object.
@@ -207,37 +211,40 @@ class YNAB:
         # return the client object
         return self.client
 
-    # Returns a YNAB budget-specific API object.
     def api_budgets(self):
+        """Returns a YNAB budget-specific API object."""
         return ynab.BudgetsApi(self.api())
 
-    # Returns a YNAB accounts-specific API object.
     def api_accounts(self):
+        """Returns a YNAB accounts-specific API object."""
         return ynab.AccountsApi(self.api())
 
-    # Returns a YNAB category-specific API object.
     def api_categories(self):
+        """Returns a YNAB category-specific API object."""
         return ynab.CategoriesApi(self.api())
 
-    # Returns a YNAB transaction-specific API object.
     def api_transactions(self):
+        """Returns a YNAB transaction-specific API object."""
         return ynab.TransactionsApi(self.api())
 
-    # Returns a YNAB payee-specific API object. (YNAB refers to these as
-    # "payees")
     def api_entities(self):
+        """Returns a YNAB payee-specific API object. (YNAB refers to these as
+        "payees")
+        """
         return ynab.PayeesApi(self.api())
 
-    # Returns all YNAB budgets.
     def get_budgets(self):
+        """Returns all YNAB budgets."""
         api = self.api_budgets()
         r = api.get_budgets(include_accounts=True)
         rdata = r.data
         return rdata.budgets
 
-    # Returns a budget object based on its ID.
-    # Returns `None` if the budget ID does not exist.
     def get_budget_by_id(self, budget_id: str):
+        """Returns a budget object based on its ID.
+
+        Returns `None` if the budget ID does not exist.
+        """
         api = self.api_budgets()
         try:
             r = api.get_budget_by_id(budget_id)
@@ -245,9 +252,10 @@ class YNAB:
         except:
             return None
 
-    # Using the provided budget ID, returns a list of accounts synced with the
-    # budget. Any accounts that are marked as deleted are not returned.
     def get_accounts(self, budget_id: str):
+        """Using the provided budget ID, returns a list of accounts synced with the
+        budget. Any accounts that are marked as deleted are not returned.
+        """
         api = self.api_accounts()
         r = api.get_accounts(budget_id)
         accounts = r.data.accounts
@@ -259,9 +267,11 @@ class YNAB:
             result.append(acc)
         return result
 
-    # Returns an account object based on its ID.
-    # Returns `None` if the account ID doesn't exist.
     def get_account_by_id(self, budget_id: str, account_id: str):
+        """Returns an account object based on its ID.
+
+        Returns `None` if the account ID doesn't exist.
+        """
         api = self.api_accounts()
         try:
             r = api.get_account_by_id(budget_id, account_id)
@@ -269,10 +279,12 @@ class YNAB:
         except:
             return None
 
-    # Returns a master list of *all* accounts under *all* budgets.
-    # The list of budgets can be specified. If they are not, they will be
-    # retrieved from the YNAB API during this function.
     def get_accounts_all_budgets(self, budgets=None):
+        """Returns a master list of *all* accounts under *all* budgets.
+
+        The list of budgets can be specified. If they are not, they will be
+        retrieved from the YNAB API during this function.
+        """
         if budgets is None:
             budgets = self.get_budgets()
 
@@ -281,9 +293,11 @@ class YNAB:
             result += self.get_accounts(budget.id)
         return result
 
-    # Returns a list of a budget's categories.
-    # Any category that is marked as deleted is not included.
     def get_categories(self, budget_id: str):
+        """Returns a list of a budget's categories.
+
+        Any category that is marked as deleted is not included.
+        """
         api = self.api_categories()
         r = api.get_categories(budget_id)
 
@@ -297,9 +311,11 @@ class YNAB:
                 result.append(cat)
         return result
 
-    # Returns a category object based on its ID.
-    # Returns `None` if the account ID doesn't exist.
     def get_category_by_id(self, budget_id: str, category_id: str):
+        """Returns a category object based on its ID.
+
+        Returns `None` if the account ID doesn't exist.
+        """
         api = self.api_categories()
         try:
             r = api.get_category_by_id(budget_id, category_id)
@@ -307,9 +323,11 @@ class YNAB:
         except:
             return None
 
-    # Returns a list of all entities (payees) belonging to a budget.
-    # Entities that are marked as deleted are not included.
     def get_entities(self, budget_id: str):
+        """Returns a list of all entities (payees) belonging to a budget.
+
+        Entities that are marked as deleted are not included.
+        """
         api = self.api_entities()
         r = api.get_payees(budget_id)
         payees = r.data.payees
@@ -322,9 +340,11 @@ class YNAB:
 
         return result
 
-    # Returns an payee based on its ID.
-    # Returns `None` if the ID does not exist.
     def get_payee_by_id(self, budget_id: str, payee_id: str):
+        """Returns an payee based on its ID.
+
+        Returns `None` if the ID does not exist.
+        """
         api = self.api_entities()
         try:
             r = api.get_payee_by_id(budget_id, payee_id)
@@ -332,12 +352,13 @@ class YNAB:
         except:
             return None
 
-    # Returns all transactions occurring after the `since_date` field for a
-    # budget. If `since_date` is `None`, then *all* transactions are retrieved.
     def get_transactions(self,
                          budget_id: str,
                          since_date: datetime = None,
                          transaction_type: str = None):
+        """Returns all transactions occurring after the `since_date` field for a
+        budget. If `since_date` is `None`, then *all* transactions are retrieved.
+        """
         api = self.api_transactions()
 
         # format the `since_date` in YYYY-MM-DD format
@@ -361,26 +382,26 @@ class YNAB:
 
         return result
 
-    # Returns all unapproved transactions for a budget.
     def get_transactions_unapproved(self,
                                     budget_id: str,
                                     since_date: datetime = None):
+        """Returns all unapproved transactions for a budget."""
         return self.get_transactions(budget_id,
                                      since_date=since_date,
                                      transaction_type="unapproved")
 
-    # Returns all uncategorized transactions for a budget.
     def get_transactions_uncategorized(self,
                                        budget_id: str,
                                        since_date: datetime = None):
+        """Returns all uncategorized transactions for a budget."""
         return self.get_transactions(budget_id,
                                      since_date=since_date,
                                      transaction_type="uncategorized")
 
-    # Retrieves both unapproved and uncategorized transactions.
     def get_transactions_unapproved_uncategorized(self,
                                                   budget_id: str,
                                                   since_date: datetime = None):
+        """Retrieves both unapproved and uncategorized transactions."""
         uats = self.get_transactions_unapproved(budget_id, since_date=since_date)
         ucts = self.get_transactions_uncategorized(budget_id, since_date=since_date)
         transactions = {}
@@ -397,12 +418,12 @@ class YNAB:
         # return the list of transactions
         return transactions.values()
 
-    # Retrieves all transactions belonging to a specific category.
     def get_transactions_by_category(self,
                                      budget_id: str,
                                      category_id: str,
                                      since_date: datetime = None,
                                      transaction_type: str = None):
+        """Retrieves all transactions belonging to a specific category."""
         api = self.api_transactions()
 
         # format the `since_date` in YYYY-MM-DD format
@@ -427,11 +448,12 @@ class YNAB:
 
         return result
 
-    # Accepts a list of `YNABTransactionUpdate` objects and attempts to submit
-    # updates to the YNAB API for all of them.
     def update_transactions(self,
                             budget_id: str,
                             updates: list):
+        """Accepts a list of `YNABTransactionUpdate` objects and attempts to submit
+        updates to the YNAB API for all of them.
+        """
         # iterate through the updates and build a list of YNAB update objects
         objs = []
         for update in updates:
@@ -454,9 +476,9 @@ class YNAB:
         api = self.api_transactions()
         return api.update_transactions(budget_id, wrapper)
 
-    # Updates a single YNAB transaction.
     def update_transaction(self,
                            budget_id: str,
                            update: YNABTransactionUpdate):
+        """Updates a single YNAB transaction."""
         return self.update_transactions(budget_id, [update])
 

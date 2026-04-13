@@ -26,8 +26,8 @@ lumen_config = None
 lumen_session = None
 light_cooldown = 180
 
-# Helper function for talking with Lumen.
 def lumen_send(lid: str, action: str, color=None, brightness=None):
+    """Helper function for talking with Lumen."""
     # open and read the config file, if necessary
     global lumen_config
     if lumen_config is None:
@@ -56,8 +56,8 @@ def lumen_send(lid: str, action: str, color=None, brightness=None):
     print("Lumen response: %d (%s)" % (r.status_code, json.dumps(r.json(), indent=4)))
     return r
 
-# Main function.
 def main():
+    """Main function."""
     # check command-line arguments and attempt to parse as JSON
     data = {}
     if len(sys.argv) > 1:

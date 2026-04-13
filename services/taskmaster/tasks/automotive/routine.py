@@ -14,8 +14,8 @@ from task import TaskConfig
 from tasks.automotive.base import *
 import lib.dtu as dtu
 
-# Base class for routine automotive maintenance tasks.
 class TaskJob_Automotive_Routine_Maintenance(TaskJob_Automotive):
+    """Base class for routine automotive maintenance tasks."""
     def init(self):
         self.car_name = None
         self.title = "5000-Mile Car Maintenance"

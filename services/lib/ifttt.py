@@ -17,8 +17,8 @@ import lib.config
 
 # ============================== Webhook Config ============================== #
 class WebhookConfig(lib.config.Config):
-    # Constructor.
     def __init__(self):
+        """Constructor."""
         super().__init__()
         self.fields = [
             lib.config.ConfigField("webhook_key",   [str],      required=True)
@@ -26,17 +26,19 @@ class WebhookConfig(lib.config.Config):
 
 
 # =========================== Webhook Pinger Class =========================== #
-# This class defines a mechanism to send IFTTT webhook requests.
 class Webhook:
-    # Constructor. Takes in a config file path.
+    """This class defines a mechanism to send IFTTT webhook requests."""
     def __init__(self, config):
+        """Constructor. Takes in a config file path."""
         self.config = config
     
-    # Takes in two parameters and sends a webhook:
-    #   1. Webhook event name (string)
-    #   2. Webhook JSON data (dict) (optional)
-    # The 'Response' object is returned.
     def send(self, event, jdata):
+        """Takes in two parameters and sends a webhook:
+
+          1. Webhook event name (string)
+          2. Webhook JSON data (dict) (optional)
+        The 'Response' object is returned.
+        """
         # set up the request URL
         url = "https://maker.ifttt.com/trigger/%s/json/with/key/%s" % \
               (event, self.config.webhook_key)
@@ -50,13 +52,15 @@ class Webhook:
         return resp
 
     # ---------------------------- Public Helpers ---------------------------- #
-    # Takes in the response from 'send' and returns the status code.
     def get_status_code(self, response):
+        """Takes in the response from 'send' and returns the status code."""
         return response.status_code
     
-    # Looks for and returns the error message from IFTTT's response JSON.
-    # Returns a list of string messages, or en empty list.
     def get_errors(self, response):
+        """Looks for and returns the error message from IFTTT's response JSON.
+
+        Returns a list of string messages, or en empty list.
+        """
         result = []
         try:
             jdata = response.json()
