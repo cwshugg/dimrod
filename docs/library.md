@@ -303,9 +303,13 @@ Sends webhooks to IFTTT to trigger applets.
 
 ### `dtu.py` — Date/Time Utilities
 
-Comprehensive date and time helper functions.
+Comprehensive date and time helper functions and types.
 
-**Weekday operations:** `Weekday` enum (`SUNDAY=0` through `SATURDAY=6`), `get_weekday()`, `is_weekend()`, `is_weekday()`, day-distance calculations.
+**Enums:** `Weekday` enum (`SUNDAY=0` through `SATURDAY=6`), `Month` enum (`JANUARY=1` through `DECEMBER=12`).
+
+**`DatetimeTrigger`** — A general-purpose `Uniserdes` subclass for matching datetimes against schedule constraints. Supports six optional list fields (`years`, `months`, `days`, `weekdays`, `hours`, `minutes`), with empty lists acting as wildcards. Provides `matches(dt)` for single-datetime matching and `matches_range(dt_start, dt_end)` for range matching using day-granularity iteration. See [Data Types — DatetimeTrigger](data-types.md#datetimetrigger) for full field specifications and semantics.
+
+**Weekday operations:** `get_weekday()`, `is_weekend()`, `is_weekday()`, day-distance calculations.
 
 **Time-of-day checks:** `is_morning()`, `is_afternoon()`, `is_evening()`, `is_night()`, `is_workhours()`.
 

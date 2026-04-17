@@ -12,23 +12,36 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.uniserdes import Uniserdes, UniserdesField
+from lib.dtu import DatetimeTrigger
 
 
 class MaintenanceTask(Uniserdes):
     """Defines a recurring maintenance task for a vehicle, triggered by mileage
-    thresholds. Each task has a unique ID, a human-readable name, an optional
-    description, and a list of mileage values at which the task should be
-    performed (e.g., [5000, 10000, 15000, ...]).
+    thresholds and/or datetime triggers. Each task has a unique ID, a
+    human-readable name, an optional description, an optional list of mileage
+    values at which the task should be performed, and an optional list of
+    DatetimeTrigger objects for time-based scheduling.
+
+    At least one of ``mileages`` or ``datetimes`` must be non-empty.
     """
     def __init__(self):
         """Constructor."""
         super().__init__()
         self.fields = [
-            UniserdesField("id",          [str],   required=True),
-            UniserdesField("name",        [str],   required=True),
-            UniserdesField("description", [str],   required=False, default=""),
-            UniserdesField("mileages",    [list],  required=True),
+            UniserdesField("id",          [str],              required=True),
+            UniserdesField("name",        [str],              required=True),
+            UniserdesField("description", [str],              required=False, default=""),
+            UniserdesField("mileages",    [list],             required=False, default=[]),
+            UniserdesField("datetimes",   [DatetimeTrigger],  required=False, default=[]),
         ]
+
+    def post_parse_init(self):
+        """Validates that at least one trigger mechanism is defined."""
+        has_mileages = len(self.mileages) > 0
+        has_datetimes = len(self.datetimes) > 0
+        self.check(has_mileages or has_datetimes,
+            "MaintenanceTask '%s' must define at least one of "
+            "'mileages' or 'datetimes'" % self.id)
 
 
 class VehicleProperty(Uniserdes):

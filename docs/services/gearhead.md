@@ -44,14 +44,17 @@ All data models are defined in `vehicle.py` and follow the DImROD [Uniserdes](..
 
 ### `MaintenanceTask`
 
-Defines a recurring maintenance task for a vehicle, triggered by mileage thresholds. Each task specifies a list of mileage values at which the maintenance should be performed.
+Defines a recurring maintenance task for a vehicle, triggered by mileage thresholds and/or datetime triggers. A task must have at least one trigger mechanism defined (`mileages` or `datetimes`).
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `id` | `str` | Yes | — | Unique task identifier (e.g., `"oil_change"`) |
 | `name` | `str` | Yes | — | Human-readable task name (e.g., `"Oil Change"`) |
 | `description` | `str` | No | `""` | Optional description of the task. Supports the universal [string preprocessor](../data-types.md#universal-string-preprocessing): use the `!file` bang command to load description text from an external file (e.g., `!file ./descriptions/oil_change.txt`), or use environment variables with `$VAR` syntax. |
-| `mileages` | `list[int/float]` | Yes | — | Mileage thresholds at which the task should be performed (e.g., `[5000, 10000, 15000]`) |
+| `mileages` | `list[int/float]` | No | `[]` | Mileage thresholds at which the task should be performed (e.g., `[5000, 10000, 15000]`) |
+| `datetimes` | `list[DatetimeTrigger]` | No | `[]` | Time-based triggers for when the task should be performed (see [DatetimeTrigger](../data-types.md#datetimetrigger)) |
+
+**Validation:** At least one of `mileages` or `datetimes` must be non-empty. A task with both represents maintenance due by whichever condition is met first (OR logic).
 
 ### `VehicleProperty`
 
@@ -296,7 +299,7 @@ Returns the list of maintenance tasks configured for a vehicle.
 
 ### `GET /maintenance/due`
 
-Returns maintenance tasks for a vehicle that have any mileage threshold within a given range.
+Returns maintenance tasks for a vehicle that are due within a given mileage range and/or datetime range.
 
 * **Authentication:** Required
 * **Request fields:**
@@ -304,20 +307,23 @@ Returns maintenance tasks for a vehicle that have any mileage threshold within a
 | Field | Required | Type | Description |
 |-------|----------|------|-------------|
 | `vehicle_id` | Yes | `str` | Vehicle identifier string |
-| `mileage_start` | Yes | `int`/`float` | Start of mileage range (inclusive) |
-| `mileage_end` | Yes | `int`/`float` | End of mileage range (exclusive) |
+| `mileage_start` | No* | `int`/`float` | Start of mileage range (inclusive) |
+| `mileage_end` | No* | `int`/`float` | End of mileage range (exclusive) |
+| `datetime_start` | No* | `str` (ISO 8601) | Start of datetime range (inclusive) |
+| `datetime_end` | No* | `str` (ISO 8601) | End of datetime range (exclusive) |
 
-The range is `[mileage_start, mileage_end)` — inclusive of `mileage_start`, exclusive of `mileage_end`.
+\*At least one complete range must be provided: (`mileage_start` AND `mileage_end`) and/or (`datetime_start` AND `datetime_end`). Range start/end must be provided in pairs.
 
 * **Response:** JSON array of due-maintenance result objects. Each result contains:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `task` | `MaintenanceTask` (JSON) | The maintenance task that matched |
-| `vehicle_id` | `str` | The vehicle's ID |
-| `triggered_mileages` | `list[int/float]` | Sorted list of threshold mileages within the range |
+| Field | Type | Presence | Description |
+|-------|------|----------|-------------|
+| `task` | `MaintenanceTask` (JSON) | Always | The maintenance task that matched |
+| `vehicle_id` | `str` | Always | The vehicle's ID |
+| `triggered_mileages` | `list[int/float]` | When mileage range provided | Sorted list of threshold mileages within the range |
+| `triggered_datetime` | `bool` | When datetime range provided | Whether any datetime trigger matched within the range |
 
-A task is included when ANY of its configured mileage thresholds falls within `[mileage_start, mileage_end)`. The `triggered_mileages` list contains exactly the thresholds that matched, sorted ascending.
+A task is included when ANY of its mileage thresholds falls within `[mileage_start, mileage_end)` OR any of its datetime triggers matches within `[datetime_start, datetime_end)`. If both ranges are provided and both match, the response includes both result fields.
 
 ## NLA Endpoints
 

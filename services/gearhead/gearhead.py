@@ -127,43 +127,84 @@ class GearheadService(Service):
             "Unknown vehicle ID: %s" % vehicle_id
         return vehicle.maintenance_tasks
 
-    def get_due_maintenance(self, vehicle_id, mileage_start, mileage_end):
-        """Returns maintenance tasks for a vehicle that have any threshold
-        mileage within [mileage_start, mileage_end).
+    def get_due_maintenance(self, vehicle_id,
+                            mileage_start=None, mileage_end=None,
+                            datetime_start=None, datetime_end=None):
+        """Returns maintenance tasks for a vehicle that are due within the
+        specified mileage range and/or datetime range.
 
         A maintenance task is included if ANY of its mileage thresholds
-        falls within the range [mileage_start, mileage_end) (inclusive start,
-        exclusive end).
+        falls within ``[mileage_start, mileage_end)`` (when a mileage range
+        is provided), OR if any of its datetime triggers match within
+        ``[datetime_start, datetime_end)`` (when a datetime range is
+        provided). If both ranges are provided, either match (OR logic)
+        causes the task to be included.
 
         Returns a list of dictionaries, each containing:
           - task:                The MaintenanceTask as JSON
           - vehicle_id:          The vehicle's ID
-          - triggered_mileages:  Sorted list of thresholds within the range
+          - triggered_mileages:  Sorted list of thresholds within the mileage
+                                 range (present only when a mileage range is
+                                 provided)
+          - triggered_datetime:  Boolean indicating whether any datetime
+                                 trigger matched (present only when a datetime
+                                 range is provided)
 
         Returns an empty list if the vehicle has no maintenance tasks or no
-        thresholds fall within the range.
+        triggers match within the given ranges.
         """
         vehicle = self.get_vehicle(vehicle_id)
         assert vehicle is not None, \
             "Unknown vehicle ID: %s" % vehicle_id
 
+        has_mileage_range = (mileage_start is not None and
+                             mileage_end is not None)
+        has_datetime_range = (datetime_start is not None and
+                              datetime_end is not None)
+
         due_tasks = []
 
         for task in vehicle.maintenance_tasks:
-            # Find all thresholds in [mileage_start, mileage_end).
-            triggered = sorted(
-                m for m in task.mileages
-                if mileage_start <= m < mileage_end
-            )
+            triggered_mileages = []
+            triggered_datetime = False
 
-            if not triggered:
+            # --- Mileage Check ---
+            if has_mileage_range and len(task.mileages) > 0:
+                triggered_mileages = sorted(
+                    m for m in task.mileages
+                    if mileage_start <= m < mileage_end
+                )
+
+            # --- Datetime Check ---
+            if has_datetime_range and len(task.datetimes) > 0:
+                for trigger in task.datetimes:
+                    if trigger.matches_range(datetime_start,
+                                             datetime_end):
+                        triggered_datetime = True
+                        break  # one match is sufficient
+
+            # --- Determine if task is due ---
+            # OR logic: either mileage match or datetime match
+            is_due = (len(triggered_mileages) > 0 or
+                      triggered_datetime)
+
+            if not is_due:
                 continue
 
-            due_tasks.append({
+            result = {
                 "task": task.to_json(),
                 "vehicle_id": vehicle_id,
-                "triggered_mileages": triggered,
-            })
+            }
+
+            # Include mileage results if mileage range was provided
+            if has_mileage_range:
+                result["triggered_mileages"] = triggered_mileages
+
+            # Include datetime result if datetime range was provided
+            if has_datetime_range:
+                result["triggered_datetime"] = triggered_datetime
+
+            due_tasks.append(result)
 
         return due_tasks
 
@@ -288,8 +329,9 @@ class GearheadOracle(Oracle):
         # Endpoint that returns due/overdue maintenance tasks.
         @self.server.route("/maintenance/due", methods=["GET"])
         def endpoint_maintenance_due():
-            """Returns maintenance tasks for a vehicle that have any threshold
-            mileage within [mileage_start, mileage_end).
+            """Returns maintenance tasks for a vehicle that are due within a
+            given mileage range and/or datetime range. At least one range
+            (mileage or datetime) must be provided.
             """
             if not flask.g.user:
                 return self.make_response(rstatus=404)
@@ -302,32 +344,71 @@ class GearheadOracle(Oracle):
                 return self.make_response(
                     msg="Must specify 'vehicle_id' string.",
                     success=False, rstatus=400)
-            if "mileage_start" not in flask.g.jdata:
-                return self.make_response(
-                    msg="Must specify 'mileage_start' number.",
-                    success=False, rstatus=400)
-            if "mileage_end" not in flask.g.jdata:
-                return self.make_response(
-                    msg="Must specify 'mileage_end' number.",
-                    success=False, rstatus=400)
 
             vid = str(flask.g.jdata["vehicle_id"])
-            mileage_start = flask.g.jdata["mileage_start"]
-            mileage_end = flask.g.jdata["mileage_end"]
 
-            # Validate that mileage values are numeric.
-            if type(mileage_start) not in [int, float]:
+            # --- Parse mileage range (optional pair) ---
+            has_mileage_start = "mileage_start" in flask.g.jdata
+            has_mileage_end = "mileage_end" in flask.g.jdata
+
+            # Validate range pairs are complete
+            if has_mileage_start != has_mileage_end:
                 return self.make_response(
-                    msg="'mileage_start' must be a number.",
+                    msg="Must specify both 'mileage_start' and "
+                        "'mileage_end'.",
                     success=False, rstatus=400)
-            if type(mileage_end) not in [int, float]:
+
+            mileage_start = None
+            mileage_end = None
+            if has_mileage_start and has_mileage_end:
+                mileage_start = flask.g.jdata["mileage_start"]
+                mileage_end = flask.g.jdata["mileage_end"]
+                if type(mileage_start) not in [int, float]:
+                    return self.make_response(
+                        msg="'mileage_start' must be a number.",
+                        success=False, rstatus=400)
+                if type(mileage_end) not in [int, float]:
+                    return self.make_response(
+                        msg="'mileage_end' must be a number.",
+                        success=False, rstatus=400)
+
+            # --- Parse datetime range (optional pair) ---
+            has_dt_start = "datetime_start" in flask.g.jdata
+            has_dt_end = "datetime_end" in flask.g.jdata
+
+            if has_dt_start != has_dt_end:
                 return self.make_response(
-                    msg="'mileage_end' must be a number.",
+                    msg="Must specify both 'datetime_start' and "
+                        "'datetime_end'.",
+                    success=False, rstatus=400)
+
+            datetime_start = None
+            datetime_end = None
+            if has_dt_start and has_dt_end:
+                try:
+                    datetime_start = datetime.fromisoformat(
+                        str(flask.g.jdata["datetime_start"]))
+                    datetime_end = datetime.fromisoformat(
+                        str(flask.g.jdata["datetime_end"]))
+                except (ValueError, TypeError) as e:
+                    return self.make_response(
+                        msg="Invalid datetime format: %s" % str(e),
+                        success=False, rstatus=400)
+
+            # --- Validate at least one range is provided ---
+            if mileage_start is None and datetime_start is None:
+                return self.make_response(
+                    msg="Must specify at least one range "
+                        "(mileage or datetime).",
                     success=False, rstatus=400)
 
             try:
                 due = self.service.get_due_maintenance(
-                    vid, mileage_start, mileage_end
+                    vid,
+                    mileage_start=mileage_start,
+                    mileage_end=mileage_end,
+                    datetime_start=datetime_start,
+                    datetime_end=datetime_end
                 )
                 return self.make_response(success=True, payload=due)
             except Exception as e:

@@ -1,9 +1,23 @@
-# This module implements a number of helpful datetime-related functions.
+# This module implements a number of helpful datetime-related functions and
+# types, including enums for weekdays and months, a general-purpose
+# DatetimeTrigger for schedule matching, and a variety of parsing/formatting
+# helpers.
 
 # Imports
+import os
+import sys
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date, time
 from enum import Enum
+
+# Enable import from the parent directory
+pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+if pdir not in sys.path:
+    sys.path.append(pdir)
+
+# Local imports
+from lib.uniserdes import Uniserdes, UniserdesField
+
 
 class Weekday(Enum):
     """Simple enum to put names to numbers for datetime weekdays."""
@@ -14,6 +28,331 @@ class Weekday(Enum):
     THURSDAY = 4
     FRIDAY = 5
     SATURDAY = 6
+
+
+class Month(Enum):
+    """Simple enum to put names to numbers for calendar months."""
+    JANUARY = 1
+    FEBRUARY = 2
+    MARCH = 3
+    APRIL = 4
+    MAY = 5
+    JUNE = 6
+    JULY = 7
+    AUGUST = 8
+    SEPTEMBER = 9
+    OCTOBER = 10
+    NOVEMBER = 11
+    DECEMBER = 12
+
+
+class DatetimeTrigger(Uniserdes):
+    """A general-purpose datetime trigger that matches datetimes against a set
+    of field constraints. Each field is a list acting as a filter: an empty
+    list is a wildcard (matches any value), a non-empty list matches if the
+    datetime component equals any value in the list.
+
+    All non-empty fields must be satisfied simultaneously (AND between fields),
+    while any value within a single field is sufficient (OR within a field).
+
+    Fields:
+        years    — list of int: specific years to match (e.g. [2024, 2025]).
+        months   — list of Month enum: calendar months (JANUARY..DECEMBER).
+        days     — list of int: day of month (1-31); negative values count
+                   from end of month (-1 = last day, -2 = second-to-last).
+        weekdays — list of Weekday enum: days of week (SUNDAY..SATURDAY).
+        hours    — list of int: hour of day, 0-23 (24-hour clock).
+        minutes  — list of int: minute of hour, 0-59.
+    """
+    def __init__(self):
+        """Constructor."""
+        super().__init__()
+        self.fields = [
+            UniserdesField("years",    [list], required=False, default=[]),
+            UniserdesField("months",   [list], required=False, default=[]),
+            UniserdesField("days",     [list], required=False, default=[]),
+            UniserdesField("weekdays", [list], required=False, default=[]),
+            UniserdesField("hours",    [list], required=False, default=[]),
+            UniserdesField("minutes",  [list], required=False, default=[]),
+        ]
+
+    def post_parse_init(self):
+        """Converts raw integer values in months and weekdays lists to their
+        respective enum types, then validates all field values.
+        """
+        # Convert raw month integers/strings to Month enum values.
+        if self.months:
+            converted = []
+            for m in self.months:
+                if isinstance(m, Month):
+                    converted.append(m)
+                elif isinstance(m, int):
+                    converted.append(Month(m))
+                elif isinstance(m, str):
+                    converted.append(Month[m.upper()])
+                else:
+                    self.check(False,
+                        "DatetimeTrigger 'months' entry must be an int "
+                        "or Month enum, got: %s" % type(m).__name__)
+            self.months = converted
+
+        # Convert raw weekday integers/strings to Weekday enum values.
+        if self.weekdays:
+            converted = []
+            for w in self.weekdays:
+                if isinstance(w, Weekday):
+                    converted.append(w)
+                elif isinstance(w, int):
+                    converted.append(Weekday(w))
+                elif isinstance(w, str):
+                    converted.append(Weekday[w.upper()])
+                else:
+                    self.check(False,
+                        "DatetimeTrigger 'weekdays' entry must be an "
+                        "int or Weekday enum, got: %s" % type(w).__name__)
+            self.weekdays = converted
+
+        self.check_fields()
+
+    def check_fields(self):
+        """Validates all trigger field values are within legal ranges.
+
+        Raises Exception (via ``self.check()``) on invalid values.
+        """
+        # years: any int is valid, no range restriction
+        for y in self.years:
+            self.check(isinstance(y, int),
+                "DatetimeTrigger 'years' entry must be an int, "
+                "got: %s" % type(y).__name__)
+
+        # months: must be valid Month enum values (already converted)
+        for m in self.months:
+            self.check(isinstance(m, Month),
+                "DatetimeTrigger 'months' entry must be a Month "
+                "enum, got: %s" % type(m).__name__)
+
+        # days: each must be int in 1-31 or -31 to -1 (NOT zero)
+        for d in self.days:
+            self.check(isinstance(d, int),
+                "DatetimeTrigger 'days' entry must be an int, "
+                "got: %s" % type(d).__name__)
+            self.check((1 <= d <= 31) or (-31 <= d <= -1),
+                "DatetimeTrigger 'days' entry must be in [1, 31] "
+                "or [-31, -1], got: %d" % d)
+
+        # weekdays: must be valid Weekday enum values (already converted)
+        for w in self.weekdays:
+            self.check(isinstance(w, Weekday),
+                "DatetimeTrigger 'weekdays' entry must be a Weekday "
+                "enum, got: %s" % type(w).__name__)
+
+        # hours: each must be int in 0-23
+        for h in self.hours:
+            self.check(isinstance(h, int),
+                "DatetimeTrigger 'hours' entry must be an int, "
+                "got: %s" % type(h).__name__)
+            self.check(0 <= h <= 23,
+                "DatetimeTrigger 'hours' entry must be in [0, 23], "
+                "got: %d" % h)
+
+        # minutes: each must be int in 0-59
+        for m in self.minutes:
+            self.check(isinstance(m, int),
+                "DatetimeTrigger 'minutes' entry must be an int, "
+                "got: %s" % type(m).__name__)
+            self.check(0 <= m <= 59,
+                "DatetimeTrigger 'minutes' entry must be in "
+                "[0, 59], got: %d" % m)
+
+    def _day_matches(self, dt_date, days_list):
+        """Checks if a date's day-of-month matches any value in ``days_list``.
+
+        Positive values match directly. Negative values count backwards from
+        the end of the month (e.g. -1 = last day).
+
+        Args:
+            dt_date: A ``date`` or ``datetime`` object.
+            days_list: A list of int day values (positive or negative).
+
+        Returns:
+            True if the date's day matches any value in the list.
+        """
+        last_day = get_last_day_of_month(dt_date).day
+        for d in days_list:
+            if d < 0:
+                # Negative: count from end of month.
+                # -1 = last_day, -2 = last_day - 1, etc.
+                effective_day = last_day + d + 1
+                if effective_day == dt_date.day:
+                    return True
+            else:
+                if d == dt_date.day:
+                    return True
+        return False
+
+    def matches(self, dt):
+        """Returns True if the given datetime satisfies all trigger conditions.
+
+        Each non-empty field must be satisfied (AND). Within a field, any
+        matching value is sufficient (OR). Empty fields are wildcards.
+
+        Args:
+            dt: A ``datetime`` object to check against.
+
+        Returns:
+            True if the datetime matches all trigger constraints.
+        """
+        # YEAR CHECK
+        if self.years and dt.year not in self.years:
+            return False
+
+        # MONTH CHECK
+        if self.months:
+            month_values = [m.value for m in self.months]
+            if dt.month not in month_values:
+                return False
+
+        # DAY CHECK
+        if self.days:
+            if not self._day_matches(dt, self.days):
+                return False
+
+        # WEEKDAY CHECK
+        if self.weekdays:
+            current_wd = get_weekday(dt)
+            if current_wd not in self.weekdays:
+                return False
+
+        # HOUR CHECK
+        if self.hours and dt.hour not in self.hours:
+            return False
+
+        # MINUTE CHECK
+        if self.minutes and dt.minute not in self.minutes:
+            return False
+
+        return True
+
+    def matches_range(self, dt_start, dt_end):
+        """Returns True if ANY datetime within ``[dt_start, dt_end)`` satisfies
+        the trigger conditions.
+
+        Uses a Scoped Candidate Generation approach: iterates at day
+        granularity through the range, applying year/month/day/weekday filters
+        first. Only when a candidate day passes all day-level filters are the
+        finer hour/minute constraints checked.
+
+        Args:
+            dt_start: Start of range (inclusive), a ``datetime`` object.
+            dt_end:   End of range (exclusive), a ``datetime`` object.
+
+        Returns:
+            True if any datetime in the range matches the trigger.
+        """
+        self.check(dt_start < dt_end, "start must be before end")
+
+        # Convert trigger lists to sets for O(1) membership tests
+        year_set = set(self.years) if self.years else None
+        month_set = (set(m.value for m in self.months)
+                     if self.months else None)
+        weekday_set = set(self.weekdays) if self.weekdays else None
+        hour_set = set(self.hours) if self.hours else None
+        minute_set = set(self.minutes) if self.minutes else None
+
+        # Iterate day-by-day through the range
+        current_day = dt_start.date()
+        end_day = dt_end.date()
+
+        while current_day <= end_day:
+            # --- Day-Level Filters (fast rejection) ---
+
+            # YEAR CHECK
+            if year_set is not None and current_day.year not in year_set:
+                current_day += timedelta(days=1)
+                continue
+
+            # MONTH CHECK (with skip-to-next-month optimization)
+            if month_set is not None and \
+               current_day.month not in month_set:
+                # Skip to first day of next month
+                if current_day.month == 12:
+                    current_day = date(current_day.year + 1, 1, 1)
+                else:
+                    current_day = date(current_day.year,
+                                       current_day.month + 1, 1)
+                continue
+
+            # DAY-OF-MONTH CHECK
+            if self.days:
+                if not self._day_matches(current_day, self.days):
+                    current_day += timedelta(days=1)
+                    continue
+
+            # WEEKDAY CHECK
+            if weekday_set is not None:
+                wd = get_weekday(
+                    datetime(current_day.year, current_day.month,
+                             current_day.day)
+                )
+                if wd not in weekday_set:
+                    current_day += timedelta(days=1)
+                    continue
+
+            # --- Hour/Minute Filters ---
+
+            # Determine the valid time window for this particular
+            # day, accounting for the range boundaries.
+            time_start = time(0, 0)
+            time_end = time(23, 59)
+
+            if current_day == dt_start.date():
+                time_start = dt_start.time()
+            if current_day == dt_end.date():
+                time_end = dt_end.time()
+                # If dt_end time is midnight (00:00), this day is
+                # excluded entirely from the half-open range.
+                if dt_end.time() == time(0, 0):
+                    current_day += timedelta(days=1)
+                    continue
+
+            # If both hours and minutes are wildcarded, any time on
+            # this day matches — return True immediately.
+            if not self.hours and not self.minutes:
+                return True
+
+            # Determine candidate hours and minutes
+            candidate_hours = (self.hours
+                               if self.hours else range(0, 24))
+            candidate_minutes = (self.minutes
+                                 if self.minutes else range(0, 60))
+
+            # Check if any (hour, minute) combo falls in the window
+            for h in candidate_hours:
+                for m in candidate_minutes:
+                    candidate_time = time(h, m)
+                    if time_start <= candidate_time < time_end:
+                        return True
+
+            current_day += timedelta(days=1)
+
+        return False
+
+    def to_json(self):
+        """Converts the trigger to a JSON-serializable dictionary.
+
+        Month and Weekday enum values are serialized as their integer values.
+        """
+        result = {}
+        for f in self.fields:
+            val = getattr(self, f.name)
+            if f.name == "months":
+                result[f.name] = [m.value for m in val]
+            elif f.name == "weekdays":
+                result[f.name] = [w.value for w in val]
+            else:
+                result[f.name] = list(val)
+        return result
+
 
 def get_weekday(dt):
     """Returns the weekday, as an enum."""

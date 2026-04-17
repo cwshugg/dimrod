@@ -283,6 +283,95 @@ Configuration for connecting to another service's Oracle API:
 | `auth_username` | `str` | Yes | Login username |
 | `auth_password` | `str` | Yes | Login password |
 
+## Enums
+
+### `Weekday`
+
+Represents days of the week using a 0-indexed Sunday-start convention. Defined in `lib/dtu.py`.
+
+| Value | Name |
+|-------|------|
+| `0` | `SUNDAY` |
+| `1` | `MONDAY` |
+| `2` | `TUESDAY` |
+| `3` | `WEDNESDAY` |
+| `4` | `THURSDAY` |
+| `5` | `FRIDAY` |
+| `6` | `SATURDAY` |
+
+### `Month`
+
+Represents calendar months using 1-indexed values. Defined in `lib/dtu.py`.
+
+| Value | Name |
+|-------|------|
+| `1` | `JANUARY` |
+| `2` | `FEBRUARY` |
+| `3` | `MARCH` |
+| `4` | `APRIL` |
+| `5` | `MAY` |
+| `6` | `JUNE` |
+| `7` | `JULY` |
+| `8` | `AUGUST` |
+| `9` | `SEPTEMBER` |
+| `10` | `OCTOBER` |
+| `11` | `NOVEMBER` |
+| `12` | `DECEMBER` |
+
+## DatetimeTrigger
+
+`DatetimeTrigger` is a general-purpose `Uniserdes` subclass defined in `lib/dtu.py` for matching datetimes against a set of field constraints. It can be used by any service that needs schedule-based triggering (e.g., Gearhead for time-based maintenance, or any future scheduling use case).
+
+### Fields
+
+| Field | Type | Required | Default | Valid Range | Description |
+|-------|------|----------|---------|-------------|-------------|
+| `years` | `list[int]` | No | `[]` | Any valid year | Specific years to match |
+| `months` | `list[Month]` | No | `[]` | `JANUARY`–`DECEMBER` (1–12) | Calendar months to match |
+| `days` | `list[int]` | No | `[]` | 1–31 or -31 to -1 | Day of month; negative values count from end (-1 = last day) |
+| `weekdays` | `list[Weekday]` | No | `[]` | `SUNDAY`–`SATURDAY` (0–6) | Days of week to match |
+| `hours` | `list[int]` | No | `[]` | 0–23 | Hour of day (24-hour clock) |
+| `minutes` | `list[int]` | No | `[]` | 0–59 | Minute of hour |
+
+### Matching Semantics
+
+- **Empty field = wildcard**: If a field is `[]`, it matches any value for that datetime component.
+- **AND between fields**: A datetime must satisfy ALL non-empty field constraints simultaneously.
+- **OR within a field**: Within a single field, ANY value matching is sufficient.
+
+**Example:** `months=[3, 6, 9, 12], weekdays=[1]` means "any Monday in March, June, September, or December."
+
+### Negative Day Values
+
+Negative values in the `days` field count backwards from the end of the month:
+
+- `-1` = last day of the month (e.g., Jan 31, Feb 28/29, Apr 30)
+- `-2` = second-to-last day
+- `-n` = nth-to-last day
+
+### Methods
+
+**`matches(dt)`** — Returns `True` if the given `datetime` satisfies all trigger conditions.
+
+**`matches_range(dt_start, dt_end)`** — Returns `True` if ANY datetime within the half-open interval `[dt_start, dt_end)` satisfies the trigger conditions. Uses day-granularity iteration with early termination.
+
+**`check_fields()`** — Validates all trigger field values are within legal ranges. Called automatically during parsing.
+
+### JSON Representation
+
+`Month` and `Weekday` enum values are serialized as integers in JSON:
+
+```json
+{
+    "years": [],
+    "months": [3, 6, 9, 12],
+    "days": [-1],
+    "weekdays": [1],
+    "hours": [9],
+    "minutes": [0]
+}
+```
+
 ## Common Data Structures
 
 ### Dialogue Types
