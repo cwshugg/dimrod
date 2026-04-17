@@ -14,15 +14,17 @@ Gearhead tracks vehicle definitions and mileage readings for the DImROD operator
 
 Gearhead follows the standard DImROD Service + Oracle pattern:
 
-* `GearheadService` loads vehicle definitions from config and initializes the `MileageDatabase`
+* `GearheadService` loads vehicle definitions from config and initializes the `MileageDatabase` and `MaintenanceLogDatabase`
 * `GearheadOracle` exposes HTTP and NLA endpoints
 * `MileageDatabase` wraps `lib/db.py`'s `Database` class for mileage-specific persistence
+* `MaintenanceLogDatabase` wraps `lib/db.py`'s `Database` class for maintenance log persistence (one table per vehicle)
 
 ```mermaid
 graph TD
     Config["gearhead.yaml"] --> Service["GearheadService"]
     Service --> Vehicles["Vehicle Registry (in-memory)"]
     Service --> MDB["MileageDatabase (SQLite)"]
+    Service --> MLDB["MaintenanceLogDatabase (SQLite)"]
     Service --> Oracle["GearheadOracle"]
     Oracle --> HTTP["HTTP Endpoints"]
     Oracle --> NLA["NLA Endpoints"]
@@ -35,12 +37,15 @@ On startup, the service:
 1. Parses the config file into `GearheadConfig`
 2. Loads all vehicle definitions and validates that IDs are unique
 3. Initializes the `MileageDatabase` with the configured database path
+4. Initializes the `MaintenanceLogDatabase` with the configured database path
 
 The service itself has no background worker loop — all functionality is exposed through the Oracle.
 
 ## Vehicle Data Models
 
 All data models are defined in `vehicle.py` and follow the DImROD [Uniserdes](../library.md#uniserdespy--data-serialization) pattern.
+
+**ID Sanitization:** Both `Vehicle` and `MaintenanceTask` perform ID sanitization in `post_parse_init()`: leading/trailing whitespace is stripped, and internal whitespace causes a `ValueError` at startup. This ensures IDs are safe for SQLite table names, regex parsing, and URL parameters.
 
 ### `MaintenanceTask`
 
@@ -118,6 +123,77 @@ Extends `DatabaseConfig` from `lib/db.py`, inheriting the `path` field. No addit
 |-------|------|----------|-------------|
 | `path` | `str` | Yes | Path to the SQLite database file |
 
+## Maintenance Log
+
+The maintenance log subsystem provides persistent state for tracking when maintenance tasks are created (pending) and completed (done). It is defined in `maintenance_log.py`.
+
+### `MaintenanceLogEntryStatus`
+
+An enum representing the status of a maintenance log entry.
+
+| Value | Name | Description |
+|-------|------|-------------|
+| `0` | `PENDING` | A Todoist task has been created; user has not yet completed it |
+| `1` | `DONE` | The maintenance has been completed |
+
+Status transitions are **append-only** — a new entry is created rather than updating an existing one, providing a full audit trail.
+
+### `MaintenanceLogEntry`
+
+Represents a single maintenance log entry. Entry IDs are SHA-256 hashes generated from vehicle_id, task_id, trigger_key, status value, and timestamp.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `id` | `str` | No | `None` | SHA-256 hash (auto-generated via `get_id()`) |
+| `vehicle_id` | `str` | Yes | — | References a `Vehicle.id` |
+| `task_id` | `str` | Yes | — | References a `MaintenanceTask.id` |
+| `status` | `MaintenanceLogEntryStatus` | Yes | — | PENDING (0) or DONE (1) |
+| `trigger_key` | `str` | Yes | — | Identifies the specific trigger occurrence (e.g., `"mileage:45000"`) |
+| `mileage` | `float` | Yes | — | Vehicle mileage at time of entry creation |
+| `timestamp` | `datetime` | Yes | — | UTC datetime when this entry was created |
+| `todoist_task_id` | `str` | No | `""` | The Todoist task ID for completion detection |
+| `notes` | `str` | No | `""` | Free-text notes |
+
+#### Trigger Key Format
+
+Trigger keys identify specific trigger occurrences and are generated via static methods:
+
+* **Mileage:** `MaintenanceLogEntry.make_mileage_trigger_key(threshold)` → `"mileage:45000"`
+* **Datetime:** `MaintenanceLogEntry.make_datetime_trigger_key(date)` → `"datetime:2025-07"`
+
+#### Metadata Footer
+
+Todoist task descriptions include a machine-readable metadata footer for reliable parsing:
+
+```
+[dimrod::vehicle_maintenance vehicle=focus_st_2018 task=oil_change trigger="mileage:45000"]
+```
+
+Parsed via `MAINTENANCE_METADATA_PATTERN` regex and `parse_maintenance_metadata()` function.
+
+### `MaintenanceLogDatabase`
+
+Uses a single shared SQLite database file with **one table per vehicle**. Table names follow the convention `log_{vehicle_id}`.
+
+| Method | Description |
+|--------|-------------|
+| `save(entry)` | Insert or replace a `MaintenanceLogEntry` |
+| `search_by_task(vehicle_id, task_id, status, limit)` | Query by task ID with optional status filter |
+| `search_by_trigger(vehicle_id, task_id, trigger_key)` | Core dedup query — find entries for a specific trigger |
+| `search_by_status(vehicle_id, status)` | Filter entries by status |
+| `search_all_pending_with_todoist_id(vehicle_ids)` | All pending entries with Todoist IDs across vehicles |
+| `search_by_mileage_range(vehicle_id, start, end)` | Filter by mileage range (inclusive) |
+| `search_by_date_range(vehicle_id, start, end)` | Filter by date range (inclusive) |
+| `search_latest_by_task(vehicle_id, task_id)` | Most recent entry for a task |
+
+### `MaintenanceLogDatabaseConfig`
+
+Extends `DatabaseConfig` from `lib/db.py`, inheriting the `path` field.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `path` | `str` | Yes | Path to the maintenance log SQLite database file |
+
 ## Configuration
 
 `GearheadConfig` extends `ServiceConfig` with the following additional fields:
@@ -126,6 +202,7 @@ Extends `DatabaseConfig` from `lib/db.py`, inheriting the `path` field. No addit
 |-------|------|----------|---------|-------------|
 | `vehicles` | `list[Vehicle]` | Yes | — | Vehicle definitions |
 | `mileage_db` | `MileageDatabaseConfig` | Yes | — | Mileage database settings |
+| `maintenance_log_db` | `MaintenanceLogDatabaseConfig` | Yes | — | Maintenance log database settings |
 | `dialogue` | `DialogueConfig` | No | `None` | OpenAI settings for LLM-assisted vehicle matching |
 
 The `dialogue` field is optional. When omitted, the NLA vehicle matching uses only substring matching (tier 1). When provided, failed substring matches fall back to an LLM oneshot query (tier 2).
@@ -149,6 +226,9 @@ oracle:
 
 mileage_db:
   path: ./.gearhead.db
+
+maintenance_log_db:
+  path: ./.gearhead_maintenance_log.db
 
 dialogue:
   openai_api_key: YOUR_OPENAI_KEY_HERE
@@ -325,6 +405,48 @@ Returns maintenance tasks for a vehicle that are due within a given mileage rang
 
 A task is included when ANY of its mileage thresholds falls within `[mileage_start, mileage_end)` OR any of its datetime triggers matches within `[datetime_start, datetime_end)`. If both ranges are provided and both match, the response includes both result fields.
 
+### `GET /maintenance/log`
+
+Retrieves maintenance log entries for a vehicle with optional filters.
+
+* **Authentication:** Required
+* **Request fields:**
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `vehicle_id` | Yes | `str` | Vehicle identifier string |
+| `task_id` | No | `str` | Filter by maintenance task ID |
+| `status` | No | `str` or `int` | Filter by status: `"pending"`, `"done"`, `0`, or `1` |
+| `trigger_key` | No | `str` | Filter by specific trigger key |
+| `mileage_start` | No | `float` | Start of mileage range (inclusive) |
+| `mileage_end` | No | `float` | End of mileage range (inclusive) |
+| `datetime_start` | No | `str` (ISO 8601) | Start of date range |
+| `datetime_end` | No | `str` (ISO 8601) | End of date range |
+
+* **Response:** JSON array of `MaintenanceLogEntry` objects (status returned as integer: 0=PENDING, 1=DONE)
+* **Error:** Returns 400 if status value is invalid, 404 if vehicle not found
+
+### `POST /maintenance/log`
+
+Creates a new maintenance log entry.
+
+* **Authentication:** Required
+* **Request fields:**
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `vehicle_id` | Yes | `str` | Vehicle identifier string |
+| `task_id` | Yes | `str` | Maintenance task ID |
+| `status` | Yes | `str` or `int` | `"pending"`/`"done"` or `0`/`1` |
+| `trigger_key` | Yes | `str` | Trigger key for deduplication |
+| `mileage` | Yes | `float` | Current vehicle mileage |
+| `timestamp` | No | `str` (ISO 8601) | Defaults to current UTC time |
+| `todoist_task_id` | No | `str` | Todoist task ID (for pending entries) |
+| `notes` | No | `str` | Free-text notes |
+
+* **Response:** JSON `MaintenanceLogEntry` object with `message: "Maintenance log entry created."`
+* **Error:** Returns 400 for missing/invalid fields, 404 if vehicle not found
+
 ## NLA Endpoints
 
 Gearhead registers three NLA endpoints for natural-language interaction via Speaker/Telegram.
@@ -360,6 +482,6 @@ If both tiers fail, the NLA handler returns an error listing the known vehicles.
 ## Dependencies
 
 * **Library modules:** `lib.service`, `lib.oracle`, `lib.config`, `lib.nla`, `lib.cli`, `lib.dialogue`, `lib.db`, `lib.uniserdes`
-* **Python standard library:** `re`, `hashlib`, `datetime`
+* **Python standard library:** `re`, `hashlib`, `datetime`, `enum`
 * **External APIs:** OpenAI (optional, for LLM vehicle matching via `DialogueInterface`)
 * **Other services:** None (Gearhead is called by Speaker/Telegram, not the other way around)

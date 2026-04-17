@@ -26,6 +26,10 @@ from lib.dialogue import DialogueConfig, DialogueInterface
 # Service imports
 from vehicle import Vehicle, VehicleProperty, MaintenanceTask
 from mileage import MileageEntry, MileageDatabase, MileageDatabaseConfig
+from maintenance_log import (
+    MaintenanceLogEntry, MaintenanceLogEntryStatus,
+    MaintenanceLogDatabase, MaintenanceLogDatabaseConfig
+)
 
 
 # =============================== Config Class =============================== #
@@ -38,9 +42,10 @@ class GearheadConfig(ServiceConfig):
         """Constructor."""
         super().__init__()
         fields = [
-            ConfigField("vehicles",     [Vehicle],                  required=True),
-            ConfigField("mileage_db",   [MileageDatabaseConfig],    required=True),
-            ConfigField("dialogue",     [DialogueConfig],           required=False, default=None),
+            ConfigField("vehicles",              [Vehicle],                      required=True),
+            ConfigField("mileage_db",            [MileageDatabaseConfig],        required=True),
+            ConfigField("maintenance_log_db",    [MaintenanceLogDatabaseConfig], required=True),
+            ConfigField("dialogue",              [DialogueConfig],               required=False, default=None),
         ]
         self.fields += fields
 
@@ -68,6 +73,11 @@ class GearheadService(Service):
 
         # Initialize the mileage database.
         self.mileage_db = MileageDatabase(self.config.mileage_db)
+
+        # Initialize the maintenance log database.
+        self.maintenance_log_db = MaintenanceLogDatabase(
+            self.config.maintenance_log_db
+        )
 
     def run(self):
         """Overridden main function implementation."""
@@ -207,6 +217,241 @@ class GearheadService(Service):
             due_tasks.append(result)
 
         return due_tasks
+
+    # ======================== Maintenance Log Methods ======================= #
+    def get_maintenance_log(self, vehicle_id, task_id=None, status=None,
+                            trigger_key=None, mileage_start=None,
+                            mileage_end=None, time_start=None,
+                            time_end=None):
+        """Returns maintenance log entries for a vehicle with optional filters.
+
+        Delegates to the appropriate ``MaintenanceLogDatabase`` method based
+        on which filters are provided:
+          - If ``task_id`` and ``trigger_key`` are set, uses
+            ``search_by_trigger()``.
+          - If ``task_id`` is set (no trigger_key), uses
+            ``search_by_task()`` with optional ``status``.
+          - If ``mileage_start``/``mileage_end`` are set, uses
+            ``search_by_mileage_range()``.
+          - If ``time_start``/``time_end`` are set, uses
+            ``search_by_date_range()``.
+          - If only ``status`` is set, uses ``search_by_status()``.
+
+        Args:
+            vehicle_id: Vehicle ID to query (must exist).
+            task_id: Optional maintenance task ID filter.
+            status: Optional ``MaintenanceLogEntryStatus`` filter.
+            trigger_key: Optional trigger key filter.
+            mileage_start: Optional start of mileage range (inclusive).
+            mileage_end: Optional end of mileage range (inclusive).
+            time_start: Optional start datetime for date range.
+            time_end: Optional end datetime for date range.
+
+        Returns:
+            list[MaintenanceLogEntry]: Matching entries.
+
+        Raises:
+            AssertionError: If the vehicle ID is not found.
+        """
+        vehicle = self.get_vehicle(vehicle_id)
+        assert vehicle is not None, \
+            "Unknown vehicle ID: %s" % vehicle_id
+
+        # Resolve status if provided as string or int
+        if status is not None:
+            status = self._resolve_status(status)
+
+        # Determine which query to run based on provided filters
+        if task_id is not None and trigger_key is not None:
+            return self.maintenance_log_db.search_by_trigger(
+                vehicle_id, task_id, trigger_key
+            )
+        if task_id is not None:
+            return self.maintenance_log_db.search_by_task(
+                vehicle_id, task_id, status=status
+            )
+        if mileage_start is not None and mileage_end is not None:
+            return self.maintenance_log_db.search_by_mileage_range(
+                vehicle_id, mileage_start, mileage_end
+            )
+        if time_start is not None and time_end is not None:
+            return self.maintenance_log_db.search_by_date_range(
+                vehicle_id, time_start, time_end
+            )
+        if status is not None:
+            return self.maintenance_log_db.search_by_status(
+                vehicle_id, status
+            )
+
+        # No specific filter — return all entries via search_by_task with
+        # no task_id filter. Use a broad condition.
+        return self.maintenance_log_db.search_by_status(
+            vehicle_id, status
+        ) if status is not None else self.maintenance_log_db._query(
+            vehicle_id, None
+        )
+
+    def add_maintenance_log(self, vehicle_id, task_id, status, trigger_key,
+                            mileage, timestamp=None, todoist_task_id="",
+                            notes=""):
+        """Creates and saves a new maintenance log entry.
+
+        Args:
+            vehicle_id: Vehicle ID (must exist).
+            task_id: Maintenance task ID.
+            status: Status value — accepts ``MaintenanceLogEntryStatus``,
+                string names (``"pending"``, ``"done"``), or integer values
+                (``0``, ``1``).
+            trigger_key: Trigger key for deduplication.
+            mileage: Current vehicle mileage as a float.
+            timestamp: Optional ISO datetime string or datetime object.
+                Defaults to ``datetime.utcnow()``.
+            todoist_task_id: Optional Todoist task ID string.
+            notes: Optional free-text notes.
+
+        Returns:
+            MaintenanceLogEntry: The created and saved entry.
+
+        Raises:
+            AssertionError: If the vehicle ID is not found.
+        """
+        vehicle = self.get_vehicle(vehicle_id)
+        assert vehicle is not None, \
+            "Unknown vehicle ID: %s" % vehicle_id
+
+        # Resolve status to enum
+        status = self._resolve_status(status)
+
+        # Default timestamp to now
+        if timestamp is None:
+            timestamp = datetime.utcnow().isoformat()
+        elif isinstance(timestamp, datetime):
+            timestamp = timestamp.isoformat()
+
+        entry = MaintenanceLogEntry()
+        entry.parse_json({
+            "vehicle_id": vehicle_id,
+            "task_id": task_id,
+            "status": status.value,
+            "trigger_key": trigger_key,
+            "mileage": float(mileage),
+            "timestamp": timestamp,
+            "todoist_task_id": todoist_task_id,
+            "notes": notes,
+        })
+        entry.get_id()
+        self.maintenance_log_db.save(entry)
+        return entry
+
+    def is_maintenance_pending(self, vehicle_id, task_id, trigger_key):
+        """Checks if a pending entry exists for the given trigger.
+
+        Args:
+            vehicle_id: Vehicle ID.
+            task_id: Maintenance task ID.
+            trigger_key: Trigger key to check.
+
+        Returns:
+            bool: ``True`` if a PENDING entry exists for this trigger.
+        """
+        entries = self.maintenance_log_db.search_by_trigger(
+            vehicle_id, task_id, trigger_key
+        )
+        return any(
+            e.status == MaintenanceLogEntryStatus.PENDING for e in entries
+        )
+
+    def is_maintenance_done(self, vehicle_id, task_id, trigger_key):
+        """Checks if a done entry exists for the given trigger.
+
+        Args:
+            vehicle_id: Vehicle ID.
+            task_id: Maintenance task ID.
+            trigger_key: Trigger key to check.
+
+        Returns:
+            bool: ``True`` if a DONE entry exists for this trigger.
+        """
+        entries = self.maintenance_log_db.search_by_trigger(
+            vehicle_id, task_id, trigger_key
+        )
+        return any(
+            e.status == MaintenanceLogEntryStatus.DONE for e in entries
+        )
+
+    def is_maintenance_handled(self, vehicle_id, task_id, trigger_key):
+        """Checks if a trigger has been handled (either pending or done).
+
+        Args:
+            vehicle_id: Vehicle ID.
+            task_id: Maintenance task ID.
+            trigger_key: Trigger key to check.
+
+        Returns:
+            bool: ``True`` if any entry (PENDING or DONE) exists.
+        """
+        return self.is_maintenance_pending(vehicle_id, task_id, trigger_key) or \
+               self.is_maintenance_done(vehicle_id, task_id, trigger_key)
+
+    def has_recent_maintenance(self, vehicle_id, task_id, days=30):
+        """Checks if any log entry exists for the given (vehicle, task) within
+        the last N days.
+
+        Secondary dedup mechanism for datetime tasks. Prevents the edge case
+        where a datetime task spanning two months creates duplicate Todoist
+        tasks.
+
+        Args:
+            vehicle_id: Vehicle ID.
+            task_id: Maintenance task ID.
+            days: Number of days to look back. Defaults to 30.
+
+        Returns:
+            bool: ``True`` if any entry exists within the lookback window.
+        """
+        from datetime import timedelta
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        entries = self.maintenance_log_db.search_by_task(
+            vehicle_id, task_id
+        )
+        return any(e.timestamp >= cutoff for e in entries)
+
+    def get_pending_entries_with_todoist_ids(self):
+        """Returns all pending entries across all vehicles that have a Todoist
+        task ID set.
+
+        Used by the TaskJob for completion detection.
+
+        Returns:
+            list[MaintenanceLogEntry]: Pending entries with Todoist IDs.
+        """
+        vehicle_ids = [v.id for v in self.config.vehicles]
+        return self.maintenance_log_db.search_all_pending_with_todoist_id(
+            vehicle_ids
+        )
+
+    def _resolve_status(self, status):
+        """Resolves a status value to a ``MaintenanceLogEntryStatus`` enum.
+
+        Accepts enum instances, string names, or integer values.
+
+        Args:
+            status: The status value to resolve.
+
+        Returns:
+            MaintenanceLogEntryStatus: The resolved enum value.
+
+        Raises:
+            KeyError: If a string name is invalid.
+            ValueError: If an integer value is invalid.
+        """
+        if isinstance(status, MaintenanceLogEntryStatus):
+            return status
+        if isinstance(status, str):
+            return MaintenanceLogEntryStatus[status.upper()]
+        if isinstance(status, int):
+            return MaintenanceLogEntryStatus(status)
+        raise ValueError("Invalid status type: %s" % type(status))
 
 
 # ============================== Service Oracle ============================== #
@@ -411,6 +656,183 @@ class GearheadOracle(Oracle):
                     datetime_end=datetime_end
                 )
                 return self.make_response(success=True, payload=due)
+            except Exception as e:
+                return self.make_response(msg=str(e),
+                                          success=False, rstatus=400)
+
+        # Endpoint that retrieves maintenance log entries with optional filters.
+        @self.server.route("/maintenance/log", methods=["GET"])
+        def endpoint_maintenance_log_get():
+            """Returns maintenance log entries for a vehicle with optional
+            filters for status, task_id, trigger_key, mileage range, and
+            date range.
+            """
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            # vehicle_id is required
+            if "vehicle_id" not in flask.g.jdata:
+                return self.make_response(
+                    msg="Must specify 'vehicle_id' string.",
+                    success=False, rstatus=400)
+            vid = str(flask.g.jdata["vehicle_id"])
+
+            # Validate vehicle exists
+            if self.service.get_vehicle(vid) is None:
+                return self.make_response(
+                    msg="Vehicle not found: %s" % vid,
+                    success=False, rstatus=404)
+
+            # Parse optional filters
+            task_id = flask.g.jdata.get("task_id", None)
+            if task_id is not None:
+                task_id = str(task_id)
+
+            trigger_key = flask.g.jdata.get("trigger_key", None)
+            if trigger_key is not None:
+                trigger_key = str(trigger_key)
+
+            # Parse and validate status
+            status = None
+            status_param = flask.g.jdata.get("status", None)
+            if status_param is not None:
+                try:
+                    if isinstance(status_param, str):
+                        status = MaintenanceLogEntryStatus[
+                            status_param.upper()
+                        ]
+                    elif isinstance(status_param, int):
+                        status = MaintenanceLogEntryStatus(status_param)
+                    else:
+                        raise ValueError("Invalid status type")
+                except (KeyError, ValueError):
+                    return self.make_response(
+                        msg="Invalid status value: '%s'. Must be one of: "
+                            "pending, done, 0, 1" % str(status_param),
+                        success=False, rstatus=400)
+
+            # Parse mileage range
+            mileage_start = flask.g.jdata.get("mileage_start", None)
+            mileage_end = flask.g.jdata.get("mileage_end", None)
+            if mileage_start is not None:
+                if type(mileage_start) not in [int, float]:
+                    return self.make_response(
+                        msg="'mileage_start' must be a number.",
+                        success=False, rstatus=400)
+            if mileage_end is not None:
+                if type(mileage_end) not in [int, float]:
+                    return self.make_response(
+                        msg="'mileage_end' must be a number.",
+                        success=False, rstatus=400)
+
+            # Parse datetime range
+            time_start = None
+            time_end = None
+            dt_start_str = flask.g.jdata.get("datetime_start", None)
+            dt_end_str = flask.g.jdata.get("datetime_end", None)
+            if dt_start_str is not None and dt_end_str is not None:
+                try:
+                    time_start = datetime.fromisoformat(str(dt_start_str))
+                    time_end = datetime.fromisoformat(str(dt_end_str))
+                except (ValueError, TypeError) as e:
+                    return self.make_response(
+                        msg="Invalid datetime format: %s" % str(e),
+                        success=False, rstatus=400)
+
+            try:
+                entries = self.service.get_maintenance_log(
+                    vid,
+                    task_id=task_id,
+                    status=status,
+                    trigger_key=trigger_key,
+                    mileage_start=mileage_start,
+                    mileage_end=mileage_end,
+                    time_start=time_start,
+                    time_end=time_end
+                )
+                payload = [e.to_json() for e in entries]
+                return self.make_response(success=True, payload=payload)
+            except Exception as e:
+                return self.make_response(msg=str(e),
+                                          success=False, rstatus=400)
+
+        # Endpoint that creates a new maintenance log entry.
+        @self.server.route("/maintenance/log", methods=["POST"])
+        def endpoint_maintenance_log_post():
+            """Creates a new maintenance log entry."""
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            jdata = flask.g.jdata
+
+            # Validate required fields
+            required_fields = [
+                "vehicle_id", "task_id", "status",
+                "trigger_key", "mileage"
+            ]
+            for field in required_fields:
+                if field not in jdata:
+                    return self.make_response(
+                        msg="Must specify '%s'." % field,
+                        success=False, rstatus=400)
+
+            vid = str(jdata["vehicle_id"])
+            task_id = str(jdata["task_id"])
+            trigger_key = str(jdata["trigger_key"])
+
+            # Validate vehicle exists
+            if self.service.get_vehicle(vid) is None:
+                return self.make_response(
+                    msg="Vehicle not found: %s" % vid,
+                    success=False, rstatus=404)
+
+            # Validate mileage type
+            mileage = jdata["mileage"]
+            if type(mileage) not in [int, float]:
+                return self.make_response(
+                    msg="'mileage' must be a number.",
+                    success=False, rstatus=400)
+
+            # Validate and resolve status
+            status_param = jdata["status"]
+            try:
+                if isinstance(status_param, str):
+                    status = MaintenanceLogEntryStatus[
+                        status_param.upper()
+                    ]
+                elif isinstance(status_param, int):
+                    status = MaintenanceLogEntryStatus(status_param)
+                else:
+                    raise ValueError("Invalid status type")
+            except (KeyError, ValueError):
+                return self.make_response(
+                    msg="Invalid status value: '%s'. Must be one of: "
+                        "pending, done, 0, 1" % str(status_param),
+                    success=False, rstatus=400)
+
+            # Optional fields
+            timestamp = jdata.get("timestamp", None)
+            todoist_task_id = str(jdata.get("todoist_task_id", ""))
+            notes = str(jdata.get("notes", ""))
+
+            try:
+                entry = self.service.add_maintenance_log(
+                    vid, task_id, status, trigger_key, mileage,
+                    timestamp=timestamp,
+                    todoist_task_id=todoist_task_id,
+                    notes=notes
+                )
+                return self.make_response(
+                    success=True,
+                    msg="Maintenance log entry created.",
+                    payload=entry.to_json()
+                )
             except Exception as e:
                 return self.make_response(msg=str(e),
                                           success=False, rstatus=400)

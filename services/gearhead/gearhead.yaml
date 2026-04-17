@@ -15,6 +15,9 @@ oracle:
 mileage_db:
   path: ./.gearhead.db
 
+maintenance_log_db:
+  path: ./.gearhead_maintenance_log.db
+
 dialogue:
   openai_api_key: YOUR_OPENAI_KEY_HERE
   openai_chat_model: gpt-4o-mini

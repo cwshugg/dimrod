@@ -36,7 +36,22 @@ class MaintenanceTask(Uniserdes):
         ]
 
     def post_parse_init(self):
-        """Validates that at least one trigger mechanism is defined."""
+        """Validates the task ID and that at least one trigger mechanism is
+        defined.
+
+        ID sanitization: strips leading/trailing whitespace and rejects any
+        internal whitespace with a ``ValueError``. This ensures IDs are safe
+        for use in SQLite table names, regex parsing, and URL parameters.
+        """
+        # Strip leading/trailing whitespace
+        self.id = self.id.strip()
+        # Reject internal whitespace
+        if any(c.isspace() for c in self.id):
+            raise ValueError(
+                "MaintenanceTask ID '%s' contains internal whitespace. "
+                "Task IDs must not contain whitespace characters." % self.id
+            )
+
         has_mileages = len(self.mileages) > 0
         has_datetimes = len(self.datetimes) > 0
         self.check(has_mileages or has_datetimes,
@@ -81,3 +96,19 @@ class Vehicle(Uniserdes):
             UniserdesField("properties",          [VehicleProperty],  required=False, default=[]),
             UniserdesField("maintenance_tasks",   [MaintenanceTask],  required=False, default=[]),
         ]
+
+    def post_parse_init(self):
+        """Validates the vehicle ID.
+
+        ID sanitization: strips leading/trailing whitespace and rejects any
+        internal whitespace with a ``ValueError``. This ensures IDs are safe
+        for use in SQLite table names, regex parsing, and URL parameters.
+        """
+        # Strip leading/trailing whitespace
+        self.id = self.id.strip()
+        # Reject internal whitespace
+        if any(c.isspace() for c in self.id):
+            raise ValueError(
+                "Vehicle ID '%s' contains internal whitespace. "
+                "Vehicle IDs must not contain whitespace characters." % self.id
+            )

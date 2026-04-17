@@ -322,6 +322,17 @@ Represents calendar months using 1-indexed values. Defined in `lib/dtu.py`.
 
 `DatetimeTrigger` is a general-purpose `Uniserdes` subclass defined in `lib/dtu.py` for matching datetimes against a set of field constraints. It can be used by any service that needs schedule-based triggering (e.g., Gearhead for time-based maintenance, or any future scheduling use case).
 
+### `MaintenanceLogEntryStatus`
+
+Represents the status of a maintenance log entry. Defined in `services/gearhead/maintenance_log.py`.
+
+| Value | Name | Description |
+|-------|------|-------------|
+| `0` | `PENDING` | A Todoist task has been created; user has not yet completed it |
+| `1` | `DONE` | The maintenance has been completed |
+
+In JSON, status is serialized as its integer value (0 or 1). When parsing, both integer values and string names (`"pending"`, `"done"`, `"PENDING"`, `"DONE"`) are accepted.
+
 ### Fields
 
 | Field | Type | Required | Default | Valid Range | Description |
