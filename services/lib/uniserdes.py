@@ -15,6 +15,202 @@ from datetime import datetime
 from enum import Enum
 
 
+# ======================== Bang Preprocessor ========================== #
+# An extensible bang-command processing system for string values.
+#
+# Bang commands use the syntax ``!keyword content`` (e.g. ``!file path``).
+# New commands can be added at any time by calling ``register_bang()``.
+
+# A restricted set of builtins allowed in ``!list`` bang evaluation.
+# No access to ``os``, ``sys``, ``import``, or the real ``__builtins__`` —
+# only safe, side-effect-free functions are exposed.
+_LIST_SAFE_BUILTINS = {
+    "range": range,
+    "int": int,
+    "float": float,
+    "str": str,
+    "len": len,
+    "list": list,
+    "tuple": tuple,
+    "set": set,
+    "abs": abs,
+    "min": min,
+    "max": max,
+    "sum": sum,
+    "round": round,
+    "sorted": sorted,
+    "reversed": reversed,
+    "enumerate": enumerate,
+    "zip": zip,
+    "map": map,
+    "filter": filter,
+}
+
+# -------------------- Bang handler registry -------------------- #
+# Maps bang keywords to handler callables.
+# Handler signature: ``handler(content: str, base_path: str) -> str | object``
+# Most handlers return ``str``, but some (e.g. ``!list``) may return other
+# types such as ``list``.
+_bang_handlers: dict = {}
+
+
+def register_bang(keyword: str, handler) -> None:
+    """Register a bang-command handler.
+
+    Args:
+        keyword: The bang keyword (without the leading ``!``).
+                 For example, ``"file"`` registers the ``!file`` command.
+        handler: A callable with the signature
+                 ``handler(content: str, base_path: str) -> str | object``.
+                 *content* is the portion of the string after the keyword
+                 (with inter-keyword whitespace already stripped).
+                 *base_path* is the directory used for relative-path
+                 resolution (may be ``None``).
+                 Most handlers return ``str``, but handlers like ``!list``
+                 may return other types (e.g. ``list``).
+    """
+    _bang_handlers[keyword] = handler
+
+
+def process_bangs(value: str, base_path: str = None):
+    """Process bang commands in a string value.
+
+    The routine:
+
+    1. Strip leading whitespace from *value*.
+    2. Check for a ``!`` prefix.
+    3. Extract the keyword (everything between ``!`` and the first
+       whitespace character, or end-of-string).
+    4. Look up the keyword in the handler registry.
+    5. Strip whitespace between the keyword and the content.
+    6. Invoke the handler with the remaining content and *base_path*.
+
+    If the string does not start with ``!`` (after stripping), it is
+    returned unchanged.  If ``!`` is found but the keyword is not
+    recognised, the **original** (un-stripped) value is returned as-is
+    for forward compatibility.
+
+    Args:
+        value:     The string to process (after env-var expansion).
+        base_path: Directory for relative-path resolution (may be
+                   ``None``).
+
+    Returns:
+        The processed value.  Most bang handlers return ``str``, but
+        some (e.g. ``!list``) return other types such as ``list``.
+        When no bang command is matched the original ``str`` is returned.
+    """
+    stripped = value.lstrip()
+    if not stripped.startswith("!"):
+        return value
+
+    # Split into keyword and content.  The keyword is everything between
+    # the ``!`` and the first whitespace (or end of string).
+    rest = stripped[1:]  # drop the leading '!'
+    parts = rest.split(None, 1)  # split on first whitespace
+    keyword = parts[0] if parts else ""
+    content = parts[1] if len(parts) > 1 else ""
+
+    handler = _bang_handlers.get(keyword)
+    if handler is None:
+        # Unrecognised keyword — return original value for forward compat.
+        return value
+
+    return handler(content, base_path)
+
+
+# -------------------- Built-in bang handlers -------------------- #
+def _bang_file_handler(content: str, base_path: str) -> str:
+    """Handle the ``!file`` bang command.
+
+    Read the file at *content* (a file path, already env-var expanded and
+    whitespace-stripped) and return its contents as the field value.
+
+    Relative paths are resolved against *base_path* when it is not
+    ``None``.  Raises ``FileNotFoundError`` if the file cannot be found.
+    """
+    path = content
+    if base_path is not None and not os.path.isabs(path):
+        path = os.path.join(base_path, path)
+    with open(path, "r") as fp:
+        return fp.read()
+
+
+def _bang_list_handler(content: str, base_path: str) -> list:
+    """Handle the ``!list`` bang command.
+
+    Evaluate ``list(<content>)`` in a restricted namespace and return
+    the resulting list object directly.
+
+    Only a safe subset of built-in functions is available (see
+    ``_LIST_SAFE_BUILTINS``).  The *base_path* argument is accepted
+    for interface consistency but is not used.
+
+    Raises ``ValueError`` with a descriptive message on evaluation failure.
+    """
+    try:
+        result = eval(
+            "list(%s)" % content,
+            {"__builtins__": {}},
+            _LIST_SAFE_BUILTINS,
+        )
+    except Exception as exc:
+        raise ValueError(
+            "Failed to evaluate !list expression '%s': %s" %
+            (content, exc)
+        ) from exc
+    return result
+
+
+# Register built-in bang handlers.
+register_bang("file", _bang_file_handler)
+register_bang("list", _bang_list_handler)
+
+
+# -------------------- Public preprocessor entry point -------------------- #
+def preprocess_string(value: str, base_path: str = None):
+    """Preprocess a string field value through the DImROD string pipeline.
+
+    This function is called automatically on every string field value during
+    ``parse_json()`` — no opt-in is required.
+
+    Pipeline order:
+
+    1. **Environment variable expansion** — ``$VAR`` and ``${VAR}`` syntax
+       is expanded via ``os.path.expandvars()``.  Undefined variables are
+       left as-is (no error).
+    2. **Bang processing** — after expansion the string is checked for
+       bang commands (``!keyword content``):
+
+       * ``!file <path>`` — read the file at *path* (resolved relative to
+         *base_path* when provided) and return its contents as a ``str``.
+         Raises ``FileNotFoundError`` if the file does not exist.
+       * ``!list <expr>`` — evaluate ``list(<expr>)`` in a restricted
+         namespace and return the resulting ``list`` object directly.
+
+       If no recognised bang command is present the (expanded) string is
+       returned unchanged.
+
+    New bang commands can be registered with :func:`register_bang`.
+
+    Args:
+        value:     The raw string value from the parsed data.
+        base_path: Directory used to resolve relative paths for the
+                   ``!file`` bang command.  ``None`` means paths are
+                   used as-is.
+
+    Returns:
+        The preprocessed value.  Usually a ``str``, but bang handlers
+        like ``!list`` may return other types (e.g. ``list``).
+    """
+    # Step 1: environment variable expansion
+    value = os.path.expandvars(value)
+
+    # Step 2: bang processing
+    return process_bangs(value, base_path=base_path)
+
+
+# ============================ Uniserdes Objects ============================= #
 class UniserdesField:
     """Represents a single uniserdes field with various properties that are enforced
     when parsed.
@@ -22,10 +218,10 @@ class UniserdesField:
     def __init__(self, name, types, required=False, default=None):
         """Constructor. Takes in:
 
-          name        The name of the uniserdes file entry.
-          types       An array of types representing the field's allowed type(s).
-          required    An optional boolean that indicates if the field is mandatory
-          default     A default field, useful if required=False
+          name            The name of the uniserdes file entry.
+          types           An array of types representing the field's allowed type(s).
+          required        An optional boolean that indicates if the field is mandatory
+          default         A default field, useful if required=False
         """
         self.name = name
         self.types = types
@@ -87,10 +283,15 @@ class Uniserdes:
     def parse_file(self, fpath: str):
         """Takes in a file path, opens it for reading, and attempts to parse all
         fields defined in the class' 'fields' property.
+
+        The directory containing `fpath` is computed and passed as ``base_path``
+        to ``parse_json()`` so that the string preprocessor can resolve
+        ``!file`` bang-command paths relative to the config file's directory.
         """
         # slurp the entire file contents (not ideal; assumes the file isn't big
         # enough to blow out the memory we have available)
         self.fpath = fpath
+        base_path = os.path.dirname(os.path.abspath(fpath))
         with open(fpath) as fp:
             content = fp.read()
 
@@ -98,10 +299,10 @@ class Uniserdes:
             _, ext = os.path.splitext(fpath)
             ext = ext.lower()
             if ext in [".yaml", ".yml"]:
-                self.parse_yaml(content)
+                self.parse_yaml(content, base_path=base_path)
             elif ext in [".json"]:
                 jdata = json.loads(content)
-                self.parse_json(jdata)
+                self.parse_json(jdata, base_path=base_path)
             else:
                 raise Exception(
                     "Unsupported file type for uniserdes: \"%s\". "
@@ -109,8 +310,14 @@ class Uniserdes:
                     ext
                 )
 
-    def parse_json(self, jdata: dict):
-        """Used to parse uniserdes entries from a dictionary."""
+    def parse_json(self, jdata: dict, base_path: str = None):
+        """Used to parse uniserdes entries from a dictionary.
+
+        An optional ``base_path`` may be provided to specify the directory
+        used by the string preprocessor when resolving ``!file`` bang-command
+        values.  When ``None``, file-path resolution inside the
+        preprocessor is skipped and paths are used as-is.
+        """
         # iterate through each field we expect to see
         for f in self.fields:
             key = f.name
@@ -128,7 +335,7 @@ class Uniserdes:
                     # sub-uniserdes class
                     if type(jdata[key]) == dict:
                         c = cls()
-                        c.parse_json(jdata[key])
+                        c.parse_json(jdata[key], base_path=base_path)
                         val = c
                     # otherwise, if it's a list of objects, parse each one as an
                     # instance of the sub-uniserdes class
@@ -136,7 +343,7 @@ class Uniserdes:
                         items = []
                         for entry in jdata[key]:
                             c = cls()
-                            c.parse_json(entry)
+                            c.parse_json(entry, base_path=base_path)
                             items.append(c)
                         val = items
 
@@ -172,14 +379,32 @@ class Uniserdes:
                 if val is None:
                     val = jdata[key]
 
+                    # ---- Universal string preprocessing ----
+                    # If the value is a raw string (not a nested Uniserdes or
+                    # Enum that was already converted above), run it through
+                    # the string preprocessor for env-var expansion and bang
+                    # handling (!file, !list, etc.).  This must happen before
+                    # type checking because bang handlers like !list can
+                    # transform a string into another type (e.g. list).
+                    preprocessed = False
+                    if isinstance(val, str):
+                        val = preprocess_string(val, base_path=base_path)
+                        # Track whether the preprocessor changed the type
+                        # (e.g. !list transforms str → list).
+                        preprocessed = not isinstance(val, str)
+
                     # if the value isn't required, `None` is allowed
                     if required:
                         msg = "%s entry \"%s\" is required: it cannot be None" % \
                               (self.fpath if self.fpath else "json", key)
                         self.check(val is not None, msg)
 
-                    # ensure the value is of the correct type, if it's not None
-                    if val is not None:
+                    # ensure the value is of the correct type, if it's not
+                    # None.  Skip the check when the preprocessor transformed
+                    # the value to a different type (e.g. !list producing a
+                    # list from a string field) — the bang handler's return
+                    # type takes precedence.
+                    if val is not None and not preprocessed:
                         msg = "%s entry \"%s\" must be of type: %s" % \
                               (self.fpath if self.fpath else "json", key, types)
                         self.check(f.type_match(val), msg)
@@ -265,15 +490,18 @@ class Uniserdes:
 
         return result
 
-    def parse_yaml(self, yaml_str: str):
+    def parse_yaml(self, yaml_str: str, base_path: str = None):
         """Takes in a YAML string and uses it to parse the object's fields.
 
         The YAML string is parsed into a dictionary via `yaml.safe_load()`,
         then passed to the existing `parse_json()` method to populate the
         object's fields.
+
+        An optional ``base_path`` may be provided for string preprocessor
+        ``!file`` bang-command resolution (see `parse_json()`).
         """
         ydata = yaml.safe_load(yaml_str)
-        self.parse_json(ydata)
+        self.parse_json(ydata, base_path=base_path)
 
     # Statically initializes a new Uniserdes object, given a YAML string.
     @classmethod

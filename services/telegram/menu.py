@@ -48,9 +48,9 @@ class MenuObject(Uniserdes):
             UniserdesField("id",           [str],      required=False, default=None),
         ]
 
-    def parse_json(self, jdata: dict):
+    def parse_json(self, jdata: dict, base_path: str = None):
         """Overloaded JSON parsing function from parent."""
-        super().parse_json(jdata)
+        super().parse_json(jdata, base_path=base_path)
         self.get_id()
 
     def get_id(self):
@@ -118,9 +118,9 @@ class Menu(MenuObject):
             UniserdesField("telegram_msg_info", [TelegramMessage], required=False, default=None),
         ]
 
-    def parse_json(self, jdata: dict):
+    def parse_json(self, jdata: dict, base_path: str = None):
         """Overridden `parse_json()`."""
-        super().parse_json(jdata)
+        super().parse_json(jdata, base_path=base_path)
         if self.birth_time is None:
             self.birth_time = datetime.now()
         if self.death_time is None:

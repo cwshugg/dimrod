@@ -482,10 +482,10 @@ class OracleSession:
         url = self.url_base + "/" + endpoint
         return self.session.post(url, json=payload)
 
-    def get(self, endpoint: str):
-        """Sends a GET request."""
+    def get(self, endpoint: str, payload=None):
+        """Sends a GET request, optionally with a JSON body."""
         url = self.url_base + "/" + endpoint
-        return self.session.get(url)
+        return self.session.get(url, json=payload)
 
     # --------------------------- Response Parsing --------------------------- #
     # Retrieves and returns the HTTP status code from the response.

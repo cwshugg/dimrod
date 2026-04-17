@@ -24,7 +24,7 @@ from lib.cli import ServiceCLI
 from lib.dialogue import DialogueConfig, DialogueInterface
 
 # Service imports
-from vehicle import Vehicle, VehicleProperty
+from vehicle import Vehicle, VehicleProperty, MaintenanceTask
 from mileage import MileageEntry, MileageDatabase, MileageDatabaseConfig
 
 
@@ -117,6 +117,56 @@ class GearheadService(Service):
         self.mileage_db.save(entry)
         return entry
 
+    def get_maintenance_tasks(self, vehicle_id):
+        """Returns the list of MaintenanceTask objects for a vehicle.
+        Returns an empty list if the vehicle has no maintenance tasks defined.
+        Raises AssertionError if the vehicle ID is not found.
+        """
+        vehicle = self.get_vehicle(vehicle_id)
+        assert vehicle is not None, \
+            "Unknown vehicle ID: %s" % vehicle_id
+        return vehicle.maintenance_tasks
+
+    def get_due_maintenance(self, vehicle_id, mileage_start, mileage_end):
+        """Returns maintenance tasks for a vehicle that have any threshold
+        mileage within [mileage_start, mileage_end).
+
+        A maintenance task is included if ANY of its mileage thresholds
+        falls within the range [mileage_start, mileage_end) (inclusive start,
+        exclusive end).
+
+        Returns a list of dictionaries, each containing:
+          - task:                The MaintenanceTask as JSON
+          - vehicle_id:          The vehicle's ID
+          - triggered_mileages:  Sorted list of thresholds within the range
+
+        Returns an empty list if the vehicle has no maintenance tasks or no
+        thresholds fall within the range.
+        """
+        vehicle = self.get_vehicle(vehicle_id)
+        assert vehicle is not None, \
+            "Unknown vehicle ID: %s" % vehicle_id
+
+        due_tasks = []
+
+        for task in vehicle.maintenance_tasks:
+            # Find all thresholds in [mileage_start, mileage_end).
+            triggered = sorted(
+                m for m in task.mileages
+                if mileage_start <= m < mileage_end
+            )
+
+            if not triggered:
+                continue
+
+            due_tasks.append({
+                "task": task.to_json(),
+                "vehicle_id": vehicle_id,
+                "triggered_mileages": triggered,
+            })
+
+        return due_tasks
+
 
 # ============================== Service Oracle ============================== #
 class GearheadOracle(Oracle):
@@ -208,6 +258,78 @@ class GearheadOracle(Oracle):
                 return self.make_response(success=True,
                                           msg="Mileage recorded successfully.",
                                           payload=entry.to_json())
+            except Exception as e:
+                return self.make_response(msg=str(e),
+                                          success=False, rstatus=400)
+
+        # Endpoint that returns maintenance tasks for a vehicle.
+        @self.server.route("/maintenance", methods=["GET"])
+        def endpoint_maintenance():
+            """Returns the list of maintenance tasks for a vehicle."""
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            if "vehicle_id" not in flask.g.jdata:
+                return self.make_response(msg="Must specify 'vehicle_id' string.",
+                                          success=False, rstatus=400)
+            vid = str(flask.g.jdata["vehicle_id"])
+
+            try:
+                tasks = self.service.get_maintenance_tasks(vid)
+                payload = [t.to_json() for t in tasks]
+                return self.make_response(success=True, payload=payload)
+            except Exception as e:
+                return self.make_response(msg=str(e),
+                                          success=False, rstatus=400)
+
+        # Endpoint that returns due/overdue maintenance tasks.
+        @self.server.route("/maintenance/due", methods=["GET"])
+        def endpoint_maintenance_due():
+            """Returns maintenance tasks for a vehicle that have any threshold
+            mileage within [mileage_start, mileage_end).
+            """
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            # Validate required fields.
+            if "vehicle_id" not in flask.g.jdata:
+                return self.make_response(
+                    msg="Must specify 'vehicle_id' string.",
+                    success=False, rstatus=400)
+            if "mileage_start" not in flask.g.jdata:
+                return self.make_response(
+                    msg="Must specify 'mileage_start' number.",
+                    success=False, rstatus=400)
+            if "mileage_end" not in flask.g.jdata:
+                return self.make_response(
+                    msg="Must specify 'mileage_end' number.",
+                    success=False, rstatus=400)
+
+            vid = str(flask.g.jdata["vehicle_id"])
+            mileage_start = flask.g.jdata["mileage_start"]
+            mileage_end = flask.g.jdata["mileage_end"]
+
+            # Validate that mileage values are numeric.
+            if type(mileage_start) not in [int, float]:
+                return self.make_response(
+                    msg="'mileage_start' must be a number.",
+                    success=False, rstatus=400)
+            if type(mileage_end) not in [int, float]:
+                return self.make_response(
+                    msg="'mileage_end' must be a number.",
+                    success=False, rstatus=400)
+
+            try:
+                due = self.service.get_due_maintenance(
+                    vid, mileage_start, mileage_end
+                )
+                return self.make_response(success=True, payload=due)
             except Exception as e:
                 return self.make_response(msg=str(e),
                                           success=False, rstatus=400)

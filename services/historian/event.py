@@ -44,9 +44,9 @@ class HistorianEvent(Uniserdes):
         return hashlib.sha256(idstr.encode() + salt).hexdigest()
     
     # --------------------------- JSON Conversion ---------------------------- #
-    def parse_json(self, jdata: dict):
+    def parse_json(self, jdata: dict, base_path: str = None):
         """Overridden JSON parsing function."""
-        super().parse_json(jdata)
+        super().parse_json(jdata, base_path=base_path)
 
         # convert the timestamp from an integer to a datetime object
         self.timestamp = datetime.fromtimestamp(self.timestamp)

@@ -50,6 +50,19 @@ vehicles:
   - key: trim
     nickname: Trim Level
     value: EX
+  maintenance_tasks:
+  - id: oil_change
+    name: Oil Change
+    description: Change engine oil and filter
+    mileages: [5000, 10000, 15000, 20000, 25000, 30000, 35000, 40000, 45000, 50000]
+  - id: tire_rotation
+    name: Tire Rotation
+    description: Rotate tires for even wear
+    mileages: [7500, 15000, 22500, 30000, 37500, 45000]
+  - id: brake_inspection
+    name: Brake Inspection
+    description: Inspect brake pads and rotors
+    mileages: [15000, 30000, 45000, 60000]
 
 - id: model3_2022
   manufacturer: Tesla
@@ -71,3 +84,16 @@ vehicles:
   - key: color
     nickname: Exterior Color
     value: Pearl White
+  maintenance_tasks:
+  - id: tire_rotation
+    name: Tire Rotation
+    description: Rotate tires for even wear
+    mileages: [7500, 15000, 22500, 30000, 37500, 45000]
+  - id: cabin_air_filter
+    name: Cabin Air Filter
+    description: Replace cabin air filter
+    mileages: [25000, 50000, 75000, 100000]
+  - id: brake_fluid
+    name: Brake Fluid Check
+    description: Check and replace brake fluid
+    mileages: [25000, 50000, 75000, 100000]

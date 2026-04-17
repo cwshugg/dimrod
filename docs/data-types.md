@@ -31,6 +31,107 @@ Each `UniserdesField` has:
 | `required` | Whether the field must be present when parsing |
 | `default` | Default value if the field is absent |
 
+### Universal String Preprocessing
+
+All string field values are automatically run through a **string preprocessor** during parsing. No opt-in is required — every string value in every Uniserdes model is preprocessed. The pipeline runs in two stages:
+
+#### Stage 1: Environment Variable Expansion
+
+`$VAR` and `${VAR}` syntax is expanded using `os.path.expandvars()`. If a variable is not defined, it is left as-is (no error is raised).
+
+```yaml
+api_key: $MY_API_KEY
+greeting: "Hello ${USER}!"
+```
+
+#### Stage 2: Bang Commands
+
+After environment variable expansion, the string is checked for **bang commands** — directives that begin with `!` followed by a keyword. Leading whitespace is stripped before the `!` check, and whitespace between the keyword and the content is also stripped.
+
+New bang commands can be registered at runtime via the `register_bang()` API (see `lib/uniserdes.py`).
+
+**`!file` — read file contents:**
+
+If the string starts with `!file`, the rest is treated as a file path. The file is read and its contents become the field value.
+
+* Relative paths are resolved against the config file's directory (`base_path`).
+* Absolute paths are used as-is.
+* If the file does not exist, a `FileNotFoundError` is raised.
+* Works with `parse_file()` (which computes `base_path` automatically) and with `parse_json()` when a `base_path` is provided.
+
+```yaml
+# Read from a relative path (resolved against the config file's directory)
+description: "!file ./descriptions/oil_change.txt"
+
+# Read from an absolute path
+description: "!file /etc/dimrod/descriptions/oil_change.txt"
+
+# Compose with environment variables (expanded first, then file is read)
+description: "!file $HOME/configs/desc.txt"
+
+# Extra whitespace between keyword and path is stripped
+description: "!file   ./descriptions/oil_change.txt"
+```
+
+**`!list` — generate a list from an expression:**
+
+If the string starts with `!list`, the rest is evaluated as `list(expression)` in a **restricted namespace** and the resulting Python `list` object becomes the field value directly.
+
+Only safe, side-effect-free builtins are available: `range`, `int`, `float`, `str`, `len`, `list`, `tuple`, `set`, `abs`, `min`, `max`, `sum`, `round`, `sorted`, `reversed`, `enumerate`, `zip`, `map`, `filter`. No access to `os`, `sys`, `import`, `open`, `exec`, or `eval`.
+
+```yaml
+# Generate mileage thresholds
+mileages: "!list range(5000, 50001, 5000)"
+# → [5000, 10000, 15000, 20000, 25000, 30000, 35000, 40000, 45000, 50000]
+
+# Simple range
+values: "!list range(5)"
+# → [0, 1, 2, 3, 4]
+
+# Extra whitespace is stripped
+values: "!list   range(1000, 5001, 1000)"
+# → [1000, 2000, 3000, 4000, 5000]
+```
+
+Because `!list` returns an actual `list` object, the field receives a native Python list — not a string representation. This means fields typed as `[list]` can use `!list` directly in config files, and the result is immediately usable as a list without additional parsing.
+
+If the expression is invalid, a `ValueError` is raised with a descriptive message.
+
+**No bang command:**
+
+If no recognised bang command is present, the string (after environment variable expansion) is used as-is.
+
+#### Composability
+
+Since environment variables are expanded *before* bang processing, all bang commands compose naturally with environment variables:
+
+```yaml
+# $CONFIG_DIR is expanded first, then the file is read
+description: "!file $CONFIG_DIR/descriptions/oil_change.txt"
+```
+
+#### Extensibility
+
+The bang system is designed to be extensible. New commands can be added by calling `register_bang()`:
+
+```python
+from lib.uniserdes import register_bang
+
+def _my_handler(content: str, base_path: str) -> str:
+    return content.upper()
+
+register_bang("upper", _my_handler)
+# Now "!upper hello world" → "HELLO WORLD"
+```
+
+> **Note:** Bang handlers typically return `str`, but may return other types. For example, the built-in `!list` handler returns a Python `list` object directly.
+
+#### Notes
+
+* Only raw `str` values are preprocessed. Non-string types (`int`, `float`, `list`, `dict`, etc.) are never preprocessed.
+* Nested Uniserdes objects are preprocessed when their own `parse_json()` runs — the parent does not preprocess their string values.
+* Default values for absent fields are **not** preprocessed.
+
 ### Supported Field Types
 
 Uniserdes handles the following types automatically during serialization and deserialization:

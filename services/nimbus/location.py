@@ -33,9 +33,9 @@ class Location(Uniserdes):
         result += "[latitude: %s] " % self.latitude
         return result
 
-    def parse_json(self, jdata: dict):
+    def parse_json(self, jdata: dict, base_path: str = None):
         """Overridden JSON parsing function."""
-        super().parse_json(jdata)
+        super().parse_json(jdata, base_path=base_path)
 
         # check for coordinates and address
         has_coords = self.longitude is not None and \

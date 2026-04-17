@@ -31,7 +31,7 @@ class Forecast(Uniserdes):
             UniserdesField("time_end",             [str],      required=True)
         ]
 
-    def parse_json(self, jdata: dict):
+    def parse_json(self, jdata: dict, base_path: str = None):
         """Overridden JSON parsing function."""
         # the API returns slightly different names, so I'll rename some
         # fields here
@@ -50,7 +50,7 @@ class Forecast(Uniserdes):
             jdata[newname] = jdata.pop(oldname)
         
         # run the original JSON parsing function
-        super().parse_json(jdata)
+        super().parse_json(jdata, base_path=base_path)
 
         # convert the start and ending times from strings to datetime objects
         self.time_start = dateutil.parser.parse(self.time_start)

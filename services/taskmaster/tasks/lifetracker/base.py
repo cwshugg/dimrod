@@ -38,8 +38,8 @@ class LifeMetricTrigger(Uniserdes):
             UniserdesField("cooldown",     [int],   required=False, default=3600),
         ]
 
-    def parse_json(self, jdata: dict):
-        result = super().parse_json(jdata)
+    def parse_json(self, jdata: dict, base_path: str = None):
+        result = super().parse_json(jdata, base_path=base_path)
         self.check_triggers()
         return result
 

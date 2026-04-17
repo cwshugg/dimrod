@@ -42,6 +42,17 @@ The service itself has no background worker loop — all functionality is expose
 
 All data models are defined in `vehicle.py` and follow the DImROD [Uniserdes](../library.md#uniserdespy--data-serialization) pattern.
 
+### `MaintenanceTask`
+
+Defines a recurring maintenance task for a vehicle, triggered by mileage thresholds. Each task specifies a list of mileage values at which the maintenance should be performed.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `id` | `str` | Yes | — | Unique task identifier (e.g., `"oil_change"`) |
+| `name` | `str` | Yes | — | Human-readable task name (e.g., `"Oil Change"`) |
+| `description` | `str` | No | `""` | Optional description of the task. Supports the universal [string preprocessor](../data-types.md#universal-string-preprocessing): use the `!file` bang command to load description text from an external file (e.g., `!file ./descriptions/oil_change.txt`), or use environment variables with `$VAR` syntax. |
+| `mileages` | `list[int/float]` | Yes | — | Mileage thresholds at which the task should be performed (e.g., `[5000, 10000, 15000]`) |
+
 ### `VehicleProperty`
 
 A generic key-value property for open-ended vehicle metadata. All vehicle attributes — including engine details like horsepower, displacement, and fuel type — are represented as properties.
@@ -65,6 +76,7 @@ The main vehicle model, parsed from config YAML entries.
 | `vin` | `str` | No | `""` | Vehicle Identification Number |
 | `license_plate` | `str` | No | `""` | License plate number |
 | `properties` | `list[VehicleProperty]` | No | `[]` | Open-ended key-value properties (including engine details) |
+| `maintenance_tasks` | `list[MaintenanceTask]` | No | `[]` | Recurring maintenance tasks with mileage thresholds |
 
 ## Mileage Tracking
 
@@ -170,6 +182,19 @@ vehicles:
   - key: trim
     nickname: Trim Level
     value: EX
+  maintenance_tasks:
+  - id: oil_change
+    name: Oil Change
+    description: Change engine oil and filter
+    mileages: [5000, 10000, 15000, 20000, 25000, 30000, 35000, 40000, 45000, 50000]
+  - id: tire_rotation
+    name: Tire Rotation
+    description: Rotate tires for even wear
+    mileages: [7500, 15000, 22500, 30000, 37500, 45000]
+  - id: brake_inspection
+    name: Brake Inspection
+    description: Inspect brake pads and rotors
+    mileages: [15000, 30000, 45000, 60000]
 
 - id: model3_2022
   manufacturer: Tesla
@@ -191,6 +216,19 @@ vehicles:
   - key: color
     nickname: Exterior Color
     value: Pearl White
+  maintenance_tasks:
+  - id: tire_rotation
+    name: Tire Rotation
+    description: Rotate tires for even wear
+    mileages: [7500, 15000, 22500, 30000, 37500, 45000]
+  - id: cabin_air_filter
+    name: Cabin Air Filter
+    description: Replace cabin air filter
+    mileages: [25000, 50000, 75000, 100000]
+  - id: brake_fluid
+    name: Brake Fluid Check
+    description: Check and replace brake fluid
+    mileages: [25000, 50000, 75000, 100000]
 ```
 
 ## Oracle Endpoints
@@ -242,6 +280,44 @@ Records a new mileage reading for a vehicle.
 | `mileage` | Yes | Odometer reading (number) |
 
 * **Response:** JSON `MileageEntry` object with the recorded entry (including generated `id` and `timestamp`)
+
+### `GET /maintenance`
+
+Returns the list of maintenance tasks configured for a vehicle.
+
+* **Authentication:** Required
+* **Request fields:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `vehicle_id` | Yes | Vehicle identifier string |
+
+* **Response:** JSON array of `MaintenanceTask` objects
+
+### `GET /maintenance/due`
+
+Returns maintenance tasks for a vehicle that have any mileage threshold within a given range.
+
+* **Authentication:** Required
+* **Request fields:**
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `vehicle_id` | Yes | `str` | Vehicle identifier string |
+| `mileage_start` | Yes | `int`/`float` | Start of mileage range (inclusive) |
+| `mileage_end` | Yes | `int`/`float` | End of mileage range (exclusive) |
+
+The range is `[mileage_start, mileage_end)` — inclusive of `mileage_start`, exclusive of `mileage_end`.
+
+* **Response:** JSON array of due-maintenance result objects. Each result contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `task` | `MaintenanceTask` (JSON) | The maintenance task that matched |
+| `vehicle_id` | `str` | The vehicle's ID |
+| `triggered_mileages` | `list[int/float]` | Sorted list of threshold mileages within the range |
+
+A task is included when ANY of its configured mileage thresholds falls within `[mileage_start, mileage_end)`. The `triggered_mileages` list contains exactly the thresholds that matched, sorted ascending.
 
 ## NLA Endpoints
 

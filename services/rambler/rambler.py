@@ -46,9 +46,9 @@ class RamblerConfig(ServiceConfig):
             ConfigField("refresh_rate",                 [int],      required=False, default=1800)
         ]
 
-    def parse_json(self, jdata: dict):
+    def parse_json(self, jdata: dict, base_path: str = None):
         """Overridden version of parse_json() that utilizes the TripConfig object."""
-        super().parse_json(jdata)
+        super().parse_json(jdata, base_path=base_path)
         # parse all objects in the 'trips' list as a TripConfig object.
         trips = []
         for trip in self.trips:

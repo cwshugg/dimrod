@@ -76,8 +76,8 @@ class TripTimeConfig(Config):
             ConfigField("lookahead_days",           [int],      required=False, default=7)
         ]
 
-    def parse_json(self, jdata: dict):
-        super().parse_json(jdata)
+    def parse_json(self, jdata: dict, base_path: str = None):
+        super().parse_json(jdata, base_path=base_path)
         # convert weekday string to numbers, if applicable
         # (sunday = 0, monday = 1, etc.)
         wds = []

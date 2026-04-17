@@ -1,3 +1,8 @@
+# This module defines routine mileage-based maintenance TaskJobs for the
+# Hyundai Elantra. Each subclass maps to a specific Gearhead MaintenanceTask
+# (by vehicle_id and maintenance_task_id) and relies on Gearhead to determine
+# when the maintenance is actually due based on real mileage data.
+
 # Imports
 import os
 import sys
@@ -11,73 +16,122 @@ if pdir not in sys.path:
 # Service imports
 from tasks.automotive.routine import *
 
-class TaskJob_Automotive_Routine_Maintenance_Elantra_5k(TaskJob_Automotive_Routine_Maintenance):
+
+class TaskJob_Automotive_Routine_Maintenance_Elantra_5k(
+        TaskJob_Automotive_Routine_Maintenance):
+    """5k-mile routine maintenance for the Elantra.
+
+    Triggered when Gearhead reports the ``routine_5k`` maintenance task as
+    due for the ``elantra`` vehicle.
+    """
     def init(self):
-        self.car_name = "Elantra"
-        self.title = "5k-Mile Car Maintenance - %s" % self.car_name
+        """Set vehicle, maintenance task, and content file."""
+        super().init()
+        self.vehicle_id = "elantra"
+        self.maintenance_task_id = "routine_5k"
+        self.title = "5k-Mile Car Maintenance - Elantra"
         content_fname = "%s_5k.md" % __file__.replace(".py", "")
         self.content = os.path.join(fdir, content_fname)
-        self.trigger_months = [1, 2, 7, 8]
-        self.trigger_years = []
-        self.trigger_days = range(1, 11)
 
-class TaskJob_Automotive_Routine_Maintenance_Elantra_10k(TaskJob_Automotive_Routine_Maintenance):
+
+class TaskJob_Automotive_Routine_Maintenance_Elantra_10k(
+        TaskJob_Automotive_Routine_Maintenance):
+    """10k-mile routine maintenance for the Elantra.
+
+    Triggered when Gearhead reports the ``routine_10k`` maintenance task
+    as due for the ``elantra`` vehicle.
+    """
     def init(self):
-        self.car_name = "Elantra"
-        self.title = "10k-Mile Car Maintenance - %s" % self.car_name
+        """Set vehicle, maintenance task, and content file."""
+        super().init()
+        self.vehicle_id = "elantra"
+        self.maintenance_task_id = "routine_10k"
+        self.title = "10k-Mile Car Maintenance - Elantra"
         content_fname = "%s_10k.md" % __file__.replace(".py", "")
         self.content = os.path.join(fdir, content_fname)
-        self.trigger_months = [1, 2]
-        self.trigger_years = []
-        self.trigger_days = range(1, 11)
 
-class TaskJob_Automotive_Routine_Maintenance_Elantra_20k(TaskJob_Automotive_Routine_Maintenance):
+
+class TaskJob_Automotive_Routine_Maintenance_Elantra_20k(
+        TaskJob_Automotive_Routine_Maintenance):
+    """20k-mile routine maintenance for the Elantra.
+
+    Triggered when Gearhead reports the ``routine_20k`` maintenance task
+    as due for the ``elantra`` vehicle.
+    """
     def init(self):
-        self.car_name = "Elantra"
-        self.title = "20k-Mile Car Maintenance - %s" % self.car_name
+        """Set vehicle, maintenance task, and content file."""
+        super().init()
+        self.vehicle_id = "elantra"
+        self.maintenance_task_id = "routine_20k"
+        self.title = "20k-Mile Car Maintenance - Elantra"
         content_fname = "%s_20k.md" % __file__.replace(".py", "")
         self.content = os.path.join(fdir, content_fname)
-        self.trigger_years = list(range(2025, 2199, 2))
-        self.trigger_months = [7, 8]
-        self.trigger_days = range(1, 11)
 
-class TaskJob_Automotive_Routine_Maintenance_Elantra_30k(TaskJob_Automotive_Routine_Maintenance):
+
+class TaskJob_Automotive_Routine_Maintenance_Elantra_30k(
+        TaskJob_Automotive_Routine_Maintenance):
+    """30k-mile routine maintenance for the Elantra.
+
+    Triggered when Gearhead reports the ``routine_30k`` maintenance task
+    as due for the ``elantra`` vehicle.
+    """
     def init(self):
-        self.car_name = "Elantra"
-        self.title = "30k-Mile Car Maintenance - %s" % self.car_name
+        """Set vehicle, maintenance task, and content file."""
+        super().init()
+        self.vehicle_id = "elantra"
+        self.maintenance_task_id = "routine_30k"
+        self.title = "30k-Mile Car Maintenance - Elantra"
         content_fname = "%s_30k.md" % __file__.replace(".py", "")
         self.content = os.path.join(fdir, content_fname)
-        self.trigger_years = list(range(2028, 2199, 2))
-        self.trigger_months = [3, 4]
-        self.trigger_days = range(1, 11)
 
-class TaskJob_Automotive_Routine_Maintenance_Elantra_50k(TaskJob_Automotive_Routine_Maintenance):
+
+class TaskJob_Automotive_Routine_Maintenance_Elantra_50k(
+        TaskJob_Automotive_Routine_Maintenance):
+    """50k-mile routine maintenance for the Elantra.
+
+    Triggered when Gearhead reports the ``routine_50k`` maintenance task
+    as due for the ``elantra`` vehicle.
+    """
     def init(self):
-        self.car_name = "Elantra"
-        self.title = "50k-Mile Car Maintenance - %s" % self.car_name
+        """Set vehicle, maintenance task, and content file."""
+        super().init()
+        self.vehicle_id = "elantra"
+        self.maintenance_task_id = "routine_50k"
+        self.title = "50k-Mile Car Maintenance - Elantra"
         content_fname = "%s_50k.md" % __file__.replace(".py", "")
         self.content = os.path.join(fdir, content_fname)
-        self.trigger_years = list(range(2026, 2199, 2))
-        self.trigger_months = [8, 9]
-        self.trigger_days = range(1, 11)
 
-class TaskJob_Automotive_Routine_Maintenance_Elantra_60k(TaskJob_Automotive_Routine_Maintenance):
+
+class TaskJob_Automotive_Routine_Maintenance_Elantra_60k(
+        TaskJob_Automotive_Routine_Maintenance):
+    """60k-mile routine maintenance for the Elantra.
+
+    Triggered when Gearhead reports the ``routine_60k`` maintenance task
+    as due for the ``elantra`` vehicle.
+    """
     def init(self):
-        self.car_name = "Elantra"
-        self.title = "60k-Mile Car Maintenance - %s" % self.car_name
+        """Set vehicle, maintenance task, and content file."""
+        super().init()
+        self.vehicle_id = "elantra"
+        self.maintenance_task_id = "routine_60k"
+        self.title = "60k-Mile Car Maintenance - Elantra"
         content_fname = "%s_60k.md" % __file__.replace(".py", "")
         self.content = os.path.join(fdir, content_fname)
-        self.trigger_years = list(range(2027, 2199, 2))
-        self.trigger_months = [2, 3]
-        self.trigger_days = range(1, 11)
 
-class TaskJob_Automotive_Routine_Maintenance_Elantra_80k(TaskJob_Automotive_Routine_Maintenance):
+
+class TaskJob_Automotive_Routine_Maintenance_Elantra_80k(
+        TaskJob_Automotive_Routine_Maintenance):
+    """80k-mile routine maintenance for the Elantra.
+
+    Triggered when Gearhead reports the ``routine_80k`` maintenance task
+    as due for the ``elantra`` vehicle.
+    """
     def init(self):
-        self.car_name = "Elantra"
-        self.title = "80k-Mile Car Maintenance - %s" % self.car_name
+        """Set vehicle, maintenance task, and content file."""
+        super().init()
+        self.vehicle_id = "elantra"
+        self.maintenance_task_id = "routine_80k"
+        self.title = "80k-Mile Car Maintenance - Elantra"
         content_fname = "%s_80k.md" % __file__.replace(".py", "")
         self.content = os.path.join(fdir, content_fname)
-        self.trigger_years = list(range(2026, 2199, 7))
-        self.trigger_months = [4, 5]
-        self.trigger_days = range(1, 11)
 
