@@ -78,6 +78,8 @@ class TaskJob_Gearhead_MaintenancePoll(TaskJob_Gearhead):
     cooldown, and Todoist project name are all configurable via
     ``maintenance_poll.json``.
     """
+    config_filename = "maintenance_poll.json"
+
     def init(self):
         """Initialization hook.
 
@@ -202,8 +204,21 @@ class TaskJob_Gearhead_MaintenancePoll(TaskJob_Gearhead):
                         todoist, todoist_task_id
                     )
                     task_is_completed = False
+                    task_is_missing = False
                     if task is not None:
                         task_is_completed = task.completed_at is not None
+                    else:
+                        # Task not found — it was either completed and purged,
+                        # or intentionally deleted by the user. Treat as
+                        # completed to prevent orphaned PENDING entries.
+                        task_is_missing = True
+                        task_is_completed = True
+                        self.log(
+                            "Todoist task \"%s\" not found (deleted or purged) "
+                            "for %s/%s (trigger: %s) — treating as completed" %
+                            (todoist_task_id, vehicle_name, entry_task_id,
+                             entry_trigger_key)
+                        )
 
                     # Has the task not yet been completed? If so, skip it
                     if task_is_completed is False:
@@ -216,11 +231,12 @@ class TaskJob_Gearhead_MaintenancePoll(TaskJob_Gearhead):
 
                     # Otherwise, we assume the task has been completed; record
                     # its completion
-                    self.log(
-                        "Todoist task \"%s\" completed for %s/%s (trigger: %s)" %
-                        (todoist_task_id, vehicle_name, entry_task_id,
-                         entry_trigger_key)
-                    )
+                    if not task_is_missing:
+                        self.log(
+                            "Todoist task \"%s\" completed for %s/%s (trigger: %s)" %
+                            (todoist_task_id, vehicle_name, entry_task_id,
+                             entry_trigger_key)
+                        )
 
                     # Get current mileage for the completion record
                     current_mileage = self._get_current_mileage(
@@ -228,6 +244,12 @@ class TaskJob_Gearhead_MaintenancePoll(TaskJob_Gearhead):
                     )
                     if current_mileage is None:
                         current_mileage = entry.get("mileage", 0.0)
+
+                    # Build notes for the DONE entry
+                    if task_is_missing:
+                        notes = "Auto-resolved: Todoist task not found (deleted or purged)"
+                    else:
+                        notes = "Auto-detected completion from Todoist"
 
                     # POST a DONE log entry
                     try:
@@ -237,7 +259,7 @@ class TaskJob_Gearhead_MaintenancePoll(TaskJob_Gearhead):
                             "status": "done",
                             "trigger_key": entry_trigger_key,
                             "mileage": current_mileage,
-                            "notes": "Auto-detected completion from Todoist"
+                            "notes": notes
                         })
                         if OracleSession.get_response_success(r):
                             completions_detected += 1
@@ -277,7 +299,7 @@ class TaskJob_Gearhead_MaintenancePoll(TaskJob_Gearhead):
             )
 
             # 4b. Build request params for /maintenance/due
-            now = datetime.now()
+            now = datetime.utcnow()
             params = {"vehicle_id": vehicle_id}
 
             # add mileage range if we have mileage data
@@ -491,20 +513,6 @@ class TaskJob_Gearhead_MaintenancePoll(TaskJob_Gearhead):
                 except (ValueError, TypeError):
                     continue
         return False
-
-    def _get_vehicle_display_name(self, vehicle: dict) -> str:
-        """Builds a human-readable display name for a vehicle.
-
-        Prefers the first nickname if available, otherwise falls back to
-        ``{year} {manufacturer}``.
-        """
-        nicknames = vehicle.get("nicknames", [])
-        if nicknames and len(nicknames) > 0:
-            return nicknames[0]
-
-        year = vehicle.get("year", "")
-        manufacturer = vehicle.get("manufacturer", "")
-        return ("%s %s" % (year, manufacturer)).strip()
 
     def _get_current_mileage(self, gearhead, vehicle_id: str):
         """Retrieves the current mileage for a vehicle from Gearhead.

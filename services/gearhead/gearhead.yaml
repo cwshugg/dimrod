@@ -1,3 +1,12 @@
+# ===========================================================================
+# TEMPLATE CONFIG — Replace all placeholder values before use.
+#
+# This file contains example/placeholder values (e.g., YOUR_JWT_SECRET_HERE,
+# dummy VINs, license plates) that must be replaced with real values for a
+# working deployment. Copy this file, fill in your actual configuration, and
+# reference the copy in your service setup.
+# ===========================================================================
+
 service_name: gearhead
 service_log: stdout
 msghub_name: YOUR_MSGHUB_NAME
@@ -100,3 +109,12 @@ vehicles:
     name: Brake Fluid Check
     description: Check and replace brake fluid
     mileages: [25000, 50000, 75000, 100000]
+  # Example datetime-triggered maintenance task (time-based scheduling).
+  # The 'datetimes' field accepts a list of DatetimeTrigger objects with
+  # optional fields: years, months (1-12), days (1-31), weekdays (0=Sun),
+  # hours (0-23), minutes (0-59). Omitted fields act as wildcards.
+  - id: annual_inspection
+    name: Annual State Inspection
+    description: Schedule annual state vehicle inspection
+    datetimes:
+    - months: [1]  # January each year

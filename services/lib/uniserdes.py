@@ -250,12 +250,18 @@ class Uniserdes:
     def init_defaults(self):
         """Initializes the object with all fields that are not required. Once this
         function is complete, all non-required fields will be present and be set
-        to their default values.
+        to their default values. Mutable defaults (lists, dicts) are copied to
+        prevent shared-state bugs across instances.
         """
         for f in self.fields:
             if f.required:
                 continue
-            setattr(self, f.name, f.default)
+            default = f.default
+            if isinstance(default, list):
+                default = list(default)
+            elif isinstance(default, dict):
+                default = dict(default)
+            setattr(self, f.name, default)
 
     def get_field(self, name: str):
         """Returns the `UniserdesField` object representing one of the object's fields,
@@ -420,8 +426,14 @@ class Uniserdes:
                       (self.fpath if self.fpath else "json", key)
                 self.check(key in jdata, msg)
             else:
-                # otherwise, set the value to the field's default
-                setattr(self, key, f.default)
+                # otherwise, set the value to the field's default (copy
+                # mutable defaults to prevent shared-state bugs)
+                default = f.default
+                if isinstance(default, list):
+                    default = list(default)
+                elif isinstance(default, dict):
+                    default = dict(default)
+                setattr(self, key, default)
 
         # if there are any other fields in the uniserdes that aren't specified
         # explicitly, we'll save them to a separate dictionary

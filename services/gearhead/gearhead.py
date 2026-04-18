@@ -121,7 +121,7 @@ class GearheadService(Service):
         entry.parse_json({
             "vehicle_id": vehicle_id,
             "mileage": float(mileage),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.utcnow().isoformat()
         })
         entry.get_id()
         self.mileage_db.save(entry)
@@ -283,13 +283,8 @@ class GearheadService(Service):
                 vehicle_id, status
             )
 
-        # No specific filter — return all entries via search_by_task with
-        # no task_id filter. Use a broad condition.
-        return self.maintenance_log_db.search_by_status(
-            vehicle_id, status
-        ) if status is not None else self.maintenance_log_db._query(
-            vehicle_id, None
-        )
+        # No specific filter — return all entries for the vehicle.
+        return self.maintenance_log_db.search_all(vehicle_id)
 
     def add_maintenance_log(self, vehicle_id, task_id, status, trigger_key,
                             mileage, timestamp=None, todoist_task_id="",
@@ -438,29 +433,6 @@ class GearheadService(Service):
         """
         return self.is_maintenance_pending(vehicle_id, task_id, trigger_key) or \
                self.is_maintenance_done(vehicle_id, task_id, trigger_key)
-
-    def has_recent_maintenance(self, vehicle_id, task_id, days=30):
-        """Checks if any log entry exists for the given (vehicle, task) within
-        the last N days.
-
-        Secondary dedup mechanism for datetime tasks. Prevents the edge case
-        where a datetime task spanning two months creates duplicate Todoist
-        tasks.
-
-        Args:
-            vehicle_id: Vehicle ID.
-            task_id: Maintenance task ID.
-            days: Number of days to look back. Defaults to 30.
-
-        Returns:
-            bool: ``True`` if any entry exists within the lookback window.
-        """
-        from datetime import timedelta
-        cutoff = datetime.utcnow() - timedelta(days=days)
-        entries = self.maintenance_log_db.search_by_task(
-            vehicle_id, task_id
-        )
-        return any(e.timestamp >= cutoff for e in entries)
 
     def get_pending_entries_with_todoist_ids(self):
         """Returns all pending entries across all vehicles that have a Todoist
@@ -1064,7 +1036,7 @@ def nla_list_vehicles(oracle, jdata):
     vehicles = oracle.service.get_vehicles()
     vehicle_strs = []
     for v in vehicles:
-        desc = "• %s - %s %d" % (v.id, v.manufacturer, v.year)
+        desc = "· %s - %s %d" % (v.id, v.manufacturer, v.year)
         if v.nicknames:
             desc += " (%s)" % ", ".join("\"%s\"" % n for n in v.nicknames)
         vehicle_strs.append(desc)

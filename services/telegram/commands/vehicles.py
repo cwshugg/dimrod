@@ -713,15 +713,27 @@ def command_vehicles(service, message, args: list):
             return False
         vehicle_id = args[2].strip()
 
-        # Check for sub-subcommands after the vehicle ID
-        if len(args) >= 5:
+        # Check for single-word sub-subcommands (4 args)
+        if len(args) == 4:
             sub_sub = args[3].strip().lower()
-            sub_sub_action = args[4].strip().lower()
 
             # /vehicles get <id> mileage
             if sub_sub == "mileage":
                 return _vehicles_get_mileage_list(service, message,
                                                    session, vehicle_id)
+
+            # unknown single-word sub-subcommand
+            service.send_message(message.chat.id,
+                                 "Unknown subcommand: "
+                                 "<code>%s</code>" % sub_sub,
+                                 parse_mode="HTML")
+            _vehicles_help(service, message)
+            return False
+
+        # Check for two-word sub-subcommands (5+ args)
+        if len(args) >= 5:
+            sub_sub = args[3].strip().lower()
+            sub_sub_action = args[4].strip().lower()
 
             # /vehicles get <id> maintenance due
             if sub_sub == "maintenance" and sub_sub_action == "due":
@@ -733,7 +745,7 @@ def command_vehicles(service, message, args: list):
                 return _vehicles_get_maintenance_log(service, message,
                                                       session, vehicle_id)
 
-            # unknown sub-subcommand
+            # unknown two-word sub-subcommand
             service.send_message(message.chat.id,
                                  "Unknown subcommand: "
                                  "<code>%s %s</code>" % (sub_sub,

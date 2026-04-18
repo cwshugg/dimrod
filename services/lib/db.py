@@ -98,10 +98,12 @@ class Database:
         result = cur.execute("PRAGMA table_info(%s);" % table)
         return [row[1] for row in result]
 
-    def search(self, table: str, condition: str, order_by: str = None, desc: bool = False, limit: int = None):
+    def search(self, table: str, condition: str, order_by: str = None, desc: bool = False, limit: int = None, params: tuple = None):
         """Performs a search of the database and returns tuples in a list.
 
-        Optionally supports ORDER BY and LIMIT clauses.
+        Optionally supports ORDER BY and LIMIT clauses. When ``params`` is
+        provided, ``condition`` should use ``?`` placeholders and the values
+        are bound safely via parameterized execution.
         """
         # If the table doesn't exist, return an empty list
         if not self.table_exists(table):
@@ -121,7 +123,10 @@ class Database:
         # Connect, query, and return
         conn = self.get_connection()
         cur = conn.cursor()
-        result = cur.execute(cmd)
+        if params is not None:
+            result = cur.execute(cmd, params)
+        else:
+            result = cur.execute(cmd)
         return result
 
     def search_order_by(self,

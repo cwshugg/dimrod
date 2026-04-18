@@ -106,13 +106,14 @@ class MileageDatabase:
         """
         if not self.db.table_exists(self.table_name):
             return None
-        condition = "vehicle_id = \"%s\"" % vehicle_id
+        condition = "vehicle_id = ?"
         results = self.db.search(
             self.table_name,
             condition,
             order_by="timestamp",
             desc=True,
-            limit=1
+            limit=1,
+            params=(vehicle_id,)
         )
         rows = results.fetchall()
         if len(rows) == 0:
@@ -126,16 +127,20 @@ class MileageDatabase:
         """
         if not self.db.table_exists(self.table_name):
             return []
-        condition = "vehicle_id = \"%s\"" % vehicle_id
+        condition = "vehicle_id = ?"
+        params = [vehicle_id]
         if time_start is not None:
-            condition += " AND timestamp >= %s" % time_start.timestamp()
+            condition += " AND timestamp >= ?"
+            params.append(time_start.timestamp())
         if time_end is not None:
-            condition += " AND timestamp <= %s" % time_end.timestamp()
+            condition += " AND timestamp <= ?"
+            params.append(time_end.timestamp())
         results = self.db.search(
             self.table_name,
             condition,
             order_by="timestamp",
-            desc=True
+            desc=True,
+            params=tuple(params)
         )
         entries = []
         for row in results:

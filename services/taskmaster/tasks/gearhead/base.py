@@ -48,7 +48,12 @@ class TaskJob_Gearhead(TaskJob):
     convenience methods for sending Telegram questions, waiting for replies,
     and sending plain messages — mirroring the pattern established in the
     Garmin TaskJob base class.
+
+    Subclasses may override ``config_filename`` to load a different config
+    file (defaults to ``"mileage_checkin.json"``).
     """
+    config_filename = "mileage_checkin.json"
+
     def init(self):
         """Initialization hook called before any calls to ``update()``.
 
@@ -67,7 +72,7 @@ class TaskJob_Gearhead(TaskJob):
             [30] * 10
 
         # load the local config file
-        config_fname = "mileage_checkin.json"
+        config_fname = self.config_filename
         config_fpath = os.path.join(fdir, config_fname)
         self.gearhead_config = TaskJob_Gearhead_Config()
         self.gearhead_config.parse_file(config_fpath)
@@ -180,3 +185,18 @@ class TaskJob_Gearhead(TaskJob):
 
         message = telegram_session.get_response_json(r)
         return message
+
+    # ------------------------------ Helpers --------------------------------- #
+    def _get_vehicle_display_name(self, vehicle: dict) -> str:
+        """Builds a human-readable display name for a vehicle.
+
+        Prefers the first nickname if available, otherwise falls back to
+        ``{year} {manufacturer}``.
+        """
+        nicknames = vehicle.get("nicknames", [])
+        if nicknames and len(nicknames) > 0:
+            return nicknames[0]
+
+        year = vehicle.get("year", "")
+        manufacturer = vehicle.get("manufacturer", "")
+        return ("%s %s" % (year, manufacturer)).strip()

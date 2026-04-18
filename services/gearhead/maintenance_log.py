@@ -243,7 +243,7 @@ class MaintenanceLogDatabase:
                 # Initialize defaults so the entry has all fields for schema
                 # generation, including enum fields with proper types.
                 entry.status = MaintenanceLogEntryStatus.PENDING
-                entry.timestamp = datetime.now()
+                entry.timestamp = datetime.utcnow()
                 entry.mileage = 0.0
                 entry.id = ""
                 entry.vehicle_id = ""
@@ -276,17 +276,19 @@ class MaintenanceLogDatabase:
         self.db.insert_or_replace(table_name, str(sqlite3_obj))
 
     def _query(self, vehicle_id, condition, order_by="timestamp",
-               desc=True, limit=None):
+               desc=True, limit=None, params=None):
         """Internal helper that runs a search query on a vehicle's table.
 
         Returns an empty list if the table does not exist.
 
         Args:
             vehicle_id: The vehicle ID whose table to query.
-            condition: SQL WHERE clause string.
+            condition: SQL WHERE clause string (use ``?`` placeholders when
+                ``params`` is provided).
             order_by: Column to order results by. Defaults to ``"timestamp"``.
             desc: Whether to sort descending. Defaults to ``True``.
             limit: Optional maximum number of results.
+            params: Optional tuple of parameter values for ``?`` placeholders.
 
         Returns:
             list[MaintenanceLogEntry]: Parsed entries from the query results.
@@ -299,12 +301,25 @@ class MaintenanceLogDatabase:
             condition,
             order_by=order_by,
             desc=desc,
-            limit=limit
+            limit=limit,
+            params=params
         )
         entries = []
         for row in results:
             entries.append(MaintenanceLogEntry.from_sqlite3(row))
         return entries
+
+    def search_all(self, vehicle_id):
+        """Returns all log entries for a vehicle, ordered by timestamp
+        descending.
+
+        Args:
+            vehicle_id: The vehicle ID to query.
+
+        Returns:
+            list[MaintenanceLogEntry]: All entries for the vehicle.
+        """
+        return self._query(vehicle_id, None)
 
     def search_by_task(self, vehicle_id, task_id, status=None, limit=None):
         """Returns all log entries for a specific maintenance task, optionally
@@ -320,10 +335,13 @@ class MaintenanceLogDatabase:
             list[MaintenanceLogEntry]: Matching entries, ordered by timestamp
             descending.
         """
-        condition = "task_id = \"%s\"" % task_id
         if status is not None:
-            condition += " AND status = %d" % status.value
-        return self._query(vehicle_id, condition, limit=limit)
+            condition = "task_id = ? AND status = ?"
+            params = (task_id, status.value)
+        else:
+            condition = "task_id = ?"
+            params = (task_id,)
+        return self._query(vehicle_id, condition, limit=limit, params=params)
 
     def search_by_trigger(self, vehicle_id, task_id, trigger_key):
         """Returns all log entries for a specific trigger occurrence.
@@ -344,14 +362,12 @@ class MaintenanceLogDatabase:
             descending.
         """
         if trigger_key is None:
-            condition = "task_id = \"%s\" AND (trigger_key IS NULL OR trigger_key = \"\")" % (
-                task_id
-            )
+            condition = "task_id = ? AND (trigger_key IS NULL OR trigger_key = ?)"
+            params = (task_id, "")
         else:
-            condition = "task_id = \"%s\" AND trigger_key = \"%s\"" % (
-                task_id, trigger_key
-            )
-        return self._query(vehicle_id, condition)
+            condition = "task_id = ? AND trigger_key = ?"
+            params = (task_id, trigger_key)
+        return self._query(vehicle_id, condition, params=params)
 
     def search_by_status(self, vehicle_id, status):
         """Returns all log entries for a vehicle filtered by status.
@@ -364,8 +380,9 @@ class MaintenanceLogDatabase:
             list[MaintenanceLogEntry]: Matching entries, ordered by timestamp
             descending.
         """
-        condition = "status = %d" % status.value
-        return self._query(vehicle_id, condition)
+        condition = "status = ?"
+        params = (status.value,)
+        return self._query(vehicle_id, condition, params=params)
 
     def search_all_pending_with_todoist_id(self, vehicle_ids):
         """Returns all pending entries with a non-empty Todoist task ID across
@@ -383,10 +400,9 @@ class MaintenanceLogDatabase:
         """
         all_entries = []
         for vid in vehicle_ids:
-            condition = "status = %d AND todoist_task_id != \"\"" % (
-                MaintenanceLogEntryStatus.PENDING.value
-            )
-            entries = self._query(vid, condition)
+            condition = "status = ? AND todoist_task_id != ?"
+            params = (MaintenanceLogEntryStatus.PENDING.value, "")
+            entries = self._query(vid, condition, params=params)
             all_entries.extend(entries)
         return all_entries
 
@@ -403,10 +419,9 @@ class MaintenanceLogDatabase:
             list[MaintenanceLogEntry]: Matching entries, ordered by timestamp
             descending.
         """
-        condition = "mileage >= %s AND mileage <= %s" % (
-            mileage_start, mileage_end
-        )
-        return self._query(vehicle_id, condition)
+        condition = "mileage >= ? AND mileage <= ?"
+        params = (mileage_start, mileage_end)
+        return self._query(vehicle_id, condition, params=params)
 
     def search_by_date_range(self, vehicle_id, time_start, time_end):
         """Returns all log entries for a vehicle within a date range
@@ -424,10 +439,9 @@ class MaintenanceLogDatabase:
             list[MaintenanceLogEntry]: Matching entries, ordered by timestamp
             descending.
         """
-        condition = "timestamp >= %s AND timestamp <= %s" % (
-            time_start.timestamp(), time_end.timestamp()
-        )
-        return self._query(vehicle_id, condition)
+        condition = "timestamp >= ? AND timestamp <= ?"
+        params = (time_start.timestamp(), time_end.timestamp())
+        return self._query(vehicle_id, condition, params=params)
 
     def search_latest_by_task(self, vehicle_id, task_id):
         """Returns the single most recent log entry for a given task,
@@ -441,8 +455,9 @@ class MaintenanceLogDatabase:
             MaintenanceLogEntry or None: The most recent entry, or ``None``
             if no entries exist for this task.
         """
-        condition = "task_id = \"%s\"" % task_id
-        results = self._query(vehicle_id, condition, limit=1)
+        condition = "task_id = ?"
+        params = (task_id,)
+        results = self._query(vehicle_id, condition, limit=1, params=params)
         if len(results) == 0:
             return None
         return results[0]

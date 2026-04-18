@@ -66,7 +66,7 @@ class TaskJob_Gearhead_MileageCheckin(TaskJob_Gearhead):
         try:
             r = gearhead.get("/vehicles")
             assert gearhead.get_response_success(r), \
-                   "Gearhead reteurned a failure: %s" % \
+                   "Gearhead returned a failure: %s" % \
                    gearhead.get_response_message(r)
             vehicles = gearhead.get_response_json(r)
         except Exception as e:
@@ -144,20 +144,6 @@ class TaskJob_Gearhead_MileageCheckin(TaskJob_Gearhead):
         return successful_recordings > 0
 
     # ------------------------------- Helpers -------------------------------- #
-    def _get_vehicle_display_name(self, vehicle: dict) -> str:
-        """Builds a human-readable display name for a vehicle.
-
-        Prefers the first nickname if available, otherwise falls back to
-        ``{year} {manufacturer}``.
-        """
-        nicknames = vehicle.get("nicknames", [])
-        if nicknames and len(nicknames) > 0:
-            return nicknames[0]
-
-        year = vehicle.get("year", "")
-        manufacturer = vehicle.get("manufacturer", "")
-        return ("%s %s" % (year, manufacturer)).strip()
-
     def _parse_mileage(self, reply):
         """Parse the first number (int or float) from a text string.
 

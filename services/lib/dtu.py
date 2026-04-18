@@ -303,7 +303,7 @@ class DatetimeTrigger(Uniserdes):
             # Determine the valid time window for this particular
             # day, accounting for the range boundaries.
             time_start = time(0, 0)
-            time_end = time(23, 59)
+            time_end = time(23, 59, 59)
 
             if current_day == dt_start.date():
                 time_start = dt_start.time()
@@ -330,7 +330,7 @@ class DatetimeTrigger(Uniserdes):
             for h in candidate_hours:
                 for m in candidate_minutes:
                     candidate_time = time(h, m)
-                    if time_start <= candidate_time < time_end:
+                    if time_start <= candidate_time <= time_end:
                         return True
 
             current_day += timedelta(days=1)
