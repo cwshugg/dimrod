@@ -60,9 +60,9 @@ def network_list_times(service, message, args, devices):
         for device in b["list"]:
             # add the device's name or MAC address to the message
             if device.known_device is not None:
-                msg += "• <i>%s</i>" % device.known_device.name
+                msg += "· <i>%s</i>" % device.known_device.name
             else:
-                msg += "• <code>%s</code>" % device.hw_addr.macaddr
+                msg += "· <code>%s</code>" % device.hw_addr.macaddr
                 if device.hw_addr.vendor is not None:
                     msg += " (<i>%s</i>)" % device.hw_addr.vendor
 
@@ -136,6 +136,9 @@ def command_network(service, message, args: list):
                                  "(%s)" % e)
             return False
 
-    msg = "I'm not sure what you meant."
-    service.send_message(message.chat.id, msg)
+    msg = "🌐 <b>Usage:</b> <code>/network</code>\n\n" \
+          "<b>Examples:</b>\n" \
+          "  <code>/network</code> — List all cached devices sorted by last-seen time\n" \
+          "  <code>/net</code> — Same as above (short alias)"
+    service.send_message(message.chat.id, msg, parse_mode="HTML")
 

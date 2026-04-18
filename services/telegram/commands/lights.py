@@ -81,7 +81,7 @@ def lights_on(service, message, args: list, session, lights: list):
         msg = service.dialogue_reword("I turned on %d lights." % len(successes))
         msg += "\n\n"
         for lid in successes:
-            msg += "• <code>%s</code>\n" % lid
+            msg += "· <code>%s</code>\n" % lid
         service.send_message(message.chat.id, msg, parse_mode="HTML")
 
 def lights_off(service, message, args: list, session, lights: list):
@@ -132,7 +132,7 @@ def lights_off(service, message, args: list, session, lights: list):
         msg = service.dialogue_reword("I turned off %d lights." % len(successes))
         msg += "\n\n"
         for lid in successes:
-            msg += "• <code>%s</code>\n" % lid
+            msg += "· <code>%s</code>\n" % lid
         service.send_message(message.chat.id, msg, parse_mode="HTML")
 
 
@@ -178,7 +178,7 @@ def command_lights(service, message, args: list):
     if len(args) <= 1:
         msg = "<b>All connected lights</b>\n\n"
         for light in lights:
-            msg += "• <code>%s</code> - %s\n" % \
+            msg += "· <code>%s</code> - %s\n" % \
                    (light.lid, light.description)
         service.send_message(message.chat.id, msg, parse_mode="HTML")
         return True
@@ -192,6 +192,12 @@ def command_lights(service, message, args: list):
     if second == "off":
         return lights_off(service, message, args, session, lights)
 
-    msg = "I'm not sure what you meant."
-    service.send_message(message.chat.id, msg)
+    msg = "💡 <b>Usage:</b> <code>/lights [on|off] [name...]</code>\n\n" \
+          "<b>Examples:</b>\n" \
+          "  <code>/lights</code> — List all lights and their status\n" \
+          "  <code>/lights on</code> — Turn on all lights\n" \
+          "  <code>/lights off</code> — Turn off all lights\n" \
+          "  <code>/lights on desk</code> — Turn on lights matching \"desk\"\n" \
+          "  <code>/lights off bedroom</code> — Turn off lights matching \"bedroom\""
+    service.send_message(message.chat.id, msg, parse_mode="HTML")
 

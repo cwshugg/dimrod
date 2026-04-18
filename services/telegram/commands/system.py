@@ -60,11 +60,11 @@ def summarize(service, message, args):
 
     # system uptime
     ut = get_uptime()
-    msg += "• <b>Uptime:</b> %s\n" % ut
+    msg += "· <b>Uptime:</b> %s\n" % ut
 
     # system loadavg
     la = get_loadavg()
-    msg += "• <b>Load Average:</b> %s\n" % la
+    msg += "· <b>Load Average:</b> %s\n" % la
 
     # memory information (in kB)
     mem = get_mem_info()
@@ -72,14 +72,14 @@ def summarize(service, message, args):
     mem_available = int(re.sub("\D", "", mem["MemAvailable"]).strip())
     mem_used = mem_total - mem_available
     mem_percent = float(mem_used) / float(mem_total)
-    msg += "• <b>Memory Usage:</b> %.2f GB / %.2f GB (%.2f%%)\n" % \
+    msg += "· <b>Memory Usage:</b> %.2f GB / %.2f GB (%.2f%%)\n" % \
            (float(mem_used) / 1000000.0,
             float(mem_total) / 1000000.0,
             mem_percent * 100.0)
 
     # process count
     pcount = get_process_count()
-    msg += "• <b>Process Count:</b> %d\n" % pcount
+    msg += "· <b>Process Count:</b> %d\n" % pcount
 
     # send the message
     service.send_message(message.chat.id, msg, parse_mode="HTML")
@@ -130,7 +130,7 @@ def report_services(service, message, args):
            (names_len, "" if names_len == 1 else "s")
     for name in names:
         n = name.replace("dimrod_", "").replace(".service", "")
-        msg += "• %s\n" % n
+        msg += "· %s\n" % n
 
     # send the message
     service.send_message(message.chat.id, msg, parse_mode="HTML")
@@ -153,16 +153,16 @@ def report_service(service, message, args, name):
 
         # get current status
         if metric == "Active":
-            msg += "• <b>Status:</b> %s\n" % value
+            msg += "· <b>Status:</b> %s\n" % value
             st = value.split()[0].strip().lower()
 
         # get tasks
         if metric == "Tasks":
-            msg += "• <b>Tasks:</b> %s\n" % value
+            msg += "· <b>Tasks:</b> %s\n" % value
 
         # get memory usage
         if metric == "Memory":
-            msg += "• <b>Memory Usage</b>: %s\n" % value
+            msg += "· <b>Memory Usage</b>: %s\n" % value
 
         # break when we reach 'CGroup' or an empty line
         if metric == "CGroup" or len(line) == 0:
@@ -183,7 +183,7 @@ def report_service(service, message, args, name):
             # find a few key pieces and add them to the messsage
             prog = os.path.basename(pieces[1]).lower()
             file = os.path.basename(pieces[2]).lower()
-            procs += "• <code>%s %s</code>\n" % (prog, file)
+            procs += "· <code>%s %s</code>\n" % (prog, file)
         if len(procs) > 0:
             msg += "\n<b>Active Processes</b>\n"
             msg += procs
@@ -253,7 +253,13 @@ def command_system(service, message, args: list):
     if subcmd in ["services", "service", "serv", "srv", "svc", "python"]:
         return subcmd_services(service, message, args)
 
-    # otherwise, complain and return
-    service.send_message(message.chat.id, "Sorry, I'm not sure what you meant.")
+    # otherwise, complain and return with usage info
+    msg = "⚙️ <b>Usage:</b> <code>/system [subcommand]</code>\n\n" \
+          "<b>Examples:</b>\n" \
+          "  <code>/system</code> — Show machine status (uptime, memory, load)\n" \
+          "  <code>/system services</code> — List all DImROD services\n" \
+          "  <code>/system services &lt;name&gt;</code> — Show status of a specific service\n" \
+          "  <code>/system services &lt;name&gt; restart</code> — Restart a service"
+    service.send_message(message.chat.id, msg, parse_mode="HTML")
     return
 

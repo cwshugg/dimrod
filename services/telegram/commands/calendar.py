@@ -101,11 +101,11 @@ def subcommand_list_events(service, message, args: list,
 
         # form the full message
         msg += "<b>%s</b>\n" \
-               "• <u>When</u>: %s\n" % \
+               "· <u>When</u>: %s\n" % \
                (GoogleCalendar.get_event_title(event), when)
         desc = GoogleCalendar.get_event_description(event)
         if desc is not None:
-            msg += "• <u>Description</u>: %s\n" % desc
+            msg += "· <u>Description</u>: %s\n" % desc
         msg += "\n"
 
     service.send_message(message.chat.id, msg, parse_mode="HTML")
@@ -129,8 +129,8 @@ def subcommand_create_event(service, message, args: list,
         msg += "%s\n\n" % description
     else:
         msg += "\n"
-    msg += "• Starts: %s\n" % dt_start.strftime("%A, %Y-%m-%d at %I:%M %p")
-    msg += "• Ends: %s\n" % dt_end.strftime("%A, %Y-%m-%d at %I:%M %p")
+    msg += "· Starts: %s\n" % dt_start.strftime("%A, %Y-%m-%d at %I:%M %p")
+    msg += "· Ends: %s\n" % dt_end.strftime("%A, %Y-%m-%d at %I:%M %p")
     service.send_message(message.chat.id, msg, parse_mode="HTML")
 
 def command_calendar(service, message, args: list):
@@ -174,10 +174,14 @@ def command_calendar(service, message, args: list):
     
     # make sure at least a starting time was specified
     if event_start is None:
-        msg = "You must specify a starting datetime " \
-              "(and optionally, an ending datetime). For example:\n\n" \
-              "<code>/calendar Friday 8am. 8:45am. Doctor's Appointment</code>\n" \
-              "<code>/calendar 2030-07-05 1pm. Work Lunch</code>\n"
+        msg = "📅 <b>Usage:</b> <code>/calendar [datetime]. [end]. [title]. [description]</code>\n\n" \
+              "<b>View events:</b>\n" \
+              "  <code>/calendar</code> — Show events for the next 24 hours\n" \
+              "  <code>/calendar Friday</code> — Show events starting Friday\n\n" \
+              "<b>Create events:</b>\n" \
+              "  <code>/calendar Friday 8am. 8:45am. Doctor's Appointment</code>\n" \
+              "  <code>/calendar 2030-07-05 1pm. Work Lunch</code>\n\n" \
+              "Separate each part (dates, title, description) with a period (<code>.</code>)."
         service.send_message(message.chat.id, msg, parse_mode="HTML")
         return
 

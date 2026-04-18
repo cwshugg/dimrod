@@ -52,7 +52,7 @@ def command_news(service, message, args: list):
     if keywords_len > 0 and keywords[0].lower().strip() == "_sources":
         msg = "Available news sources:\n"
         for source in sources:
-            msg += "• %s (<code>%s</code>)\n" % (
+            msg += "· %s (<code>%s</code>)\n" % (
                 source["name"],
                 source["id"]
             )
@@ -82,7 +82,7 @@ def command_news(service, message, args: list):
         # select a random number of articles and build them into the message
         articles = random.sample(articles, 10)
         for article in articles:
-            msg += "• [%s](%s)\n" % (
+            msg += "· [%s](%s)\n" % (
                 article["title"],
                 article["url"]
             )
@@ -92,7 +92,11 @@ def command_news(service, message, args: list):
         return
 
     # TODO - use keywords to build custom query and run it
-    msg = "TODO - Add support for keyword querying."
-    service.send_message(message.chat.id, msg, parse_mode="markdown")
+    msg = "📰 <b>Usage:</b> <code>/news [keywords...]</code>\n\n" \
+          "<b>Examples:</b>\n" \
+          "  <code>/news</code> — Get a random selection of headlines\n" \
+          "  <code>/news _sources</code> — List available news sources\n\n" \
+          "Keyword search is coming soon."
+    service.send_message(message.chat.id, msg, parse_mode="HTML")
 
 

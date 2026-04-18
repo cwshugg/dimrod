@@ -1,4 +1,4 @@
-# Implements the /recipes bot command.
+# Implements the /recipes bot command for interacting with Chef recipes.
 
 # Imports
 import os
@@ -11,11 +11,15 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.oracle import OracleSession
-from lumen.light import LightConfig, Light
 
-def command_recipes(service, message, args: list):
-    """Main function."""
-    # create a HTTP session with chef
+
+# ================================= Helpers ================================== #
+def _get_session(service, message):
+    """Create and authenticate an OracleSession with Chef.
+
+    Returns the session on success, or None on failure (after sending an
+    error message to the user).
+    """
     session = OracleSession(service.config.chef)
     try:
         r = session.login()
@@ -23,50 +27,173 @@ def command_recipes(service, message, args: list):
         service.send_message(message.chat.id,
                              "Sorry, I couldn't reach Chef. "
                              "It might be offline.")
-        return False
+        return None
 
-    # check the login response
+    # Check the login response.
     if r.status_code != 200:
         service.send_message(message.chat.id,
                              "Sorry, I couldn't authenticate with Chef.")
-        return False
+        return None
     if not session.get_response_success(r):
         service.send_message(message.chat.id,
                              "Sorry, I couldn't authenticate with Chef. "
                              "(%s)" % session.get_response_message(r))
+        return None
+
+    return session
+
+
+def _fetch_recipes(session):
+    """Fetch all recipes from Chef.
+
+    Returns a dictionary mapping recipe IDs to recipe summary dicts,
+    or None on failure.
+    """
+    r = session.post("/recipes/list_all")
+    if r.status_code != 200:
+        return None
+    return OracleSession.get_response_json(r)
+
+
+def _fetch_recipe_by_id(session, recipe_id):
+    """Fetch a single recipe by ID from Chef.
+
+    Returns the full recipe dict, or None if not found or on failure.
+    """
+    r = session.post("/recipes/get_by_id", payload={"id": recipe_id})
+    if r.status_code != 200:
+        return None
+    return OracleSession.get_response_json(r)
+
+
+def _format_ingredient(ingredient):
+    """Format a single ingredient dict for display.
+
+    Returns a string like '1.0 lb ground beef' or '2.0 cups elbow macaroni'.
+    """
+    quantity = ingredient.get("quantity", 1.0)
+    title = ingredient.get("title", None) or ingredient.get("id", "unknown")
+    return "%s %s" % (quantity, title)
+
+
+def _list_recipe_ids(session, service, message):
+    """Send a message listing available recipe IDs.
+
+    Used for error recovery when a recipe ID is not found.
+    """
+    recipes = _fetch_recipes(session)
+    if recipes and len(recipes) > 0:
+        msg = "Available recipes:\n"
+        for r_id, recipe in sorted(recipes.items()):
+            title = recipe.get("title", "(Untitled)")
+            msg += "· %s [<code>%s</code>]\n" % (title, r_id)
+        service.send_message(message.chat.id, msg, parse_mode="HTML")
+
+
+# ============================== Subcommands ================================= #
+def _recipes_list(service, message, session):
+    """Handle '/recipes' with no arguments -- list all recipes with IDs."""
+    recipes = _fetch_recipes(session)
+    if recipes is None:
+        service.send_message(message.chat.id,
+                             "Sorry, I couldn't retrieve recipe data "
+                             "from Chef.")
         return False
 
-    # retrieve a list of lights and convert them into objects
-    r = session.post("/recipes/list_all")
-    recipes = OracleSession.get_response_json(r)
-
-    # If no recipes were returned by Chef, message and return early.
     if len(recipes) == 0:
-        msg = "No recipes found."
-        service.send_message(message.chat.id, msg)
+        service.send_message(message.chat.id, "No recipes found.")
         return True
 
-    # Generate a list of recipe names and descriptions to present to the user
-    # as a Telegram message.
-    msg = "Found %d recipes:\n\n" % len(recipes)
-    for (recipe_id, recipe) in recipes.items():
-        # Extract recipe details:
-        recipe_title = recipe.get("title", "(Untitled Recipe)")
-        recipe_desc = recipe.get("description", None)
-
-        # Compose a message:
-        recipe_msg = "• <b>%s</b>" % recipe_title
-        if recipe_desc is not None and len(recipe_desc) > 0:
-            recipe_msg += " - <i>%s</i>" % recipe_desc
-
-        # Does the recipe have any links? Attach them as sub-bullets.
-        links = recipe.get("links", None)
-        if links is not None and isinstance(links, list) and len(links) > 0:
-            for link in links:
-                recipe_msg += "\n    • %s" % link
-
-        msg += recipe_msg + "\n"
+    msg = "<b>Available Recipes:</b>\n\n"
+    for r_id, recipe in sorted(recipes.items()):
+        title = recipe.get("title", "(Untitled)")
+        description = recipe.get("description", "")
+        msg += "· %s\n" % title
+        if description:
+            msg += "    · Description: %s\n" % description
+        msg += "    · ID: <code>%s</code>\n" % r_id
 
     service.send_message(message.chat.id, msg, parse_mode="HTML")
     return True
+
+
+def _recipes_detail(service, message, session, recipe_id):
+    """Handle '/recipes <id>' -- show full details for a recipe."""
+    recipe = _fetch_recipe_by_id(session, recipe_id)
+    if recipe is None:
+        service.send_message(message.chat.id,
+                             "Recipe not found: <code>%s</code>" % recipe_id,
+                             parse_mode="HTML")
+        _list_recipe_ids(session, service, message)
+        return False
+
+    title = recipe.get("title", "(Untitled)")
+    msg = "<b>%s</b> [<code>%s</code>]\n" % (title, recipe_id)
+
+    # Description, if present.
+    description = recipe.get("description", None)
+    if description and len(description) > 0:
+        msg += "<i>%s</i>\n" % description
+
+    # Ingredients section.
+    ingredients = recipe.get("ingredients", [])
+    if ingredients and len(ingredients) > 0:
+        msg += "\n<b>Ingredients:</b>\n"
+        for ing in ingredients:
+            msg += "· %s\n" % _format_ingredient(ing)
+
+    # Steps section.
+    steps = recipe.get("steps", [])
+    if steps and len(steps) > 0:
+        msg += "\n<b>Steps:</b>\n"
+        for i, step in enumerate(steps, start=1):
+            step_text = step.get("description", None) \
+                        or step.get("title", None) \
+                        or step.get("id", "unknown")
+            msg += "%d. %s\n" % (i, step_text)
+
+    service.send_message(message.chat.id, msg, parse_mode="HTML")
+    return True
+
+
+def _recipes_help(service, message):
+    """Send usage help for the /recipes command."""
+    msg = "<b>Usage:</b> <code>/recipes [id]</code>\n\n"
+    msg += "<b>Commands:</b>\n"
+    msg += "  <code>/recipes</code>"
+    msg += " — List all available recipes\n"
+    msg += "  <code>/recipes &lt;id&gt;</code>"
+    msg += " — Show ingredients and steps for a recipe\n"
+    msg += "\n<b>Aliases:</b> /recipe\n"
+    msg += "\n<b>Examples:</b>\n"
+    msg += "  <code>/recipes</code>\n"
+    msg += "  <code>/recipes chili_mac</code>"
+    service.send_message(message.chat.id, msg, parse_mode="HTML")
+
+
+# =================================== Main =================================== #
+def command_recipes(service, message, args: list):
+    """Main handler for the /recipes command.
+
+    Routes to the appropriate subcommand based on the arguments provided.
+    Supports listing all recipes or viewing full details for a single recipe.
+    """
+    # Establish a session with Chef.
+    session = _get_session(service, message)
+    if session is None:
+        return False
+
+    # No arguments -- list all recipes.
+    if len(args) <= 1:
+        return _recipes_list(service, message, session)
+
+    subcommand = args[1].strip().lower()
+
+    # /recipes help
+    if subcommand == "help":
+        _recipes_help(service, message)
+        return True
+
+    # /recipes <id> -- treat the argument as a recipe ID.
+    return _recipes_detail(service, message, session, subcommand)
 
