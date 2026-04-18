@@ -96,7 +96,7 @@ class MaintenanceLogEntry(Uniserdes):
             UniserdesField("vehicle_id",      [str],                        required=True),
             UniserdesField("task_id",         [str],                        required=True),
             UniserdesField("status",          [MaintenanceLogEntryStatus],  required=True),
-            UniserdesField("trigger_key",     [str],                        required=True),
+            UniserdesField("trigger_key",     [str],                        required=False, default=None),
             UniserdesField("mileage",         [float],                      required=True),
             UniserdesField("timestamp",       [datetime],                   required=True),
             UniserdesField("todoist_task_id", [str],                        required=False, default=""),
@@ -116,10 +116,11 @@ class MaintenanceLogEntry(Uniserdes):
             str: The hex-encoded SHA-256 hash ID.
         """
         if self.id is None:
+            trigger_key_str = self.trigger_key if self.trigger_key is not None else ""
             hash_str = "MaintenanceLogEntry|%s|%s|%s|%s|%s" % (
                 self.vehicle_id,
                 self.task_id,
-                self.trigger_key,
+                trigger_key_str,
                 self.status.value,
                 self.timestamp.isoformat()
             )
@@ -247,7 +248,7 @@ class MaintenanceLogDatabase:
                 entry.id = ""
                 entry.vehicle_id = ""
                 entry.task_id = ""
-                entry.trigger_key = ""
+                entry.trigger_key = None
                 entry.todoist_task_id = ""
                 entry.notes = ""
             fields_visible = MaintenanceLogEntry.sqlite3_fields_to_keep_visible()
@@ -330,18 +331,26 @@ class MaintenanceLogDatabase:
         This is the core deduplication query. Returns all entries (pending
         and done) for a specific (vehicle, task, trigger_key) combination.
 
+        If ``trigger_key`` is ``None``, returns entries where trigger_key
+        is NULL or empty.
+
         Args:
             vehicle_id: The vehicle ID to query.
             task_id: The maintenance task ID.
-            trigger_key: The trigger key to search for.
+            trigger_key: The trigger key to search for, or ``None``.
 
         Returns:
             list[MaintenanceLogEntry]: Matching entries, ordered by timestamp
             descending.
         """
-        condition = "task_id = \"%s\" AND trigger_key = \"%s\"" % (
-            task_id, trigger_key
-        )
+        if trigger_key is None:
+            condition = "task_id = \"%s\" AND (trigger_key IS NULL OR trigger_key = \"\")" % (
+                task_id
+            )
+        else:
+            condition = "task_id = \"%s\" AND trigger_key = \"%s\"" % (
+                task_id, trigger_key
+            )
         return self._query(vehicle_id, condition)
 
     def search_by_status(self, vehicle_id, status):

@@ -33,11 +33,6 @@ notif:
   port: 2356
   auth_username: ABC
   auth_password: XYZ
-moder:
-  addr: 0.0.0.0
-  port: 2358
-  auth_username: ABC
-  auth_password: XYZ
 speaker:
   addr: 0.0.0.0
   port: 2357
@@ -46,6 +41,11 @@ speaker:
 chef:
   addr: 0.0.0.0
   port: 2362
+  auth_username: ABC
+  auth_password: XYZ
+gearhead:
+  addr: 0.0.0.0
+  port: 2363
   auth_username: ABC
   auth_password: XYZ
 google_calendar_config:

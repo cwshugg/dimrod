@@ -296,13 +296,20 @@ class GearheadService(Service):
                             notes=""):
         """Creates and saves a new maintenance log entry.
 
+        After saving, if the entry has a positive mileage value, checks
+        whether the vehicle's mileage should be auto-updated. If no
+        mileage entries exist yet, or if the new entry's mileage exceeds
+        the latest recorded mileage, a new ``MileageEntry`` is created
+        and saved automatically.
+
         Args:
             vehicle_id: Vehicle ID (must exist).
             task_id: Maintenance task ID.
             status: Status value — accepts ``MaintenanceLogEntryStatus``,
                 string names (``"pending"``, ``"done"``), or integer values
                 (``0``, ``1``).
-            trigger_key: Trigger key for deduplication.
+            trigger_key: Trigger key for deduplication, or ``None`` for
+                ad-hoc entries without a trigger.
             mileage: Current vehicle mileage as a float.
             timestamp: Optional ISO datetime string or datetime object.
                 Defaults to ``datetime.utcnow()``.
@@ -328,20 +335,59 @@ class GearheadService(Service):
         elif isinstance(timestamp, datetime):
             timestamp = timestamp.isoformat()
 
-        entry = MaintenanceLogEntry()
-        entry.parse_json({
+        # Build the JSON payload, omitting trigger_key if None so the
+        # Uniserdes default (None) is used.
+        entry_json = {
             "vehicle_id": vehicle_id,
             "task_id": task_id,
             "status": status.value,
-            "trigger_key": trigger_key,
             "mileage": float(mileage),
             "timestamp": timestamp,
             "todoist_task_id": todoist_task_id,
             "notes": notes,
-        })
+        }
+        if trigger_key is not None:
+            entry_json["trigger_key"] = trigger_key
+
+        entry = MaintenanceLogEntry()
+        entry.parse_json(entry_json)
         entry.get_id()
         self.maintenance_log_db.save(entry)
+
+        # --- Auto-update mileage from maintenance log entries ---
+        # If the entry has a positive mileage, check if this should
+        # update the vehicle's latest mileage reading.
+        if float(mileage) > 0:
+            self._auto_update_mileage(vehicle_id, float(mileage), entry.timestamp)
+
         return entry
+
+    def _auto_update_mileage(self, vehicle_id, mileage, entry_timestamp):
+        """Auto-updates the vehicle's mileage if the given mileage exceeds
+        the latest recorded reading.
+
+        Creates a new ``MileageEntry`` timestamped to ``entry_timestamp``
+        when no prior mileage data exists or when the new mileage value
+        is greater than the latest recorded mileage.
+
+        Args:
+            vehicle_id: The vehicle ID.
+            mileage: The mileage value from the maintenance log entry.
+            entry_timestamp: The timestamp of the maintenance log entry.
+        """
+        latest = self.mileage_db.search_latest(vehicle_id)
+        if latest is None or mileage > latest.mileage:
+            ts = entry_timestamp
+            if isinstance(ts, str):
+                ts = datetime.fromisoformat(ts)
+            new_entry = MileageEntry()
+            new_entry.parse_json({
+                "vehicle_id": vehicle_id,
+                "mileage": mileage,
+                "timestamp": ts.isoformat()
+            })
+            new_entry.get_id()
+            self.mileage_db.save(new_entry)
 
     def is_maintenance_pending(self, vehicle_id, task_id, trigger_key):
         """Checks if a pending entry exists for the given trigger.
@@ -544,6 +590,67 @@ class GearheadOracle(Oracle):
                 return self.make_response(success=True,
                                           msg="Mileage recorded successfully.",
                                           payload=entry.to_json())
+            except Exception as e:
+                return self.make_response(msg=str(e),
+                                          success=False, rstatus=400)
+
+        # Endpoint that returns the mileage history for a vehicle.
+        @self.server.route("/mileage/history", methods=["GET"])
+        def endpoint_mileage_history():
+            """Returns the mileage history for a vehicle, optionally filtered
+            by a date range and limited to a maximum number of entries.
+            """
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            if "vehicle_id" not in flask.g.jdata:
+                return self.make_response(
+                    msg="Must specify 'vehicle_id' string.",
+                    success=False, rstatus=400)
+            vid = str(flask.g.jdata["vehicle_id"])
+
+            # Validate vehicle exists
+            if self.service.get_vehicle(vid) is None:
+                return self.make_response(
+                    msg="Vehicle not found: %s" % vid,
+                    success=False, rstatus=404)
+
+            # Parse optional datetime range
+            time_start = None
+            time_end = None
+            dt_start_str = flask.g.jdata.get("datetime_start", None)
+            dt_end_str = flask.g.jdata.get("datetime_end", None)
+            if dt_start_str is not None and dt_end_str is not None:
+                try:
+                    time_start = datetime.fromisoformat(str(dt_start_str))
+                    time_end = datetime.fromisoformat(str(dt_end_str))
+                except (ValueError, TypeError) as e:
+                    return self.make_response(
+                        msg="Invalid datetime format: %s" % str(e),
+                        success=False, rstatus=400)
+
+            # Parse optional limit
+            limit = flask.g.jdata.get("limit", None)
+            if limit is not None:
+                if type(limit) not in [int]:
+                    return self.make_response(
+                        msg="'limit' must be an integer.",
+                        success=False, rstatus=400)
+
+            try:
+                entries = self.service.get_mileage_history(
+                    vid,
+                    time_start=time_start,
+                    time_end=time_end
+                )
+                # Apply limit if specified
+                if limit is not None and limit > 0:
+                    entries = entries[:limit]
+                payload = [e.to_json() for e in entries]
+                return self.make_response(success=True, payload=payload)
             except Exception as e:
                 return self.make_response(msg=str(e),
                                           success=False, rstatus=400)
@@ -773,8 +880,7 @@ class GearheadOracle(Oracle):
 
             # Validate required fields
             required_fields = [
-                "vehicle_id", "task_id", "status",
-                "trigger_key", "mileage"
+                "vehicle_id", "task_id", "status", "mileage"
             ]
             for field in required_fields:
                 if field not in jdata:
@@ -784,7 +890,7 @@ class GearheadOracle(Oracle):
 
             vid = str(jdata["vehicle_id"])
             task_id = str(jdata["task_id"])
-            trigger_key = str(jdata["trigger_key"])
+            trigger_key = str(jdata["trigger_key"]) if "trigger_key" in jdata and jdata["trigger_key"] is not None else None
 
             # Validate vehicle exists
             if self.service.get_vehicle(vid) is None:

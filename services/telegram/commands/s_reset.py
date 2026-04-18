@@ -10,7 +10,7 @@ if pdir not in sys.path:
     sys.path.append(pdir)
 
 def command_s_reset(service, message, args: list):
-    """Main function."""
+    """Main function. Resets the conversational context for the current chat."""
     # look up the chat ID in the service's dictionary and delete the entry if
     # it exists
     chat_id = str(message.chat.id)
@@ -18,5 +18,5 @@ def command_s_reset(service, message, args: list):
         service.chat_conversations.pop(chat_id)
     
     # indicate the conversation has been reset for this chat
-    service.send_message(message.chat.id, "Conversation reset.\n")
+    service.send_message(message.chat.id, "🔄 Conversation reset.")
 

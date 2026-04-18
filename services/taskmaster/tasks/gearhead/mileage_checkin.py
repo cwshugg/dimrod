@@ -5,6 +5,7 @@
 
 # Imports
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -158,21 +159,37 @@ class TaskJob_Gearhead_MileageCheckin(TaskJob_Gearhead):
         return ("%s %s" % (year, manufacturer)).strip()
 
     def _parse_mileage(self, reply):
-        """Attempts to parse a user reply as a mileage float.
+        """Parse the first number (int or float) from a text string.
 
-        Strips whitespace and commas (e.g. ``"12,345"`` → ``12345.0``).
-        Returns the parsed float, or ``None`` if parsing fails.
+        Uses regex to extract the first numeric value found in the reply,
+        so the user can type natural-language responses like
+        ``"about 45,000 miles"`` and still have the mileage parsed correctly.
+
+        Handles formats like:
+
+        - ``"45000"``
+        - ``"45,000"``
+        - ``"45000.5"``
+        - ``"45,230.5"``
+        - ``"about 45000 miles"``
+        - ``"it's at 45,230.5 mi"``
+
+        Returns the parsed float, or ``None`` if no number is found.
         """
         if reply is None:
             return None
+        # Match numbers with optional commas and decimal point
+        match = re.search(r'[\d,]+\.?\d*', reply)
+        if match is None:
+            return None
+        # Remove commas and convert to float
         try:
-            cleaned = reply.strip().replace(",", "")
-            value = float(cleaned)
-            if value < 0:
-                return None
-            return value
+            value = float(match.group().replace(',', ''))
         except (ValueError, TypeError):
             return None
+        if value < 0:
+            return None
+        return value
 
     def _try_send_message(self, chat_id: str, text: str):
         """Attempts to send a Telegram message, logging any failure without

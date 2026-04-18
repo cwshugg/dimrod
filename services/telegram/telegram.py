@@ -44,11 +44,11 @@ from commands.network import command_network
 from commands.weather import command_weather
 from commands.event import command_event
 from commands.remind import command_remind
-from commands.mode import command_mode
 from commands.calendar import command_calendar
 from commands.budget import command_budget
 from commands.news import command_news
 from commands.recipes import command_recipes
+from commands.vehicles import command_vehicles
 from commands.s_reset import command_s_reset
 from commands.s_menu import command_s_menu
 
@@ -69,9 +69,9 @@ class TelegramConfig(ServiceConfig):
             ConfigField("lumen",    [OracleSessionConfig],      required=True),
             ConfigField("warden",   [OracleSessionConfig],      required=True),
             ConfigField("notif",    [OracleSessionConfig],      required=True),
-            ConfigField("moder",    [OracleSessionConfig],      required=True),
             ConfigField("speaker",  [OracleSessionConfig],      required=True),
             ConfigField("chef",     [OracleSessionConfig],      required=True),
+            ConfigField("gearhead", [OracleSessionConfig],      required=True),
             ConfigField("google_calendar_config",   [GoogleCalendarConfig], required=True),
             ConfigField("google_calendar_id",       [str],      required=True),
             ConfigField("google_calendar_timezone", [str],      required=False, default="America/New_York"),
@@ -92,35 +92,35 @@ class TelegramService(Service):
         # define the bot's commands
         self.commands = [
             TelegramCommand(["help", "h", "commands", "what"],
-                            "Presents this help menu.",
+                            "Show this help message",
                             command_help),
             TelegramCommand(["system", "sys", "s"],
-                            "Reports system information.",
+                            "System status and service management",
                             command_system),
             TelegramCommand(["lights", "light", "lumen", "l"],
-                            "Interacts with the home lights.",
+                            "Control smart home lights",
                             command_lights),
             TelegramCommand(["net", "network", "n"],
-                            "Retrieves home network info.",
+                            "Check network devices",
                             command_network),
             TelegramCommand(["remind", "reminder", "rem", "r"],
-                            "Sets reminders.",
+                            "Create and manage reminders",
                             command_remind),
-            TelegramCommand(["mode", "modes", "moder"],
-                            "Retrieves and sets the current house mode.",
-                            command_mode),
             TelegramCommand(["calendar", "cal", "c"],
-                            "Interacts with Google Calendar.",
+                            "View and create calendar events",
                             command_calendar),
             TelegramCommand(["budget", "bud", "b"],
-                            "Interacts with the Budget.",
+                            "Log a budget transaction",
                             command_budget),
             TelegramCommand(["news", "articles", "headlines"],
-                            "Retrieves news articles to read.",
+                            "Get news headlines",
                             command_news),
             TelegramCommand(["recipes", "recipe"],
-                            "Retrieves all known food recipes.",
+                            "Look up recipes",
                             command_recipes),
+            TelegramCommand(["vehicles", "vehicle", "v", "cars", "car", "gearhead"],
+                            "Manage vehicles and mileage",
+                            command_vehicles),
             TelegramCommand(["_reset"],
                             "Resets the current chat conversation.",
                             command_s_reset,

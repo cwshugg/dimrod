@@ -60,8 +60,15 @@ def delete_reminder(service, message, rem_id: str):
 # =================================== Main =================================== #
 def command_remind(service, message, args: list):
     if len(args) < 2:
-        msg = "Use this to set up reminders. Here's an example:\n\n" \
-              "<code>/remind 1d 3h. Take out the trash!</code>"
+        msg = "🔔 <b>Usage:</b> <code>/remind &lt;time&gt;. &lt;message&gt;</code>\n\n" \
+              "<b>Examples:</b>\n" \
+              "  <code>/remind 1d 3h. Take out the trash!</code>\n" \
+              "  <code>/remind 30m. Check the oven</code>\n" \
+              "  <code>/remind Friday 9am. Weekly meeting</code>\n\n" \
+              "<b>Delete a reminder:</b>\n" \
+              "  <code>/remind cancel. &lt;reminder_id&gt;</code>\n\n" \
+              "Separate the time and message with a period (<code>.</code>).\n" \
+              "You can also reply to a message with <code>/remind &lt;time&gt;.</code> to be reminded of it."
         service.send_message(message.chat.id, msg, parse_mode="HTML")
         return
 

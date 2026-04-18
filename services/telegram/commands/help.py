@@ -13,13 +13,14 @@ if pdir not in sys.path:
 from lib.oracle import OracleSession
 
 def command_help(service, message, args: list):
-    """Main function."""
+    """Main function. Displays a clean overview of all available commands."""
     # build a table of possible commands in HTML
     # https://core.telegram.org/bots/api#markdownv2-style
-    msg = "<b>All possible commands</b>\n\n"
+    msg = "🤖 <b>DImROD Commands</b>\n\n"
     for command in service.commands:
         # skip secret commands
         if not command.secret:
-            msg += "/%s - %s\n" % (command.keywords[0], command.description)
+            msg += "/%s — %s\n" % (command.keywords[0], command.description)
+    msg += "\nType any command with no arguments for detailed usage."
     service.send_message(message.chat.id, msg, parse_mode="HTML")
 

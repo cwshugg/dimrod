@@ -140,7 +140,7 @@ Status transitions are **append-only** — a new entry is created rather than up
 
 ### `MaintenanceLogEntry`
 
-Represents a single maintenance log entry. Entry IDs are SHA-256 hashes generated from vehicle_id, task_id, trigger_key, status value, and timestamp.
+Represents a single maintenance log entry. Entry IDs are SHA-256 hashes generated from vehicle_id, task_id, trigger_key, status value, and timestamp. When `trigger_key` is `None` (ad-hoc entries), an empty string is used in the hash computation.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -148,7 +148,7 @@ Represents a single maintenance log entry. Entry IDs are SHA-256 hashes generate
 | `vehicle_id` | `str` | Yes | — | References a `Vehicle.id` |
 | `task_id` | `str` | Yes | — | References a `MaintenanceTask.id` |
 | `status` | `MaintenanceLogEntryStatus` | Yes | — | PENDING (0) or DONE (1) |
-| `trigger_key` | `str` | Yes | — | Identifies the specific trigger occurrence (e.g., `"mileage:45000"`) |
+| `trigger_key` | `str` | No | `None` | Identifies the specific trigger occurrence (e.g., `"mileage:45000"`). `None` for ad-hoc entries (e.g., gas refills) that are not tied to a specific trigger. |
 | `mileage` | `float` | Yes | — | Vehicle mileage at time of entry creation |
 | `timestamp` | `datetime` | Yes | — | UTC datetime when this entry was created |
 | `todoist_task_id` | `str` | No | `""` | The Todoist task ID for completion detection |
@@ -160,6 +160,7 @@ Trigger keys identify specific trigger occurrences and are generated via static 
 
 * **Mileage:** `MaintenanceLogEntry.make_mileage_trigger_key(threshold)` → `"mileage:45000"`
 * **Datetime:** `MaintenanceLogEntry.make_datetime_trigger_key(date)` → `"datetime:2025-07"`
+* **None:** Ad-hoc entries (e.g., gas refills logged via `/vehicles gas`) use `None` as the trigger key, indicating no trigger-based deduplication.
 
 #### Metadata Footer
 
@@ -438,13 +439,14 @@ Creates a new maintenance log entry.
 | `vehicle_id` | Yes | `str` | Vehicle identifier string |
 | `task_id` | Yes | `str` | Maintenance task ID |
 | `status` | Yes | `str` or `int` | `"pending"`/`"done"` or `0`/`1` |
-| `trigger_key` | Yes | `str` | Trigger key for deduplication |
+| `trigger_key` | No | `str` | Trigger key for deduplication. Omit or set to `null` for ad-hoc entries. |
 | `mileage` | Yes | `float` | Current vehicle mileage |
 | `timestamp` | No | `str` (ISO 8601) | Defaults to current UTC time |
 | `todoist_task_id` | No | `str` | Todoist task ID (for pending entries) |
 | `notes` | No | `str` | Free-text notes |
 
 * **Response:** JSON `MaintenanceLogEntry` object with `message: "Maintenance log entry created."`
+* **Side effect:** If the entry's mileage is positive and exceeds the vehicle's latest recorded mileage, a new `MileageEntry` is automatically created with the same mileage and timestamp, keeping the vehicle's mileage current.
 * **Error:** Returns 400 for missing/invalid fields, 404 if vehicle not found
 
 ## NLA Endpoints
@@ -478,6 +480,54 @@ When an NLA handler needs to identify which vehicle the user is referring to, Ge
 2. **Tier 2 — LLM fallback:** If substring matching fails and `dialogue` is configured, Gearhead creates a `DialogueInterface` and sends a oneshot prompt to the LLM. The prompt includes a summary of all known vehicles and asks the LLM to identify which vehicle the user means. The LLM response is parsed to find a matching vehicle ID.
 
 If both tiers fail, the NLA handler returns an error listing the known vehicles.
+
+## Telegram `/vehicles` Command
+
+The `/vehicles` bot command (aliases: `/v`, `/vehicle`) provides a Telegram interface for interacting with Gearhead vehicles.
+
+### Fuzzy Vehicle Matching
+
+All subcommands that accept a vehicle ID use **fuzzy matching** instead of strict ID matching:
+
+1. **Exact ID match** (case-insensitive): `"focus_st_2018"` matches the vehicle with that exact ID.
+2. **Substring match** against vehicle IDs and nicknames (case-insensitive): `"focus"` matches `"focus_st_2018"`, `"daily"` matches a vehicle nicknamed "The Daily Driver".
+3. **Disambiguation:** If multiple vehicles match, the user is shown all matches and asked to be more specific. If no vehicles match, available vehicle IDs are listed.
+
+### Subcommands
+
+| Command | Description |
+|---------|-------------|
+| `/vehicles` | List all vehicles with current mileage |
+| `/vehicles get <id>` | Get detailed info for a vehicle |
+| `/vehicles get <id> mileage list` | Show recent mileage history |
+| `/vehicles get <id> maintenance due` | Show upcoming maintenance |
+| `/vehicles get <id> maintenance log` | Show maintenance log |
+| `/vehicles set <id> mileage <number>` | Update a vehicle's mileage |
+| `/vehicles gas <id> <mileage> [notes]` | Log a gas refill |
+
+### `/vehicles gas` Command
+
+Records a gas refill as a maintenance log entry:
+
+* **Usage:** `/vehicles gas <id> <mileage> [notes...]`
+* **Example:** `/vehicles gas focus 45230 Shell station, regular unleaded`
+* **Behavior:**
+  1. Fuzzy-matches the vehicle ID
+  2. Parses the mileage number (supports commas, e.g., `45,230`)
+  3. Remaining text after the mileage is captured as `notes`
+  4. POSTs to Gearhead `POST /maintenance/log` with `task_id: "gas_refill"`, `status: "done"`, `trigger_key: null`
+  5. The mileage auto-update behavior in `add_maintenance_log()` automatically updates the vehicle's mileage if the reported value exceeds the latest reading
+  6. Confirms back to the user with the vehicle name, formatted mileage, and notes
+
+## Mileage Auto-Update
+
+When a new maintenance log entry is saved via `add_maintenance_log()`, the service automatically checks whether the entry's mileage should update the vehicle's mileage tracking:
+
+1. Retrieves the latest `MileageEntry` for the vehicle from the `MileageDatabase`.
+2. If no mileage entries exist, **or** if the new log entry's mileage exceeds the latest recorded mileage:
+   - Creates a new `MileageEntry` with the log entry's mileage and timestamp.
+   - Saves it to the `MileageDatabase`.
+3. This ensures the vehicle's mileage stays current whenever maintenance (including gas refills) is logged, without requiring a separate `/vehicles set <id> mileage` call.
 
 ## Dependencies
 

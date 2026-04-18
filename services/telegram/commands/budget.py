@@ -147,17 +147,14 @@ def command_budget(service, message, args: list):
 
     # if currency wasn't found, complain and exit
     if currency_amount is None:
-        msg = "In order to log something in the budget, " \
-              "you must specify a dollar amount.\n" \
-              "\n" \
-              "For example:\n" \
-              "• $5\n" \
-              "• $12.50\n" \
-              "• -$100.\n" \
-              "\n" \
-              "Positive values represent money spent.\n" \
-              "Negative values represent money gained."
-        service.send_message(message.chat.id, msg)
+        msg = "💰 <b>Usage:</b> <code>/budget &lt;$amount&gt; [description...]</code>\n\n" \
+              "<b>Examples:</b>\n" \
+              "  <code>/budget $12.50 Wegmans groceries</code>\n" \
+              "  <code>/budget $5 Coffee at Starbucks</code>\n" \
+              "  <code>/budget -$100 Paycheck deposit</code>\n\n" \
+              "Positive amounts = money spent.\n" \
+              "Negative amounts = money received."
+        service.send_message(message.chat.id, msg, parse_mode="HTML")
         return
 
     # join all other arguments together, excluding the very first argument
