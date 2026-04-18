@@ -108,10 +108,9 @@ def _recipes_list(service, message, session):
     for r_id, recipe in sorted(recipes.items()):
         title = recipe.get("title", "(Untitled)")
         description = recipe.get("description", "")
-        msg += "· %s\n" % title
+        msg += "· <b>%s</b> (<code>%s</code>)\n" % (title, r_id)
         if description:
             msg += "    · Description: %s\n" % description
-        msg += "    · ID: <code>%s</code>\n" % r_id
 
     service.send_message(message.chat.id, msg, parse_mode="HTML")
     return True

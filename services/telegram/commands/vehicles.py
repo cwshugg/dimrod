@@ -324,7 +324,7 @@ def _vehicles_list(service, message, session):
 
         # fetch current mileage
         mileage_entry = _fetch_mileage(session, vid)
-        mileage_str = "unknown"
+        mileage_str = "(unknown mileage)"
         if mileage_entry and "mileage" in mileage_entry:
             mileage_str = _format_mileage(mileage_entry["mileage"])
 
@@ -337,13 +337,13 @@ def _vehicles_list(service, message, session):
         if name.endswith(year_str):
             name = name[:-len(year_str)].strip()
 
-        msg += "\n· <b>%s</b> [<code>%s</code>]" % (name, vid)
-        msg += "\n  %s %s | %s" % (year, manufacturer, mileage_str)
+        msg += "\n<b>%s</b> (<code>%s</code>)" % (name, vid)
+        msg += "\n· %s %s | %s" % (year, manufacturer, mileage_str)
 
         # add nicknames if present
         nicknames = v.get("nicknames", [])
         if nicknames and len(nicknames) > 0:
-            msg += "\n  Nicknames: %s" % ", ".join(nicknames)
+            msg += "\n· Nicknames: %s" % ", ".join(nicknames)
 
         msg += "\n"
 
@@ -370,17 +370,17 @@ def _vehicles_get(service, message, session, user_input):
     msg = "<b>%s</b>\n\n" % display_name
 
     msg += "<b>Details:</b>\n"
-    msg += "  ID: <code>%s</code>\n" % vehicle.get("id", "unknown")
-    msg += "  Manufacturer: %s\n" % vehicle.get("manufacturer", "N/A")
-    msg += "  Year: %s\n" % vehicle.get("year", "N/A")
+    msg += "· ID: <code>%s</code>\n" % vehicle.get("id", "unknown")
+    msg += "· Manufacturer: %s\n" % vehicle.get("manufacturer", "N/A")
+    msg += "· Year: %s\n" % vehicle.get("year", "N/A")
 
     vin = vehicle.get("vin", "")
     if vin:
-        msg += "  VIN: <code>%s</code>\n" % vin
+        msg += "· VIN: <code>%s</code>\n" % vin
 
     plate = vehicle.get("license_plate", "")
     if plate:
-        msg += "  License Plate: <code>%s</code>\n" % plate
+        msg += "· License Plate: <code>%s</code>\n" % plate
 
     msg += "\n<b>Current Mileage:</b> %s\n" % mileage_str
 
@@ -389,7 +389,7 @@ def _vehicles_get(service, message, session, user_input):
     if nicknames and len(nicknames) > 0:
         msg += "\n<b>Nicknames:</b>\n"
         for nick in nicknames:
-            msg += "  · %s\n" % nick
+            msg += "· %s\n" % nick
 
     # properties - show ALL, sorted alphabetically by key
     properties = vehicle.get("properties", [])
@@ -400,14 +400,14 @@ def _vehicles_get(service, message, session, user_input):
         for prop in sorted_props:
             pname = prop.get("nickname", "") or prop.get("key", "unknown")
             pvalue = prop.get("value", "N/A")
-            msg += "  %s: %s\n" % (pname, pvalue)
+            msg += "· %s: <code>%s</code>\n" % (pname, pvalue)
 
     service.send_message(message.chat.id, msg, parse_mode="HTML")
     return True
 
 
 def _vehicles_get_mileage_list(service, message, session, user_input):
-    """Handle '/vehicles get <id> mileage list' -- show mileage history."""
+    """Handle '/vehicles get <id> mileage' -- show mileage history."""
     vehicle, vehicle_id = _resolve_vehicle(service, message, session,
                                            user_input)
     if vehicle is None:
@@ -427,11 +427,11 @@ def _vehicles_get_mileage_list(service, message, session, user_input):
                              parse_mode="HTML")
         return True
 
-    msg = "<b>Mileage History (%s):</b>\n\n" % vehicle_id
+    msg = "<b>Mileage History (<code>%s</code>):</b>\n\n" % vehicle_id
     for entry in entries:
         mileage = _format_mileage(entry.get("mileage", 0))
         timestamp = _format_timestamp(entry.get("timestamp", ""))
-        msg += "  %s -- %s\n" % (mileage, timestamp)
+        msg += "· %s - %s\n" % (timestamp, mileage)
 
     service.send_message(message.chat.id, msg, parse_mode="HTML")
     return True
@@ -474,7 +474,7 @@ def _vehicles_get_maintenance_due(service, message, session, user_input):
                              "or 30 days.")
         return True
 
-    msg = "<b>Upcoming Maintenance (%s):</b>\n\n" % vehicle_id
+    msg = "<b>Upcoming Maintenance (<code>%s</code>):</b>\n\n" % vehicle_id
     for item in due_tasks:
         task = item.get("task", {})
         task_name = task.get("name", "Unknown Task")
@@ -492,7 +492,7 @@ def _vehicles_get_maintenance_due(service, message, session, user_input):
                 "%Y-%m-%d"))
 
         trigger_str = " / ".join(trigger_parts) if trigger_parts else "due"
-        msg += "· %s -- %s\n" % (task_name, trigger_str)
+        msg += "· %s - %s\n" % (task_name, trigger_str)
 
     service.send_message(message.chat.id, msg, parse_mode="HTML")
     return True
@@ -523,7 +523,7 @@ def _vehicles_get_maintenance_log(service, message, session, user_input):
     # by timestamp descending from the API)
     display_entries = entries[:15]
 
-    msg = "<b>Maintenance Log (%s):</b>\n\n" % vehicle_id
+    msg = "<b>Maintenance Log (<code>%s</code>):</b>\n\n" % vehicle_id
     for entry in display_entries:
         task_id = entry.get("task_id", "Unknown")
         status_val = entry.get("status", 0)
@@ -531,8 +531,12 @@ def _vehicles_get_maintenance_log(service, message, session, user_input):
         mileage = _format_mileage(entry.get("mileage", 0))
         timestamp = _format_timestamp(entry.get("timestamp", ""))
 
-        msg += "· %s [%s] -- %s -- %s\n" % (task_id, status_str,
-                                              mileage, timestamp)
+        msg += "· %s - <code>%s</code> [<code>%s</code>] - %s\n" % (
+            timestamp,
+            task_id,
+            status_str,
+            mileage,
+        )
 
     service.send_message(message.chat.id, msg, parse_mode="HTML")
     return True
@@ -640,7 +644,7 @@ def _vehicles_gas(service, message, session, user_input, mileage_str,
         display_name, _format_mileage(mileage)
     )
     if notes:
-        confirm_msg += " -- %s" % notes
+        confirm_msg += " - %s" % notes
     service.send_message(message.chat.id, confirm_msg)
     return True
 
@@ -652,7 +656,7 @@ def _vehicles_help(service, message):
     msg += "  <code>/vehicles</code> — List all vehicles and current mileage\n"
     msg += "  <code>/vehicles get &lt;id&gt;</code>"
     msg += " — Get detailed info for a vehicle\n"
-    msg += "  <code>/vehicles get &lt;id&gt; mileage list</code>"
+    msg += "  <code>/vehicles get &lt;id&gt; mileage</code>"
     msg += " — Show recent mileage history\n"
     msg += "  <code>/vehicles get &lt;id&gt; maintenance due</code>"
     msg += " — Show upcoming maintenance\n"
@@ -669,7 +673,7 @@ def _vehicles_help(service, message):
     msg += "\n<b>Examples:</b>\n"
     msg += "  <code>/vehicles</code>\n"
     msg += "  <code>/vehicles get focus</code>\n"
-    msg += "  <code>/v get focus mileage list</code>\n"
+    msg += "  <code>/v get focus mileage</code>\n"
     msg += "  <code>/vehicle get focus maintenance due</code>\n"
     msg += "  <code>/vehicles set focus mileage 45000</code>\n"
     msg += "  <code>/vehicles gas focus 45230 Shell station, regular</code>"
@@ -714,8 +718,8 @@ def command_vehicles(service, message, args: list):
             sub_sub = args[3].strip().lower()
             sub_sub_action = args[4].strip().lower()
 
-            # /vehicles get <id> mileage list
-            if sub_sub == "mileage" and sub_sub_action == "list":
+            # /vehicles get <id> mileage
+            if sub_sub == "mileage":
                 return _vehicles_get_mileage_list(service, message,
                                                    session, vehicle_id)
 
