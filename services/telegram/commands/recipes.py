@@ -72,8 +72,13 @@ def _format_ingredient(ingredient):
     Returns a string like '1.0 lb ground beef' or '2.0 cups elbow macaroni'.
     """
     quantity = ingredient.get("quantity", 1.0)
+
+    # Format the quantity as an integer, if it's a whole number, or as a float
+    # otherwise.
+    quantity_str = str(int(quantity)) if quantity == int(quantity) else str(quantity)
+
     title = ingredient.get("title", None) or ingredient.get("id", "unknown")
-    return "%s %s" % (quantity, title)
+    return "(<i>%sx</i>) %s" % (quantity_str, title)
 
 
 def _list_recipe_ids(session, service, message):
@@ -127,12 +132,32 @@ def _recipes_detail(service, message, session, recipe_id):
         return False
 
     title = recipe.get("title", "(Untitled)")
-    msg = "<b>%s</b> [<code>%s</code>]\n" % (title, recipe_id)
+    icon = recipe.get("icon", None)
+    msg = "%s<b>%s</b> [<code>%s</code>]\n" % (
+        "" if icon is None else "%s " % icon,
+        title,
+        recipe_id
+    )
 
     # Description, if present.
     description = recipe.get("description", None)
     if description and len(description) > 0:
         msg += "<i>%s</i>\n" % description
+
+    # Servings, if present.
+    servings = recipe.get("servings", None)
+    if servings is not None:
+        msg += "\nMakes <b>%s serving%s</b>\n" % (
+            servings,
+            "" if servings == 1 else "s"
+        )
+
+    # Links, if present.
+    links = recipe.get("links", [])
+    if links and len(links) > 0:
+        msg += "\n<b>Links:</b>\n"
+        for link in links:
+            msg += "· %s\n" % link
 
     # Ingredients section.
     ingredients = recipe.get("ingredients", [])

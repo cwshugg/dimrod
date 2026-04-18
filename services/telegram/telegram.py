@@ -115,7 +115,7 @@ class TelegramService(Service):
             TelegramCommand(["news", "articles", "headlines"],
                             "Get news headlines",
                             command_news),
-            TelegramCommand(["recipes", "recipe"],
+            TelegramCommand(["recipes", "recipe", "rec", "re"],
                             "Look up recipes",
                             command_recipes),
             TelegramCommand(["vehicles", "vehicle", "v", "cars", "car", "gearhead"],
