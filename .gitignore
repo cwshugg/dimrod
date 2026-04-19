@@ -48,3 +48,6 @@ services/taskmaster/tasks/*.json
 # AI workspace
 .cobots/
 
+# Test python scripts
+test_*.py
+

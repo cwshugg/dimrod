@@ -8,7 +8,7 @@ import os
 import sys
 import re
 import flask
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -60,6 +60,19 @@ class GearheadService(Service):
         super().__init__(config_path)
         self.config = GearheadConfig()
         self.config.parse_file(config_path)
+
+        # Resolve relative database paths against the config file's
+        # directory so the service works regardless of its CWD (e.g. when
+        # launched by systemd, whose default WorkingDirectory is '/').
+        config_dir = os.path.dirname(os.path.abspath(config_path))
+        if not os.path.isabs(self.config.mileage_db.path):
+            self.config.mileage_db.path = os.path.normpath(
+                os.path.join(config_dir, self.config.mileage_db.path)
+            )
+        if not os.path.isabs(self.config.maintenance_log_db.path):
+            self.config.maintenance_log_db.path = os.path.normpath(
+                os.path.join(config_dir, self.config.maintenance_log_db.path)
+            )
 
         # Vehicles are already parsed as Vehicle objects by Uniserdes.
         # Validate uniqueness of vehicle IDs.
@@ -936,6 +949,33 @@ class GearheadOracle(Oracle):
                                "Phrases like set mileage for X to Y, "
                                "update mileage, X has Y miles, etc."
             }).set_handler(nla_set_mileage),
+            NLAEndpoint.from_json({
+                "name": "get_due_maintenance",
+                "description": "Check what maintenance is due or upcoming for a vehicle. "
+                               "Phrases like what maintenance is due, does my car need "
+                               "service, when do I need an oil change, any upcoming "
+                               "maintenance, etc."
+            }).set_handler(nla_get_due_maintenance),
+            NLAEndpoint.from_json({
+                "name": "log_gas_refill",
+                "description": "Log a gas or fuel refill for a vehicle with the current "
+                               "mileage. Phrases like I just got gas at 45000 miles, "
+                               "filled up at 23100, gas refill, etc."
+            }).set_handler(nla_log_gas_refill),
+            NLAEndpoint.from_json({
+                "name": "get_maintenance_log",
+                "description": "View recent maintenance history or log entries for a "
+                               "vehicle. Phrases like when was the last oil change, "
+                               "show maintenance history, what maintenance has been done, "
+                               "etc."
+            }).set_handler(nla_get_maintenance_log),
+            NLAEndpoint.from_json({
+                "name": "get_vehicle_info",
+                "description": "Get detailed information about a specific vehicle "
+                               "including properties, year, VIN, and current mileage. "
+                               "Phrases like tell me about my car, vehicle details, "
+                               "what info do you have on the Focus, etc."
+            }).set_handler(nla_get_vehicle_info),
         ]
 
 
@@ -1120,6 +1160,270 @@ def nla_set_mileage(oracle, jdata):
         "message": "Recorded mileage for %s: %.1f miles." %
                    (vehicle.nicknames[0] if vehicle.nicknames else vehicle.id,
                     entry.mileage)
+    })
+
+
+def nla_get_due_maintenance(oracle, jdata):
+    """NLA handler that checks what maintenance is due or upcoming for a vehicle.
+
+    Matches the vehicle via ``_match_vehicle()``. Retrieves the current mileage,
+    then queries ``get_due_maintenance()`` with a mileage lookahead of 1000 miles
+    and a datetime lookahead of 30 days. If no vehicle is specified in the user
+    message, checks all configured vehicles.
+    """
+    params = NLAEndpointInvokeParameters.from_json(jdata)
+    user_text = params.message
+    if params.substring:
+        user_text = params.substring
+
+    vehicles = oracle.service.get_vehicles()
+    vehicle = _match_vehicle(oracle, user_text, vehicles)
+
+    # If no vehicle matched, check all vehicles
+    vehicles_to_check = [vehicle] if vehicle is not None else vehicles
+
+    now = datetime.utcnow()
+    datetime_end = now + timedelta(days=30)
+
+    all_due = []
+    for v in vehicles_to_check:
+        # Get current mileage for this vehicle
+        mileage_entry = oracle.service.get_mileage(v.id)
+        current_mileage = mileage_entry.mileage if mileage_entry else 0
+
+        due = oracle.service.get_due_maintenance(
+            v.id,
+            mileage_start=current_mileage,
+            mileage_end=current_mileage + 1000,
+            datetime_start=now,
+            datetime_end=datetime_end
+        )
+        for item in due:
+            item["vehicle_name"] = (v.nicknames[0] if v.nicknames
+                                    else v.id)
+            item["current_mileage"] = current_mileage
+        all_due.extend(due)
+
+    if len(all_due) == 0:
+        scope = ("any of your vehicles" if vehicle is None
+                 else (vehicle.nicknames[0] if vehicle.nicknames
+                       else vehicle.id))
+        return NLAResult.from_json({
+            "success": True,
+            "message": "No maintenance is due in the next 1000 miles or "
+                       "30 days for %s." % scope
+        })
+
+    lines = []
+    for item in all_due:
+        task = item["task"]
+        name = task.get("name", task.get("id", "unknown"))
+        line = "· %s - %s" % (item["vehicle_name"], name)
+        if item.get("triggered_mileages"):
+            miles_str = ", ".join(
+                str(int(m) if m == int(m) else m)
+                for m in item["triggered_mileages"]
+            )
+            line += " (due at %s miles, current: %d)" % (
+                miles_str, int(item["current_mileage"])
+            )
+        if item.get("triggered_datetime"):
+            line += " (due within the next 30 days)"
+        lines.append(line)
+
+    msg = "Upcoming maintenance:\n" + "\n".join(lines)
+    return NLAResult.from_json({
+        "success": True,
+        "message": msg
+    })
+
+
+def nla_log_gas_refill(oracle, jdata):
+    """NLA handler that logs a gas refill for a vehicle.
+
+    Matches the vehicle via ``_match_vehicle()``. Extracts the mileage number
+    from the user message using regex (largest number found). Any remaining text
+    after vehicle and mileage extraction becomes notes. Creates a maintenance
+    log entry with ``task_id="gas_refill"``, ``trigger_key=None``, and
+    ``status=DONE``.
+    """
+    params = NLAEndpointInvokeParameters.from_json(jdata)
+    user_text = params.message
+
+    vehicles = oracle.service.get_vehicles()
+    vehicle = _match_vehicle(oracle, user_text, vehicles)
+
+    if vehicle is None:
+        names = ["%s (%s)" % (", ".join(v.nicknames) if v.nicknames else v.id,
+                              v.manufacturer) for v in vehicles]
+        return NLAResult.from_json({
+            "success": False,
+            "message": "I could not figure out which vehicle you mean. "
+                       "I know about: %s" % ", ".join(names)
+        })
+
+    # Extract numeric mileage value -- take the largest number found
+    numbers = re.findall(r"[\d,]+\.?\d*", user_text)
+    numbers = [n for n in numbers if any(c.isdigit() for c in n)]
+    numbers = [float(n.replace(",", "")) for n in numbers]
+    if len(numbers) == 0:
+        return NLAResult.from_json({
+            "success": False,
+            "message": "I could not find a mileage number in your message."
+        })
+    mileage = max(numbers)
+
+    # Build notes from remaining text: strip out the mileage number, vehicle
+    # identifiers, and common gas-related words to capture any extra info
+    # (e.g., station name).
+    notes_text = user_text
+    # Remove matched numbers (with optional commas)
+    for n in re.findall(r"[\d,]+\.?\d*", user_text):
+        notes_text = notes_text.replace(n, "", 1)
+    # Remove vehicle identifiers
+    for token in [vehicle.id] + vehicle.nicknames + [vehicle.manufacturer]:
+        notes_text = re.sub(re.escape(token), "", notes_text,
+                            flags=re.IGNORECASE)
+    # Remove common gas/mileage words
+    for word in ["gas", "fuel", "filled", "fill", "up", "got", "refill",
+                 "miles", "mile", "at", "the", "my", "i", "just"]:
+        notes_text = re.sub(r"\b" + word + r"\b", "", notes_text,
+                            flags=re.IGNORECASE)
+    notes = " ".join(notes_text.split()).strip(" ,.")
+
+    entry = oracle.service.add_maintenance_log(
+        vehicle.id,
+        task_id="gas_refill",
+        status=MaintenanceLogEntryStatus.DONE,
+        trigger_key=None,
+        mileage=mileage,
+        notes=notes if notes else ""
+    )
+
+    vname = vehicle.nicknames[0] if vehicle.nicknames else vehicle.id
+    msg = "Logged gas refill for %s at %.1f miles." % (vname, mileage)
+    if notes:
+        msg += " Notes: %s" % notes
+    return NLAResult.from_json({
+        "success": True,
+        "message": msg
+    })
+
+
+def nla_get_maintenance_log(oracle, jdata):
+    """NLA handler that retrieves recent maintenance log entries for a vehicle.
+
+    Matches the vehicle via ``_match_vehicle()``. Fetches recent maintenance log
+    entries (last 10) and formats them as a readable list with task names,
+    status, mileage, and dates.
+    """
+    params = NLAEndpointInvokeParameters.from_json(jdata)
+    user_text = params.message
+    if params.substring:
+        user_text = params.substring
+
+    vehicles = oracle.service.get_vehicles()
+    vehicle = _match_vehicle(oracle, user_text, vehicles)
+
+    if vehicle is None:
+        names = ["%s (%s)" % (", ".join(v.nicknames) if v.nicknames else v.id,
+                              v.manufacturer) for v in vehicles]
+        return NLAResult.from_json({
+            "success": False,
+            "message": "I could not figure out which vehicle you mean. "
+                       "I know about: %s" % ", ".join(names)
+        })
+
+    # Fetch all log entries (ordered by timestamp descending) and take the
+    # most recent 10.
+    entries = oracle.service.get_maintenance_log(vehicle.id)
+    entries = entries[:10]
+
+    vname = vehicle.nicknames[0] if vehicle.nicknames else vehicle.id
+    if len(entries) == 0:
+        return NLAResult.from_json({
+            "success": True,
+            "message": "No maintenance log entries found for %s." % vname
+        })
+
+    # Build a task ID to human-readable name map from the vehicle's
+    # maintenance_tasks config.
+    task_name_map = {}
+    for t in vehicle.maintenance_tasks:
+        task_name_map[t.id] = t.name
+
+    lines = []
+    for e in entries:
+        task_name = task_name_map.get(e.task_id, e.task_id)
+        status_str = e.status.name.capitalize()
+        date_str = e.timestamp.strftime("%Y-%m-%d") if e.timestamp else "unknown"
+        line = "· %s - %s at %.1f miles (%s)" % (
+            task_name, status_str, e.mileage, date_str
+        )
+        if e.notes:
+            line += " - %s" % e.notes
+        lines.append(line)
+
+    msg = "Recent maintenance log for %s:\n" % vname + "\n".join(lines)
+    return NLAResult.from_json({
+        "success": True,
+        "message": msg
+    })
+
+
+def nla_get_vehicle_info(oracle, jdata):
+    """NLA handler that returns comprehensive information about a vehicle.
+
+    Matches the vehicle via ``_match_vehicle()``. Returns manufacturer, year,
+    VIN, license plate, nicknames, all properties (sorted by key), and current
+    mileage.
+    """
+    params = NLAEndpointInvokeParameters.from_json(jdata)
+    user_text = params.message
+    if params.substring:
+        user_text = params.substring
+
+    vehicles = oracle.service.get_vehicles()
+    vehicle = _match_vehicle(oracle, user_text, vehicles)
+
+    if vehicle is None:
+        names = ["%s (%s)" % (", ".join(v.nicknames) if v.nicknames else v.id,
+                              v.manufacturer) for v in vehicles]
+        return NLAResult.from_json({
+            "success": False,
+            "message": "I could not figure out which vehicle you mean. "
+                       "I know about: %s" % ", ".join(names)
+        })
+
+    vname = vehicle.nicknames[0] if vehicle.nicknames else vehicle.id
+    lines = ["Vehicle info for %s:" % vname]
+    lines.append("· Manufacturer: %s" % vehicle.manufacturer)
+    lines.append("· Year: %d" % vehicle.year)
+    if vehicle.vin:
+        lines.append("· VIN: %s" % vehicle.vin)
+    if vehicle.license_plate:
+        lines.append("· License Plate: %s" % vehicle.license_plate)
+    if vehicle.nicknames:
+        lines.append("· Nicknames: %s" % ", ".join(vehicle.nicknames))
+
+    # Properties sorted by key
+    if vehicle.properties:
+        sorted_props = sorted(vehicle.properties, key=lambda p: p.key)
+        for prop in sorted_props:
+            label = prop.nickname if prop.nickname else prop.key
+            lines.append("· %s: %s" % (label, prop.value))
+
+    # Current mileage
+    mileage_entry = oracle.service.get_mileage(vehicle.id)
+    if mileage_entry:
+        lines.append("· Current Mileage: %.1f miles" % mileage_entry.mileage)
+    else:
+        lines.append("· Current Mileage: No data recorded")
+
+    msg = "\n".join(lines)
+    return NLAResult.from_json({
+        "success": True,
+        "message": msg
     })
 
 

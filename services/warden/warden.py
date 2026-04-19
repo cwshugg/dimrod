@@ -22,6 +22,7 @@ if pdir not in sys.path:
 from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
+from lib.nla import NLAEndpoint, NLAEndpointInvokeParameters, NLAResult
 from lib.cli import ServiceCLI
 
 # Service imports
@@ -435,6 +436,19 @@ class WardenService(Service):
 
 # ============================== Service Oracle ============================== #
 class WardenOracle(Oracle):
+    def init_nla(self):
+        """Registers NLA endpoints for network device queries."""
+        super().init_nla()
+        self.nla_endpoints += [
+            NLAEndpoint.from_json({
+                "name": "get_network_devices",
+                "description": "List devices currently on the network and their "
+                               "online status. Phrases like what devices are on "
+                               "the network, who's online, who's home, show me "
+                               "network devices, is anything connected, etc."
+            }).set_handler(nla_get_network_devices),
+        ]
+
     def endpoints(self):
         """Endpoint definition function."""
         super().endpoints()
@@ -489,6 +503,112 @@ class WardenOracle(Oracle):
             self.log.write("Returning a list of %d connected devices to %s" %
                            (len(result), flask.g.user.config.username))
             return self.make_response(payload=result)
+
+
+# =============================== NLA Handlers =============================== #
+def nla_get_network_devices(oracle, jdata):
+    """NLA handler that returns a formatted list of network devices grouped by
+    when they were last seen. Devices are sorted into time-based buckets
+    (online, recent, older) for readability. Only non-empty buckets are shown,
+    and a summary line is included at the top.
+    """
+    params = NLAEndpointInvokeParameters.from_json(jdata)
+
+    # collect all devices from the warden's cache
+    devices = []
+    for addr in oracle.service.cache:
+        devices.append(oracle.service.cache[addr])
+
+    if len(devices) == 0:
+        return NLAResult.from_json({
+            "success": True,
+            "message": "No devices have been detected on the network yet."
+        })
+
+    # sort devices by last_seen descending (most recent first)
+    devices.sort(key=lambda d: d.last_seen.timestamp() if d.last_seen else 0,
+                 reverse=True)
+
+    # define time buckets (in seconds) — a concise subset for NLA output
+    now = datetime.now()
+    buckets = [
+        {"name": "Currently online",               "time": 120,    "list": []},
+        {"name": "Last seen within 15 minutes",     "time": 900,    "list": []},
+        {"name": "Last seen within the last hour",  "time": 3600,   "list": []},
+        {"name": "Last seen within the last day",   "time": 86400,  "list": []},
+        {"name": "Last seen over a day ago",        "time": None,   "list": []},
+    ]
+
+    # place each device into the first matching bucket
+    for device in devices:
+        if device.last_seen is None:
+            buckets[-1]["list"].append(device)
+            continue
+        diff = now.timestamp() - device.last_seen.timestamp()
+        placed = False
+        for b in buckets:
+            if b["time"] is not None and diff <= b["time"]:
+                b["list"].append(device)
+                placed = True
+                break
+        if not placed:
+            buckets[-1]["list"].append(device)
+
+    # count online devices (first bucket)
+    online_count = len(buckets[0]["list"])
+
+    # build the formatted message
+    lines = []
+    lines.append("Network Devices (%d total, %d currently online):" %
+                 (len(devices), online_count))
+    lines.append("")
+
+    for b in buckets:
+        if len(b["list"]) == 0:
+            continue
+        lines.append("%s:" % b["name"])
+        for device in b["list"]:
+            lines.append(_format_device_line(device))
+        lines.append("")
+
+    msg = "\n".join(lines).rstrip()
+
+    return NLAResult.from_json({
+        "success": True,
+        "message": msg,
+        "message_context": "This is a summary of devices on the local network. "
+                           "Rephrase naturally. Use the device names when available."
+    })
+
+
+def _format_device_line(device):
+    """Formats a single device into a readable bullet line for NLA output.
+
+    Uses the known device name if available, otherwise falls back to the MAC
+    address with an optional vendor label. The device IP and last-seen time
+    are appended when known.
+    """
+    # determine the display name
+    if device.known_device is not None:
+        name = device.known_device.name
+    elif device.hw_addr is not None:
+        name = device.hw_addr.macaddr
+        if device.hw_addr.vendor is not None:
+            name += " (%s)" % device.hw_addr.vendor
+    else:
+        name = "Unknown Device"
+
+    # determine the IP address
+    ip = ""
+    if device.net_addr is not None:
+        ip = " - %s" % device.net_addr.ipaddr
+
+    # determine the last-seen time
+    seen = ""
+    if device.last_seen is not None:
+        seen = " - last seen %s" % device.last_seen.strftime("%I:%M:%S %p")
+
+    return "· %s%s%s" % (name, ip, seen)
 
 
 # =============================== Runner Code ================================ #

@@ -21,6 +21,7 @@ if pdir not in sys.path:
 from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle, OracleSession, OracleSessionConfig
+from lib.nla import NLAEndpoint, NLAEndpointInvokeParameters, NLAResult
 from lib.cli import ServiceCLI
 from lib.dialogue import DialogueConfig, DialogueInterface
 
@@ -336,6 +337,172 @@ class ChefOracle(Oracle):
                                           success=False, rstatus=404)
 
             return self.make_response(payload=recipe_info)
+
+    def init_nla(self):
+        """Registers NLA endpoints for recipe listing and lookup."""
+        super().init_nla()
+        self.nla_endpoints += [
+            NLAEndpoint.from_json({
+                "name": "list_recipes",
+                "description": "List all available recipes with their names and IDs. "
+                               "Phrases like \"what recipes do you know?\", "
+                               "\"list all recipes\", \"what can I cook?\", etc."
+            }).set_handler(nla_list_recipes),
+            NLAEndpoint.from_json({
+                "name": "get_recipe",
+                "description": "Look up a specific recipe by name or description "
+                               "and display its ingredients and steps. "
+                               "Phrases like \"how do I make tacos?\", "
+                               "\"what's in the chili mac recipe?\", "
+                               "\"give me the enchilada recipe\", etc."
+            }).set_handler(nla_get_recipe),
+        ]
+
+
+# =============================== NLA Helpers ================================ #
+def _match_recipe_by_substring(user_text, recipes):
+    """Attempts to match a recipe by checking if any recipe ID or title
+    appears as a substring in the user text (case-insensitive).
+
+    Returns the matched Recipe, or None if no match is found.
+    """
+    text_lower = user_text.lower()
+    for r_id, recipe in recipes.items():
+        if r_id in text_lower:
+            return recipe
+        if recipe.title is not None and recipe.title.lower() in text_lower:
+            return recipe
+    return None
+
+
+def _format_ingredient(ingredient, quantity_multiplier=1):
+    """Formats a single Ingredient object for plain-text display.
+
+    Returns a string like '(1x) Ground beef' or '(2x) Elbow macaroni'.
+    """
+    quantity = ingredient.quantity * quantity_multiplier
+
+    # Format quantity as integer if it is a whole number, otherwise as float.
+    if quantity == int(quantity):
+        quantity_str = str(int(quantity))
+    else:
+        quantity_str = str(quantity)
+
+    title = ingredient.title if ingredient.title else ingredient.id
+    optional_marker = " (optional)" if ingredient.is_optional else ""
+    return "(%sx) %s%s" % (quantity_str, title, optional_marker)
+
+
+# =============================== NLA Handlers =============================== #
+def nla_list_recipes(oracle, jdata):
+    """NLA handler that lists all available recipes with their titles and IDs."""
+    params = NLAEndpointInvokeParameters.from_json(jdata)
+
+    recipes = oracle.service.recipes
+    if len(recipes) == 0:
+        return NLAResult.from_json({
+            "success": True,
+            "message": "No recipes are currently available."
+        })
+
+    recipe_strs = []
+    for r_id, recipe in sorted(recipes.items()):
+        title = recipe.title if recipe.title else "(Untitled)"
+        desc = "· %s [%s]" % (title, r_id)
+        if recipe.description:
+            desc += " - %s" % recipe.description
+        recipe_strs.append(desc)
+
+    msg = "Available recipes:\n" + "\n".join(recipe_strs)
+    return NLAResult.from_json({
+        "success": True,
+        "message": msg
+    })
+
+
+def nla_get_recipe(oracle, jdata):
+    """NLA handler that looks up a recipe by natural language and returns its
+    full details including ingredients (with quantities) and numbered steps.
+
+    Uses substring matching against recipe names/IDs first. If no match is
+    found, falls back to LLM-based resolution via the service's
+    resolve_recipe() method (which requires a dialogue config).
+    """
+    params = NLAEndpointInvokeParameters.from_json(jdata)
+    user_text = params.message
+    if params.has_substring():
+        user_text = params.substring
+
+    recipes = oracle.service.recipes
+    if len(recipes) == 0:
+        return NLAResult.from_json({
+            "success": False,
+            "message": "No recipes are currently available."
+        })
+
+    # Tier 1: substring matching against recipe IDs and titles.
+    recipe = _match_recipe_by_substring(user_text, recipes)
+    quantity = 1
+
+    # Tier 2: LLM fallback via resolve_recipe() (handles both matching and
+    # quantity/servings calculation).
+    if recipe is None:
+        try:
+            recipe_info = oracle.service.resolve_recipe(user_text)
+            if recipe_info is not None:
+                r_id = recipe_info.get("id", "").strip().lower()
+                recipe = oracle.service.get_recipe_by_id(r_id)
+                quantity = recipe_info.get("quantity", 1)
+        except Exception:
+            # LLM resolution failed; fall through to the error below.
+            pass
+
+    if recipe is None:
+        names = ["· %s [%s]" % (r.title if r.title else r.id, r_id)
+                 for r_id, r in sorted(recipes.items())]
+        return NLAResult.from_json({
+            "success": False,
+            "message": "I could not find a matching recipe. "
+                       "Available recipes:\n" + "\n".join(names)
+        })
+
+    # Build formatted output.
+    title = recipe.title if recipe.title else recipe.id
+    msg = "%s [%s]\n" % (title, recipe.id)
+
+    if recipe.description:
+        msg += "%s\n" % recipe.description
+
+    if recipe.servings is not None:
+        total_servings = recipe.servings * quantity
+        if quantity > 1:
+            msg += "Servings: %d (%dx recipe, %d servings each)\n" % (
+                total_servings, quantity, recipe.servings
+            )
+        else:
+            msg += "Servings: %d\n" % total_servings
+
+    # Ingredients section.
+    if recipe.ingredients and len(recipe.ingredients) > 0:
+        msg += "\nIngredients:\n"
+        for ing in recipe.ingredients:
+            msg += "· %s\n" % _format_ingredient(ing, quantity)
+
+    # Steps section (numbered).
+    if recipe.steps and len(recipe.steps) > 0:
+        msg += "\nSteps:\n"
+        for i, step in enumerate(recipe.steps, start=1):
+            step_text = step.description if step.description else \
+                        (step.title if step.title else step.id)
+            msg += "%d. %s\n" % (i, step_text)
+
+    return NLAResult.from_json({
+        "success": True,
+        "message": msg,
+        "message_context": "This is a recipe with ingredients and steps. "
+                           "Present it clearly to the user. "
+                           "Do not add or remove any ingredients or steps."
+    })
 
 
 # =============================== Runner Code ================================ #

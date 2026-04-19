@@ -495,7 +495,7 @@ def nla_create_reminder(oracle: NotifOracle, jdata: dict):
 
     # give some additional context about interpreting/rewording the message
     msg_ctx = "Please reword this such that the trigger datetime information is human-readable.\n"
-    msg_ctx = "Please leave the reminder ID as-is, and wrap it in \"<code>\" HTML tags in your output.\n"
+    msg_ctx += "Please leave the reminder ID as-is, and wrap it in \"<code>\" HTML tags in your output.\n"
 
     return NLAResult.from_json({
         "success": True,
