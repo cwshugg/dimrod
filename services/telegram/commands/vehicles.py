@@ -467,7 +467,8 @@ def _vehicles_list(service, message, session):
             name = name[:-len(year_str)].strip()
 
         msg += "\n<b>%s</b> (<code>%s</code>)" % (name, vid)
-        msg += "\n· %s %s | %s" % (year, manufacturer, mileage_str)
+        msg += "\n· %s %s" % (year, manufacturer)
+        msg += "\n· %s" % (mileage_str)
 
         # add nicknames if present
         nicknames = v.get("nicknames", [])
