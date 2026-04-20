@@ -976,6 +976,14 @@ class GearheadOracle(Oracle):
                                "Phrases like tell me about my car, vehicle details, "
                                "what info do you have on the Focus, etc."
             }).set_handler(nla_get_vehicle_info),
+            NLAEndpoint.from_json({
+                "name": "log_maintenance",
+                "description": "Log a maintenance event for a vehicle, such as an oil "
+                               "change, tire rotation, brake inspection, or any other "
+                               "service. Phrases like I just changed the oil at 45000, "
+                               "rotated tires at 23500, got brakes inspected at 80000, "
+                               "did an oil change at 45230 used synthetic 5W-30, etc."
+            }).set_handler(nla_log_maintenance),
         ]
 
 
@@ -1421,6 +1429,215 @@ def nla_get_vehicle_info(oracle, jdata):
         lines.append("· Current Mileage: No data recorded")
 
     msg = "\n".join(lines)
+    return NLAResult.from_json({
+        "success": True,
+        "message": msg
+    })
+
+
+def _match_maintenance_task_by_substring(user_text, tasks):
+    """Attempts to match a maintenance task by checking if any task ID or
+    task name appears as a substring in the user text (case-insensitive).
+
+    Args:
+        user_text: The user's natural language message.
+        tasks: A list of MaintenanceTask objects from the vehicle config.
+
+    Returns:
+        The matched MaintenanceTask, or None if no match is found.
+    """
+    text_lower = user_text.lower()
+    for task in tasks:
+        if task.id.lower() in text_lower:
+            return task
+        if task.name.lower() in text_lower:
+            return task
+    return None
+
+
+def _match_maintenance_task_by_llm(oracle, user_text, tasks):
+    """Falls back to an LLM oneshot to identify which maintenance task the
+    user is referring to. Returns the matched MaintenanceTask, or None.
+
+    Only called when:
+    1. Substring matching has already failed.
+    2. ``oracle.service.config.dialogue`` is not None.
+
+    Args:
+        oracle: The GearheadOracle instance.
+        user_text: The user's natural language message.
+        tasks: A list of MaintenanceTask objects from the vehicle config.
+
+    Returns:
+        The matched MaintenanceTask, or None.
+    """
+    task_list_str = ""
+    for t in tasks:
+        task_list_str += "- ID: \"%s\", Name: \"%s\"" % (t.id, t.name)
+        if t.description:
+            task_list_str += ", Description: \"%s\"" % t.description
+        task_list_str += "\n"
+
+    intro = (
+        "You are a helper that identifies which maintenance task a user is "
+        "referring to. You will be given a user message and a list of known "
+        "maintenance tasks. Respond with ONLY the task ID that best matches "
+        "the user intent. If you cannot determine which task the user means, "
+        "respond with the exact text NONE."
+    )
+    prompt = (
+        "Known maintenance tasks:\n%s\n"
+        "User message: \"%s\"\n\n"
+        "Which task ID is the user referring to?"
+    ) % (task_list_str, user_text)
+
+    dialogue = DialogueInterface(oracle.service.config.dialogue)
+    result = dialogue.oneshot(intro, prompt)
+
+    result = result.strip().strip('"')
+    if result == "NONE":
+        return None
+    for t in tasks:
+        if t.id == result:
+            return t
+    # Try substring match on the LLM response
+    result_lower = result.lower()
+    for t in tasks:
+        if t.id.lower() in result_lower or result_lower in t.id.lower():
+            return t
+    return None
+
+
+def _extract_adhoc_task_id(user_text, vehicle):
+    """Extracts a plausible ad-hoc task ID from the user's message when no
+    configured maintenance task was matched.
+
+    Strips out vehicle identifiers, common verbs, mileage numbers, and
+    filler words to derive a short identifier from the remaining text.
+
+    Args:
+        user_text: The user's natural language message.
+        vehicle: The matched Vehicle object.
+
+    Returns:
+        A sanitized string suitable for use as an ad-hoc task_id.
+    """
+    text = user_text
+    # Remove vehicle identifiers
+    for token in [vehicle.id] + vehicle.nicknames + [vehicle.manufacturer]:
+        text = re.sub(re.escape(token), "", text, flags=re.IGNORECASE)
+    # Remove mileage numbers
+    text = re.sub(r'[\d,]+\.?\d*', '', text)
+    # Remove common filler words
+    for word in ["i", "just", "did", "got", "had", "the", "a", "an",
+                 "my", "at", "on", "for", "miles", "mile", "mi"]:
+        text = re.sub(r"\b" + word + r"\b", "", text, flags=re.IGNORECASE)
+    # Clean up and join remaining words
+    words = text.split()
+    words = [w.strip(".,!?;:'\"") for w in words if len(w.strip(".,!?;:'\"")) > 0]
+    if not words:
+        return "maintenance"
+    # Convert to snake_case ID
+    return "_".join(w.lower() for w in words[:4])
+
+
+def nla_log_maintenance(oracle, jdata):
+    """NLA handler that logs a maintenance event for a vehicle.
+
+    Matches the vehicle via ``_match_vehicle()``. Extracts the mileage
+    number from the user message. Determines the maintenance task type
+    through a three-tier strategy: substring matching against configured
+    task IDs/names, LLM fallback if dialogue is configured, and finally
+    ad-hoc task ID extraction from the raw text.
+
+    Creates a maintenance log entry with ``trigger_key=None`` and
+    ``status=DONE``.
+    """
+    params = NLAEndpointInvokeParameters.from_json(jdata)
+    user_text = params.message
+
+    vehicles = oracle.service.get_vehicles()
+    vehicle = _match_vehicle(oracle, user_text, vehicles)
+
+    if vehicle is None:
+        names = ["%s (%s)" % (", ".join(v.nicknames) if v.nicknames else v.id,
+                              v.manufacturer) for v in vehicles]
+        return NLAResult.from_json({
+            "success": False,
+            "message": "I could not figure out which vehicle you mean. "
+                       "I know about: %s" % ", ".join(names)
+        })
+
+    # Extract numeric mileage value -- take the largest number found
+    numbers = re.findall(r"[\d,]+\.?\d*", user_text)
+    numbers = [n for n in numbers if any(c.isdigit() for c in n)]
+    numbers = [float(n.replace(",", "")) for n in numbers]
+    if len(numbers) == 0:
+        return NLAResult.from_json({
+            "success": False,
+            "message": "I could not find a mileage number in your message."
+        })
+    mileage = max(numbers)
+
+    # --- Determine the maintenance task ---
+    # Tier 1: substring matching against configured task IDs/names
+    tasks = vehicle.maintenance_tasks
+    matched_task = _match_maintenance_task_by_substring(user_text, tasks)
+
+    # Tier 2: LLM fallback (only if dialogue is configured and tasks exist)
+    if matched_task is None and len(tasks) > 0 and \
+       oracle.service.config.dialogue is not None:
+        matched_task = _match_maintenance_task_by_llm(oracle, user_text,
+                                                      tasks)
+
+    # Determine task_id and display name
+    if matched_task is not None:
+        task_id = matched_task.id
+        task_display = matched_task.name
+    else:
+        # Tier 3: ad-hoc task ID from the raw text
+        task_id = _extract_adhoc_task_id(user_text, vehicle)
+        task_display = task_id
+
+    # Build notes from remaining text
+    notes_text = user_text
+    # Remove matched numbers (with optional commas)
+    for n in re.findall(r"[\d,]+\.?\d*", user_text):
+        notes_text = notes_text.replace(n, "", 1)
+    # Remove vehicle identifiers
+    for token in [vehicle.id] + vehicle.nicknames + [vehicle.manufacturer]:
+        notes_text = re.sub(re.escape(token), "", notes_text,
+                            flags=re.IGNORECASE)
+    # Remove common maintenance/mileage words
+    for word in ["changed", "change", "did", "got", "had", "rotated",
+                 "rotate", "inspected", "inspect", "replaced", "replace",
+                 "serviced", "service", "miles", "mile", "mi", "at", "the",
+                 "my", "i", "just", "a", "an", "on", "for"]:
+        notes_text = re.sub(r"\b" + word + r"\b", "", notes_text,
+                            flags=re.IGNORECASE)
+    # Remove the task name/id to avoid duplication in notes
+    if matched_task is not None:
+        notes_text = re.sub(re.escape(matched_task.name), "", notes_text,
+                            flags=re.IGNORECASE)
+        notes_text = re.sub(re.escape(matched_task.id), "", notes_text,
+                            flags=re.IGNORECASE)
+    notes = " ".join(notes_text.split()).strip(" ,.")
+
+    entry = oracle.service.add_maintenance_log(
+        vehicle.id,
+        task_id=task_id,
+        status=MaintenanceLogEntryStatus.DONE,
+        trigger_key=None,
+        mileage=mileage,
+        notes=notes if notes else ""
+    )
+
+    vname = vehicle.nicknames[0] if vehicle.nicknames else vehicle.id
+    msg = "Logged %s for %s at {:,.0f} miles.".format(mileage) % (
+        task_display, vname
+    )
+    if notes:
+        msg += " Notes: %s" % notes
     return NLAResult.from_json({
         "success": True,
         "message": msg

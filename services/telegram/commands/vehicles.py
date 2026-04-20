@@ -125,6 +125,135 @@ def _fetch_maintenance_log(session, vehicle_id):
     return session.get_response_json(r)
 
 
+def _fetch_maintenance_tasks(session, vehicle_id):
+    """Fetch configured maintenance tasks for a vehicle.
+
+    Returns a list of maintenance task dicts, or None on failure.
+    """
+    payload = {"vehicle_id": vehicle_id}
+    r = session.get("/maintenance", payload=payload)
+    if r.status_code != 200 or not session.get_response_success(r):
+        return None
+    return session.get_response_json(r)
+
+
+def _post_maintenance_log(session, vehicle_id, task_id, mileage,
+                          notes=""):
+    """Post a maintenance log entry to Gearhead.
+
+    Creates a log entry with status ``"done"`` and no trigger key
+    (manual entry).
+
+    Args:
+        session: An authenticated ``OracleSession`` with Gearhead.
+        vehicle_id: The vehicle ID string.
+        task_id: The maintenance task ID string.
+        mileage: The mileage value as a float.
+        notes: Optional free-text notes.
+
+    Returns:
+        The HTTP response object, or None on connection failure.
+    """
+    payload = {
+        "vehicle_id": vehicle_id,
+        "task_id": task_id,
+        "status": "done",
+        "mileage": mileage,
+        "notes": notes,
+    }
+    return session.post("/maintenance/log", payload=payload)
+
+
+def _format_mileage_triggers(mileages):
+    """Format a list of mileage trigger values into a human-readable summary.
+
+    Detects evenly-spaced intervals and presents them as
+    ``"Every N mi (first - last)"``. Falls back to a comma-separated
+    list for irregular intervals.
+
+    Args:
+        mileages: A list of numeric mileage thresholds.
+
+    Returns:
+        A formatted string describing the mileage triggers.
+    """
+    if not mileages or len(mileages) == 0:
+        return None
+
+    sorted_m = sorted(mileages)
+
+    # Detect even interval
+    if len(sorted_m) >= 2:
+        interval = sorted_m[1] - sorted_m[0]
+        is_even = interval > 0 and all(
+            sorted_m[i] - sorted_m[i - 1] == interval
+            for i in range(2, len(sorted_m))
+        )
+        if is_even:
+            return "Every {:,.0f} mi ({:,.0f} - {:,.0f})".format(
+                interval, sorted_m[0], sorted_m[-1]
+            )
+
+    # Single value or irregular intervals: list them
+    if len(sorted_m) <= 5:
+        parts = ["{:,.0f}".format(m) for m in sorted_m]
+        return ", ".join(parts) + " mi"
+
+    # Too many to list: show range
+    return "{:,.0f} - {:,.0f} mi ({:,d} thresholds)".format(
+        sorted_m[0], sorted_m[-1], len(sorted_m)
+    )
+
+
+def _format_datetime_triggers(datetimes):
+    """Format a list of datetime trigger dicts into a human-readable summary.
+
+    Examines the ``months`` field of each trigger to produce summaries
+    like ``"Monthly"``, ``"January, July"``, etc. Falls back to a count
+    of triggers if months are not present.
+
+    Args:
+        datetimes: A list of datetime trigger dicts (from Gearhead API).
+
+    Returns:
+        A formatted string describing the datetime triggers, or None.
+    """
+    if not datetimes or len(datetimes) == 0:
+        return None
+
+    month_names = [
+        "", "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    ]
+
+    # Collect all unique months across all triggers
+    all_months = set()
+    has_months = False
+    for trigger in datetimes:
+        months = trigger.get("months", [])
+        if months and len(months) > 0:
+            has_months = True
+            for m in months:
+                # Handle Month enum values (stored as ints in JSON)
+                if isinstance(m, int) and 1 <= m <= 12:
+                    all_months.add(m)
+                elif isinstance(m, dict) and "value" in m:
+                    all_months.add(m["value"])
+
+    if not has_months:
+        # No month info — check if triggers exist but are time-based only
+        if len(datetimes) == 1:
+            return "Scheduled"
+        return "%d scheduled triggers" % len(datetimes)
+
+    if len(all_months) == 12:
+        return "Monthly"
+
+    sorted_months = sorted(all_months)
+    names = [month_names[m] for m in sorted_months]
+    return ", ".join(names)
+
+
 def _format_mileage(mileage_val):
     """Format a mileage number with commas and 'mi' suffix."""
     return "{:,.0f} mi".format(float(mileage_val))
@@ -542,6 +671,123 @@ def _vehicles_get_maintenance_log(service, message, session, user_input):
     return True
 
 
+def _vehicles_get_maintenance_tasks(service, message, session, user_input):
+    """Handle '/vehicles get <id> maintenance tasks' -- list configured tasks.
+
+    Fetches the maintenance task definitions for a vehicle from Gearhead
+    and formats them as a readable list showing each task's ID, name,
+    description, mileage triggers, and datetime triggers.
+    """
+    vehicle, vehicle_id = _resolve_vehicle(service, message, session,
+                                           user_input)
+    if vehicle is None:
+        return False
+
+    tasks = _fetch_maintenance_tasks(session, vehicle_id)
+    if tasks is None:
+        service.send_message(message.chat.id,
+                             "Sorry, I couldn't retrieve maintenance tasks "
+                             "from Gearhead.")
+        return False
+
+    if len(tasks) == 0:
+        service.send_message(message.chat.id,
+                             "No maintenance tasks configured for "
+                             "<code>%s</code>." % vehicle_id,
+                             parse_mode="HTML")
+        return True
+
+    msg = "<b>Maintenance Tasks (<code>%s</code>):</b>\n\n" % vehicle_id
+    for task in tasks:
+        task_name = task.get("name", "Unknown Task")
+        task_id = task.get("id", "unknown")
+        description = task.get("description", "")
+        mileages = task.get("mileages", [])
+        datetimes = task.get("datetimes", [])
+
+        msg += "· <b>%s</b> (<code>%s</code>)\n" % (task_name, task_id)
+
+        # Mileage triggers
+        mileage_summary = _format_mileage_triggers(mileages)
+        if mileage_summary:
+            msg += "    · %s\n" % mileage_summary
+
+        # Datetime triggers
+        datetime_summary = _format_datetime_triggers(datetimes)
+        if datetime_summary:
+            msg += "    · %s\n" % datetime_summary
+
+        # Description (truncate to first line only, or 100 chars; whichever
+        # comes first)
+        if description:
+            desc_display = description.splitlines()[0].strip()
+            if len(desc_display) > 100:
+                desc_display = desc_display[:97] + "..."
+            msg += "    · <i>%s</i>\n" % desc_display
+
+    service.send_message(message.chat.id, msg, parse_mode="HTML")
+    return True
+
+
+def _vehicles_log(service, message, session, user_input, task_id,
+                  mileage_str, notes):
+    """Handle '/vehicles log <id> <task_id> <mileage> [notes]'.
+
+    Logs a maintenance event for any task type by posting to Gearhead's
+    maintenance log endpoint with status ``"done"`` and no trigger key.
+
+    Args:
+        service: The Telegram bot service instance.
+        message: The incoming Telegram message.
+        session: An authenticated OracleSession with Gearhead.
+        user_input: The user-provided vehicle identifier string.
+        task_id: The maintenance task ID string.
+        mileage_str: The mileage string to parse.
+        notes: Free-text notes for the log entry.
+
+    Returns:
+        bool: ``True`` on success, ``False`` on failure.
+    """
+    # Parse mileage
+    mileage = _parse_mileage(mileage_str)
+    if mileage is None:
+        service.send_message(message.chat.id,
+                             "Invalid mileage value: <code>%s</code>\n"
+                             "Please provide a positive number."
+                             % mileage_str,
+                             parse_mode="HTML")
+        return False
+
+    # Fuzzy-match the vehicle
+    vehicle, vehicle_id = _resolve_vehicle(service, message, session,
+                                           user_input)
+    if vehicle is None:
+        return False
+
+    # Post the maintenance log entry
+    r = _post_maintenance_log(session, vehicle_id, task_id, mileage,
+                              notes=notes)
+    if r is None or r.status_code != 200 or \
+       not session.get_response_success(r):
+        err_msg = "Unknown error"
+        try:
+            err_msg = session.get_response_message(r)
+        except Exception:
+            pass
+        service.send_message(message.chat.id,
+                             "Failed to log maintenance. (%s)" % err_msg)
+        return False
+
+    display_name = _vehicle_display_name(vehicle)
+    confirm_msg = "Logged %s for %s at %s" % (
+        task_id, display_name, _format_mileage(mileage)
+    )
+    if notes:
+        confirm_msg += " — %s" % notes
+    service.send_message(message.chat.id, confirm_msg)
+    return True
+
+
 def _vehicles_set_mileage(service, message, session, user_input, mileage_str):
     """Handle '/vehicles set <id> mileage <number>' -- update mileage."""
     # validate mileage is a number
@@ -662,10 +908,15 @@ def _vehicles_help(service, message):
     msg += " — Show upcoming maintenance\n"
     msg += "  <code>/vehicles get &lt;id&gt; maintenance log</code>"
     msg += " — Show maintenance log\n"
+    msg += "  <code>/vehicles get &lt;id&gt; maintenance tasks</code>"
+    msg += " — List configured maintenance tasks\n"
     msg += "  <code>/vehicles set &lt;id&gt; mileage &lt;number&gt;</code>"
     msg += " — Update a vehicle's mileage\n"
     msg += "  <code>/vehicles gas &lt;id&gt; &lt;mileage&gt; [notes]</code>"
     msg += " — Log a gas refill\n"
+    msg += "  <code>/vehicles log &lt;id&gt; &lt;task_id&gt; &lt;mileage&gt;"
+    msg += " [notes]</code>"
+    msg += " — Log a maintenance event\n"
     msg += "\n<b>Vehicle Matching:</b>\n"
     msg += "  Vehicle IDs support fuzzy matching. You can use a partial ID\n"
     msg += "  or nickname instead of the full vehicle ID.\n"
@@ -675,8 +926,10 @@ def _vehicles_help(service, message):
     msg += "  <code>/vehicles get focus</code>\n"
     msg += "  <code>/v get focus mileage</code>\n"
     msg += "  <code>/vehicle get focus maintenance due</code>\n"
+    msg += "  <code>/vehicles get focus maintenance tasks</code>\n"
     msg += "  <code>/vehicles set focus mileage 45000</code>\n"
-    msg += "  <code>/vehicles gas focus 45230 Shell station, regular</code>"
+    msg += "  <code>/vehicles gas focus 45230 Shell station, regular</code>\n"
+    msg += "  <code>/vehicles log focus oil_change 45230 Synthetic 5W-30</code>"
     service.send_message(message.chat.id, msg, parse_mode="HTML")
 
 
@@ -745,6 +998,11 @@ def command_vehicles(service, message, args: list):
                 return _vehicles_get_maintenance_log(service, message,
                                                       session, vehicle_id)
 
+            # /vehicles get <id> maintenance tasks
+            if sub_sub == "maintenance" and sub_sub_action == "tasks":
+                return _vehicles_get_maintenance_tasks(service, message,
+                                                        session, vehicle_id)
+
             # unknown two-word sub-subcommand
             service.send_message(message.chat.id,
                                  "Unknown subcommand: "
@@ -792,6 +1050,24 @@ def command_vehicles(service, message, args: list):
         notes = " ".join(a.strip() for a in args[4:]) if len(args) > 4 else ""
         return _vehicles_gas(service, message, session,
                              vehicle_id, mileage_str, notes)
+
+    # /vehicles log <id> <task_id> <mileage> [notes...]
+    if subcommand == "log":
+        if len(args) < 5:
+            service.send_message(message.chat.id,
+                                 "Missing arguments.\n"
+                                 "Usage: <code>/vehicles log &lt;id&gt; "
+                                 "&lt;task_id&gt; &lt;mileage&gt; "
+                                 "[notes]</code>",
+                                 parse_mode="HTML")
+            return False
+        vehicle_id = args[2].strip()
+        task_id = args[3].strip()
+        mileage_str = args[4].strip()
+        # Remaining args (index 5+) are captured as notes
+        notes = " ".join(a.strip() for a in args[5:]) if len(args) > 5 else ""
+        return _vehicles_log(service, message, session,
+                             vehicle_id, task_id, mileage_str, notes)
 
     # unknown subcommand
     service.send_message(message.chat.id,
