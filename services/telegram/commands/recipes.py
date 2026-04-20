@@ -112,10 +112,16 @@ def _recipes_list(service, message, session):
     msg = "<b>Available Recipes:</b>\n\n"
     for r_id, recipe in sorted(recipes.items()):
         title = recipe.get("title", "(Untitled)")
+        icon = recipe.get("icon", None)
         description = recipe.get("description", "")
-        msg += "· <b>%s</b> (<code>%s</code>)\n" % (title, r_id)
+        msg += "%s<b>%s</b> (<code>%s</code>)\n" % (
+            "" if icon is None else "%s " % icon,
+            title,
+            r_id
+        )
         if description:
-            msg += "    · Description: %s\n" % description
+            msg += "<i>%s</i>\n" % description
+        msg += "\n"
 
     service.send_message(message.chat.id, msg, parse_mode="HTML")
     return True
