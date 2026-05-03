@@ -718,10 +718,11 @@ class TelegramService(Service):
 
                     # check for failure-to-converse and update the chat dictionary,
                     # if able
+                    response = None
                     if talkdata is None:
                         response = "Sorry, I couldn't generate a response."
-
-                    response = talkdata["response"]
+                    else:
+                        response = talkdata["response"]
 
                     # send the response, and capture the returned message object
                     rmessage = self.send_message(message.chat.id, response, parse_mode="HTML")
