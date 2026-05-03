@@ -729,7 +729,7 @@ class TelegramService(Service):
                     if rmessage is None:
                         raise Exception("Failed to send response message.")
 
-                    if "conversation_id" in talkdata:
+                    if talkdata is not None and "conversation_id" in talkdata:
                         # update both the request message (the user's message) and
                         # the response message (the message we generated) to
                         # includethe telegram chat ID and their corresponding
