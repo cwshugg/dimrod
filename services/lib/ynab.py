@@ -122,64 +122,108 @@ class YNABTransactionUpdate(Uniserdes):
         d.update({"id": self.id})
         return SaveTransactionWithIdOrImportId.from_dict(d)
 
-class YNABTransactionInfo:
-    """A wrapper class for a YNAB transaction object to make working with its data
-    easier.
-    """
-    def __init__(self, transaction):
-        self.transaction = transaction
+class YNABTransactionInfo(Uniserdes):
+    """A Uniserdes wrapper for YNAB transaction data."""
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            UniserdesField("id",             [str],   required=True),
+            UniserdesField("date",           [str],   required=True),
+            UniserdesField("amount",         [float], required=True),
+            UniserdesField("payee_id",       [str],   required=False, default=None),
+            UniserdesField("payee_name",     [str],   required=False, default=None),
+            UniserdesField("category_id",    [str],   required=False, default=None),
+            UniserdesField("category_name",  [str],   required=False, default=None),
+            UniserdesField("category_group_name", [str], required=False, default=None),
+            UniserdesField("account_name",   [str],   required=False, default=None),
+            UniserdesField("memo",           [str],   required=False, default=None),
+            UniserdesField("approved",       [int],   required=False, default=0),
+            UniserdesField("cleared",        [str],   required=False, default=None),
+            UniserdesField("transfer_account_id", [str], required=False, default=None),
+            UniserdesField("synced_at",      [str],   required=False, default=None),
+        ]
+        self.init_defaults()
+
+    @classmethod
+    def from_ynab_transaction(cls, transaction):
+        """Creates a YNABTransactionInfo from a raw YNAB API transaction object."""
+        obj = cls()
+        obj.id = transaction.id
+        obj.date = dtu.format_yyyymmdd(transaction.var_date)
+        obj.amount = float(transaction.amount) / 1000.0
+        obj.payee_id = transaction.payee_id
+        obj.payee_name = (transaction.payee_name or
+                         getattr(transaction, 'import_payee_name', None) or
+                         getattr(transaction, 'import_payee_name_original', None))
+        obj.category_id = transaction.category_id
+        obj.account_name = transaction.account_name
+        obj.memo = transaction.memo if transaction.memo and len(transaction.memo) > 0 else None
+        obj.approved = 1 if transaction.approved else 0
+        obj.cleared = str(transaction.cleared) if transaction.cleared is not None else None
+        obj.transfer_account_id = str(transaction.transfer_account_id) if transaction.transfer_account_id is not None else None
+        return obj
+
+    @classmethod
+    def from_ynab_subtransaction(cls, subtransaction, parent_transaction):
+        """Creates a YNABTransactionInfo from a YNAB subtransaction and its parent."""
+        obj = cls()
+        obj.id = subtransaction.id
+        obj.date = dtu.format_yyyymmdd(parent_transaction.var_date)
+        obj.amount = float(subtransaction.amount) / 1000.0
+        obj.payee_id = str(subtransaction.payee_id) if subtransaction.payee_id else (str(parent_transaction.payee_id) if parent_transaction.payee_id else None)
+        obj.payee_name = (subtransaction.payee_name or parent_transaction.payee_name or
+                         getattr(parent_transaction, 'import_payee_name', None) or
+                         getattr(parent_transaction, 'import_payee_name_original', None))
+        obj.category_id = str(subtransaction.category_id) if subtransaction.category_id else None
+        obj.category_name = subtransaction.category_name
+        obj.account_name = parent_transaction.account_name
+        obj.memo = subtransaction.memo if subtransaction.memo else (parent_transaction.memo if parent_transaction.memo and len(parent_transaction.memo) > 0 else None)
+        obj.approved = 1 if parent_transaction.approved else 0
+        obj.cleared = str(parent_transaction.cleared) if parent_transaction.cleared is not None else None
+        obj.transfer_account_id = str(subtransaction.transfer_account_id) if subtransaction.transfer_account_id is not None else None
+        return obj
+
+    def is_transfer(self):
+        """Returns True if this transaction is a transfer between accounts."""
+        return self.transfer_account_id is not None
 
     def get_id(self):
-        return self.transaction.id
-
-    def get_account_id(self):
-        return self.transaction.account_id
+        return self.id
 
     def get_account_name(self):
-        return self.transaction.account_name
+        return self.account_name
 
     def get_payee_id(self):
-        return self.transaction.payee_id
+        return self.payee_id
 
     def get_payee_name(self):
-        if self.transaction.payee_name is not None:
-            return self.transaction.payee_name
-        if self.transaction.import_payee_name is not None:
-            return self.transaction.import_payee_name
-        if self.transaction.import_payee_name_original is not None:
-            return self.transaction.import_payee_name_original
-        return None
+        return self.payee_name
 
     def get_category_id(self):
-        return self.transaction.category_id
+        return self.category_id
 
     def get_date(self):
-        return self.transaction.var_date
+        """Returns the date as a datetime object for backward compatibility."""
+        return datetime.strptime(self.date, "%Y-%m-%d")
 
     def get_amount(self):
-        return float(self.transaction.amount) / 1000.0
+        return self.amount
 
     def get_description(self):
-        if self.transaction.memo is None or \
-           len(self.transaction.memo) == 0:
-            return None
-        return self.transaction.memo
+        return self.memo
 
     def get_approved(self):
-        return self.transaction.approved
+        return self.approved
 
     def get_cleared_status(self):
-        return self.transaction.cleared
-
-    def get_flag_color(self):
-        return self.transaction.flag_color
+        return self.cleared
 
     def __str__(self):
-        r = "Date=\"%s\" " % dtu.format_yyyymmdd(self.get_date())
-        r += "Amount=\"%.2f\" " % self.get_amount()
-        r += "Entity=\"%s\"" % self.get_payee_name()
-        if self.get_description() is not None:
-            r += " Description=\"%s\"" % self.get_description()
+        r = "Date=\"%s\" " % (self.date or "unknown")
+        r += "Amount=\"%.2f\" " % (self.amount or 0.0)
+        r += "Entity=\"%s\"" % (self.payee_name or "unknown")
+        if self.memo is not None:
+            r += " Description=\"%s\"" % self.memo
         return r
 
 class YNABConfig(Config):
@@ -378,7 +422,12 @@ class YNAB:
         for t in transactions:
             if t.deleted:
                 continue
-            result.append(YNABTransactionInfo(t))
+            if t.subtransactions and len(t.subtransactions) > 0:
+                for sub in t.subtransactions:
+                    if not getattr(sub, 'deleted', False):
+                        result.append(YNABTransactionInfo.from_ynab_subtransaction(sub, t))
+            else:
+                result.append(YNABTransactionInfo.from_ynab_transaction(t))
 
         return result
 
@@ -444,7 +493,12 @@ class YNAB:
         for t in transactions:
             if t.deleted:
                 continue
-            result.append(YNABTransactionInfo(t))
+            if t.subtransactions and len(t.subtransactions) > 0:
+                for sub in t.subtransactions:
+                    if not getattr(sub, 'deleted', False):
+                        result.append(YNABTransactionInfo.from_ynab_subtransaction(sub, t))
+            else:
+                result.append(YNABTransactionInfo.from_ynab_transaction(t))
 
         return result
 

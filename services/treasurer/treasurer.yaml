@@ -1,0 +1,38 @@
+# ===========================================================================
+# TEMPLATE CONFIG — Replace all placeholder values before use.
+#
+# This file contains example/placeholder values that must be replaced with
+# real values for a working deployment. Copy this file, fill in your actual
+# configuration, and reference the copy in your service setup.
+# ===========================================================================
+
+service_name: treasurer
+service_log: stdout
+msghub_name: YOUR_MSGHUB_NAME
+oracle:
+  addr: 0.0.0.0
+  port: 2370
+  log: stdout
+  auth_cookie: treasurer_auth
+  auth_secret: YOUR_JWT_SECRET_HERE
+  auth_users:
+  - username: admin
+    password: YOUR_PASSWORD_HERE
+    privilege: 0
+
+ynab:
+  access_token: YOUR_YNAB_ACCESS_TOKEN
+
+sync_hour: 3
+
+# Day of the month to trigger monthly spending analysis summaries (1-28 recommended)
+summary_day: 5
+
+budgets:
+- budget_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+  budget_name: "My Budget"
+  db_path: "./.treasurer_my_budget.db"
+  ntfy_topic: "dimrod-treasurer-my-budget"
+  top_categories: 10
+  exclude_categories: []
+  exclude_category_groups: []
