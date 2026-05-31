@@ -49,6 +49,7 @@ class TaskJob:
         self.service = service
         self._todoist = None
         self._gcal = None
+        self.enabled = True
         self.refresh_rate = 43200
         self.todoist_rate_limit_retries = 10
         self.todoist_rate_limit_timeout = 30
@@ -150,6 +151,14 @@ class TaskJob:
         if dt is None:
             dt = datetime.now()
         return self.get_next_update_datetime().timestamp() - dt.timestamp()
+
+    def is_enabled(self):
+        """Returns whether or not this taskjob is enabled for execution."""
+        return self.enabled
+
+    def set_enabled(self, enabled: bool):
+        """Enables or disables this taskjob."""
+        self.enabled = enabled
 
     def get_name(self):
         """Returns the name of the task job."""

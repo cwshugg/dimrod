@@ -285,6 +285,10 @@ class TaskmasterService(Service):
                 tj_class = taskjobs[name]
                 tj = tj_class(self)
 
+                # skip disabled taskjobs
+                if not tj.is_enabled():
+                    continue
+
                 # compute the amount of time, from now, that this taskjob
                 # needs to wait before updating again
                 now = datetime.now()
