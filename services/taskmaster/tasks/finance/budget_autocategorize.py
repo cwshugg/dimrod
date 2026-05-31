@@ -97,6 +97,11 @@ class TaskJob_Finance_Budget_AutoCategorize(TaskJob_Finance):
     categorize it using... ~AI~.
     """
     def init(self):
+        # NOTE: I have disabled this taskjob. While it has been helpful, it
+        # often gets categories wrong, which makes me spend more time on
+        # categorizing than if I had just manually set them outright.
+        self.set_enabled(False)
+
         self.refresh_rate_default = 3600 * 4
         self.refresh_rate = self.refresh_rate_default
 
