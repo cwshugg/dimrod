@@ -1,20 +1,30 @@
 #!/bin/bash
 # Simple helper script to install Jellyfin.
-# https://jellyfin.org/downloads
+#
+# https://jellyfin.org/docs/general/installation
 
-sudo apt install curl gnupg
-sudo mkdir /etc/apt/keyrings
+# Install needed dependencies
+sudo apt install curl
 
-curl -fsSL https://repo.jellyfin.org/$( awk -F'=' '/^ID=/{ print $NF }' /etc/os-release )/jellyfin_team.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/jellyfin.gpg
-cat <<EOF | sudo tee /etc/apt/sources.list.d/jellyfin.sources
-Types: deb
-URIs: https://repo.jellyfin.org/$( awk -F'=' '/^ID=/{ print $NF }' /etc/os-release )
-Suites: $( awk -F'=' '/^VERSION_CODENAME=/{ print $NF }' /etc/os-release )
-Components: main
-Architectures: $( dpkg --print-architecture )
-Signed-By: /etc/apt/keyrings/jellyfin.gpg
-EOF
+# Download the installer script and verify it
+script_url="https://repo.jellyfin.org/install-debuntu.sh"
+sum_url="${script_url}.sha256sum"
+script_name="$(basename "${script_url}")"
+sum_name="$(basename "${sum_url}")"
+curl -s "${script_url}" -O && \
+    curl -s "${sum_url}" -O && \
+    sha256sum -c "${sum_name}"
 
-sudo apt update
-sudo apt install jellyfin
+# Execute the installer script
+script_name="$(basename "${script_url}")"
+if [ -f "${script_name}" ]; then
+    chmod +x "${script_name}"
+    echo "Executing jellyfin installer script..."
+    sudo bash ./"${script_name}"
+else
+    echo "Failed to download the installer script."
+fi
+
+# Remove the files
+rm -f "${script_name}" "${sum_name}"
 
