@@ -1,0 +1,27 @@
+service_name: munchbook
+service_log: stdout
+msghub_name: munchbook
+oracle:
+  addr: 0.0.0.0
+  port: 2370
+  log: stdout
+  auth_cookie: munchbook_auth
+  auth_secret: YOUR_JWT_SECRET_HERE
+  auth_users:
+  - username: chef
+    password: '1234'
+    privilege: 0
+  - username: __telegram
+    password: YOUR_TELEGRAM_PASSWORD_HERE
+    privilege: 1
+users:
+- name: connor
+  db_path: ./.munchbook_connor.db
+  auth_usernames:
+  - chef
+  - __telegram
+- name: rcbullins
+  db_path: ./.munchbook_rcbullins.db
+  auth_usernames:
+  - chef
+  - __telegram

@@ -49,6 +49,7 @@ from commands.budget import command_budget
 from commands.news import command_news
 from commands.recipes import command_recipes
 from commands.vehicles import command_vehicles
+from commands.foodlog import command_foodlog
 from commands.s_reset import command_s_reset
 from commands.s_menu import command_s_menu
 
@@ -72,6 +73,7 @@ class TelegramConfig(ServiceConfig):
             ConfigField("speaker",  [OracleSessionConfig],      required=True),
             ConfigField("chef",     [OracleSessionConfig],      required=True),
             ConfigField("gearhead", [OracleSessionConfig],      required=True),
+            ConfigField("munchbook", [OracleSessionConfig],     required=False, default=None),
             ConfigField("google_calendar_config",   [GoogleCalendarConfig], required=True),
             ConfigField("google_calendar_id",       [str],      required=True),
             ConfigField("google_calendar_timezone", [str],      required=False, default="America/New_York"),
@@ -121,6 +123,9 @@ class TelegramService(Service):
             TelegramCommand(["vehicles", "vehicle", "v", "cars", "car", "gearhead"],
                             "Manage vehicles and mileage",
                             command_vehicles),
+            TelegramCommand(["foodlog", "food", "f", "munchbook"],
+                            "Log and search food entries",
+                            command_foodlog),
             TelegramCommand(["_reset"],
                             "Resets the current chat conversation.",
                             command_s_reset,
@@ -1287,4 +1292,3 @@ class TelegramOracle(Oracle):
 if __name__ == "__main__":
     cli = ServiceCLI(config=TelegramConfig, service=TelegramService, oracle=TelegramOracle)
     cli.run()
-
