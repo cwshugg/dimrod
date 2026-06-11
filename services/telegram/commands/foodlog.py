@@ -160,7 +160,7 @@ def _format_entries(title, user_name, entries):
             msg += "  <i>%s</i>\n" % notes
         ingredients = entry.get("ingredients", [])
         if ingredients and len(ingredients) > 0:
-            msg += "  🥗 Ingredients:\n"
+            msg += "  Ingredients:\n"
             for ing in ingredients:
                 msg += "    • <code>%s</code>\n" % ing
         entry_id = entry.get("entry_id", "")
@@ -387,7 +387,7 @@ def _foodlog_entry(service, message, session, text):
     if notes:
         confirm_msg += " — <i>%s</i>" % notes
     if ingredients and len(ingredients) > 0:
-        confirm_msg += "\n🥗 Ingredients:"
+        confirm_msg += "\nIngredients:"
         for ing in ingredients:
             confirm_msg += "\n  • <code>%s</code>" % ing
     if entry_id:
