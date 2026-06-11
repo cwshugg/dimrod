@@ -26,6 +26,7 @@ class MunchbookEntry(Uniserdes):
             UniserdesField("timestamp",    [int],      required=True),
             UniserdesField("description",  [str],      required=True),
             UniserdesField("notes",        [str],      required=False,  default=""),
+            UniserdesField("ingredients",  [list],     required=False,  default=[]),
         ]
         self.id = entry_id
 
@@ -36,9 +37,10 @@ class MunchbookEntry(Uniserdes):
             return self.id
         # generate a SHA hash based on all the entry's values, plus a little
         # bit of randomly-generated salt
-        idstr = "%s/%s/%d" % (
+        idstr = "%s/%s/%s/%d" % (
             self.description,
             self.notes,
+            ",".join(self.ingredients) if self.ingredients else "",
             calendar.timegm(self.timestamp.timetuple()),
         )
         salt = os.urandom(16)
@@ -70,15 +72,23 @@ class MunchbookEntry(Uniserdes):
         into a database.
         """
         timestamp = calendar.timegm(self.timestamp.timetuple())
-        return (self.get_id(), self.description, self.notes, timestamp)
+        ingredients_str = ",".join(self.ingredients) \
+            if self.ingredients else ""
+        return (self.get_id(), self.description, self.notes,
+                timestamp, ingredients_str)
 
     @staticmethod
     def from_sqlite3(tdata: tuple):
         """Takes in a tuple and attempts to convert it to a MunchbookEntry
         object.
         """
-        assert len(tdata) >= 4, "Tuple does not contain enough fields."
+        assert len(tdata) >= 5, "Tuple does not contain enough fields."
         eid = str(tdata[0])
+
+        # parse comma-separated ingredients string back to a list
+        ingredients_str = str(tdata[4]) if len(tdata) > 4 else ""
+        ingredients = [i.strip() for i in ingredients_str.split(",")
+                       if i.strip()] if ingredients_str else []
 
         # build a JSON payload and send it to a new MunchbookEntry object
         # for parsing
@@ -86,6 +96,7 @@ class MunchbookEntry(Uniserdes):
             "description": str(tdata[1]),
             "notes": str(tdata[2]),
             "timestamp": int(tdata[3]),
+            "ingredients": ingredients,
         }
         e = MunchbookEntry(entry_id=eid)
         e.parse_json(jdata)

@@ -117,6 +117,15 @@ def _add_entry(session, user_name, description, notes, timestamp):
     return session.post("/entries/add", payload=payload)
 
 
+def _delete_entry(session, user_name, entry_id):
+    """Delete a Munchbook entry by ID."""
+    payload = {
+        "user_name": user_name,
+        "entry_id": entry_id,
+    }
+    return session.post("/entries/delete", payload=payload)
+
+
 def _resolve_auto_user(service, message, users_list):
     """Resolve a Munchbook user automatically from the Telegram chat name."""
     chat_name = _get_chat_name(service, message)
@@ -149,6 +158,11 @@ def _format_entries(title, user_name, entries):
         notes = entry.get("notes", "")
         if notes:
             msg += "  <i>%s</i>\n" % notes
+        ingredients = entry.get("ingredients", [])
+        if ingredients and len(ingredients) > 0:
+            msg += "  🥗 Ingredients:\n"
+            for ing in ingredients:
+                msg += "    • <code>%s</code>\n" % ing
         entry_id = entry.get("entry_id", "")
         if entry_id:
             msg += "  ID: <code>%s</code>\n" % entry_id
@@ -284,25 +298,28 @@ def _try_parse_datetime(text):
 
 
 def _foodlog_entry(service, message, session, text):
-    """Handle '/foodlog entry. FOOD DESCRIPTION. NOTES'.
+    """Handle '/foodlog entry FOOD DESCRIPTION. NOTES'.
 
     Also supports an optional datetime override:
-    '/foodlog entry. YYYY-MM-DD HH:MM. FOOD DESCRIPTION. NOTES'
-    If the first segment after 'entry.' parses as a datetime, it is used
+    '/foodlog entry YYYY-MM-DD HH:MM. FOOD DESCRIPTION. NOTES'
+    If the first segment after 'entry' parses as a datetime, it is used
     as the timestamp; otherwise it is treated as the food description.
     """
-    if not text.lower().startswith("entry."):
+    if not text.lower().startswith("entry"):
         service.send_message(message.chat.id,
-                             "Usage: <code>/foodlog entry. "
+                             "Usage: <code>/foodlog entry "
                              "FOOD DESCRIPTION. NOTES</code>",
                              parse_mode="HTML")
         return False
 
-    remainder = text[len("entry."):].strip()
+    remainder = text[len("entry"):].strip()
+    # strip a leading period if the user includes one out of habit
+    if remainder.startswith("."):
+        remainder = remainder[1:].strip()
     if len(remainder) == 0:
         service.send_message(message.chat.id,
                              "Please provide a food description after "
-                             "<code>entry.</code>",
+                             "<code>entry</code>",
                              parse_mode="HTML")
         return False
 
@@ -354,10 +371,13 @@ def _foodlog_entry(service, message, session, text):
                              "Failed to log food entry. (%s)" % err_msg)
         return False
 
-    # extract the entry ID from the response
+    # extract the entry ID and ingredients from the response
     entry_id = ""
+    ingredients = []
     try:
-        entry_id = session.get_response_json(r).get("entry_id", "")
+        resp_data = session.get_response_json(r)
+        entry_id = resp_data.get("entry_id", "")
+        ingredients = resp_data.get("ingredients", [])
     except Exception:
         pass
 
@@ -366,6 +386,10 @@ def _foodlog_entry(service, message, session, text):
     confirm_msg += "<b>%s</b>" % description
     if notes:
         confirm_msg += " — <i>%s</i>" % notes
+    if ingredients and len(ingredients) > 0:
+        confirm_msg += "\n🥗 Ingredients:"
+        for ing in ingredients:
+            confirm_msg += "\n  • <code>%s</code>" % ing
     if entry_id:
         confirm_msg += "\n\nID: <code>%s</code>" % entry_id
     service.send_message(message.chat.id, confirm_msg, parse_mode="HTML")
@@ -418,6 +442,43 @@ def _foodlog_search(service, message, session, args):
     return True
 
 
+def _foodlog_delete(service, message, session, args):
+    """Handle '/foodlog delete <entry_id>'."""
+    if len(args) < 3:
+        service.send_message(message.chat.id,
+                             "Usage: <code>/foodlog delete "
+                             "&lt;entry_id&gt;</code>",
+                             parse_mode="HTML")
+        return False
+
+    entry_id = args[2].strip()
+
+    users = _fetch_users(session)
+    if users is None:
+        service.send_message(message.chat.id,
+                             "Sorry, I couldn't retrieve user data "
+                             "from Munchbook.")
+        return False
+
+    # try to delete from each accessible user's database
+    for user in users:
+        r = _delete_entry(session, user["name"], entry_id)
+        if r.status_code == 200 and \
+                session.get_response_success(r):
+            service.send_message(
+                message.chat.id,
+                "Deleted entry <code>%s</code> from %s."
+                % (entry_id, user["name"]),
+                parse_mode="HTML")
+            return True
+
+    service.send_message(message.chat.id,
+                         "Entry <code>%s</code> not found in any "
+                         "accessible database." % entry_id,
+                         parse_mode="HTML")
+    return False
+
+
 def _foodlog_help(service, message):
     """Send usage help for the /foodlog command."""
     msg = "<b>Usage:</b> <code>/foodlog [subcommand] [args...]</code>\n\n"
@@ -426,25 +487,28 @@ def _foodlog_help(service, message):
     msg += "  <code>/foodlog list</code> — List accessible Munchbook users\n"
     msg += "  <code>/foodlog recent [user_name] [count]</code>"
     msg += " — Show recent food entries\n"
-    msg += "  <code>/foodlog entry. FOOD DESCRIPTION. NOTES</code>"
+    msg += "  <code>/foodlog entry FOOD DESCRIPTION. NOTES</code>"
     msg += " — Quick-add a food entry\n"
-    msg += "  <code>/foodlog entry. YYYY-MM-DD HH:MM. FOOD. NOTES</code>"
+    msg += "  <code>/foodlog entry YYYY-MM-DD HH:MM. FOOD. NOTES</code>"
     msg += " — Quick-add with a custom timestamp\n"
-    msg += "  <code>/foodlog entry. 1:30pm. FOOD. NOTES</code>"
+    msg += "  <code>/foodlog entry 1:30pm. FOOD. NOTES</code>"
     msg += " — Quick-add with a 12-hour time (today)\n"
     msg += "  <code>/foodlog search &lt;user_name&gt; "
     msg += "&lt;start_timestamp&gt; &lt;end_timestamp&gt; [count]</code>"
     msg += " — Search entries manually\n"
+    msg += "  <code>/foodlog delete &lt;entry_id&gt;</code>"
+    msg += " — Delete a food entry by ID\n"
     msg += "  <code>/foodlog help</code> — Show this help message\n"
     msg += "\n<b>Aliases:</b> /food, /f, /munchbook\n"
     msg += "\n<b>Examples:</b>\n"
     msg += "  <code>/foodlog</code>\n"
     msg += "  <code>/foodlog recent</code>\n"
     msg += "  <code>/foodlog recent cwshugg 5</code>\n"
-    msg += "  <code>/foodlog entry. Turkey sandwich. Lunch after workout</code>\n"
-    msg += "  <code>/foodlog entry. 2026-06-09 12:30. Grilled chicken. Meal prep</code>\n"
-    msg += "  <code>/foodlog entry. 1:30pm. Protein shake. Post-workout</code>\n"
+    msg += "  <code>/foodlog entry Turkey sandwich. Lunch after workout</code>\n"
+    msg += "  <code>/foodlog entry 2026-06-09 12:30. Grilled chicken. Meal prep</code>\n"
+    msg += "  <code>/foodlog entry 1:30pm. Protein shake. Post-workout</code>\n"
     msg += "  <code>/foodlog search cwshugg 0 2000000000 20</code>\n"
+    msg += "  <code>/foodlog delete abc123def456...</code>\n"
     service.send_message(message.chat.id, msg, parse_mode="HTML")
 
 
@@ -455,10 +519,10 @@ def command_foodlog(service, message, args: list):
     if session is None:
         return False
 
-    # /foodlog entry. FOOD DESCRIPTION. NOTES
+    # /foodlog entry FOOD DESCRIPTION. NOTES
     if len(args) > 1:
         text = " ".join(args[1:]).strip()
-        if text.lower().startswith("entry."):
+        if text.lower().startswith("entry"):
             return _foodlog_entry(service, message, session, text)
 
     # /foodlog and /foodlog list
@@ -479,6 +543,9 @@ def command_foodlog(service, message, args: list):
 
     if subcommand == "search":
         return _foodlog_search(service, message, session, args)
+
+    if subcommand == "delete":
+        return _foodlog_delete(service, message, session, args)
 
     _foodlog_help(service, message)
     return False

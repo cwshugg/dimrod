@@ -44,7 +44,8 @@ class MunchbookDatabase:
                         "entry_id TEXT PRIMARY KEY, "
                         "description TEXT, "
                         "notes TEXT, "
-                        "timestamp INTEGER)" % self.table_name)
+                        "timestamp INTEGER, "
+                        "ingredients TEXT)" % self.table_name)
             con.commit()
 
             return con
@@ -67,7 +68,8 @@ class MunchbookDatabase:
         con = self.db_acquire()
         try:
             cur = con.cursor()
-            cur.execute("INSERT OR REPLACE INTO %s VALUES (?, ?, ?, ?)" %
+            cur.execute("INSERT OR REPLACE INTO %s VALUES "
+                        "(?, ?, ?, ?, ?)" %
                         self.table_name, entry.to_sqlite3())
             self.db_release(con, commit=True)
         except Exception:
@@ -145,3 +147,32 @@ class MunchbookDatabase:
         """
         cond = "timestamp >= %d AND timestamp <= %d" % (start_ts, end_ts)
         return self.search(condition=cond, count=count)
+
+    def search_by_id(self, entry_id: str):
+        """Searches for an entry by its ID.
+
+        Returns the MunchbookEntry if found, or None.
+        """
+        cond = "entry_id = \"%s\"" % entry_id
+        results = self.search(condition=cond)
+        if len(results) == 0:
+            return None
+        return results[0]
+
+    def delete(self, entry_id: str):
+        """Deletes an entry from the database by its ID.
+
+        Returns True if an entry was deleted, False if no matching entry
+        was found.
+        """
+        con = self.db_acquire()
+        try:
+            cur = con.cursor()
+            cur.execute("DELETE FROM %s WHERE entry_id = ?" %
+                        self.table_name, (entry_id,))
+            deleted = cur.rowcount > 0
+            self.db_release(con, commit=True)
+            return deleted
+        except Exception:
+            self.db_release(con)
+            raise

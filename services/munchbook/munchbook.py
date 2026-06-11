@@ -22,10 +22,22 @@ from lib.config import Config, ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
 from lib.cli import ServiceCLI
+from lib.dialogue import DialogueConfig, DialogueInterface
 
 # Service imports
 from entry import MunchbookEntry
 from db import MunchbookDatabase
+
+
+# Prompt for the LLM to extract ingredients from food descriptions.
+INGREDIENT_EXTRACTION_INTRO = (
+    "You are a food ingredient extractor. Given a natural language "
+    "description of food, extract individual ingredients as a "
+    "comma-separated list of lowercase single words or two-word terms "
+    "joined by underscores. Only output the comma-separated list, "
+    "nothing else. If no ingredients can be identified, output an "
+    "empty string."
+)
 
 
 # ============================== User Config ================================= #
@@ -49,6 +61,8 @@ class MunchbookConfig(ServiceConfig):
         super().__init__()
         fields = [
             ConfigField("users",            [list],     required=True),
+            ConfigField("dialogue",         [DialogueConfig],
+                        required=False, default=None),
         ]
         self.fields += fields
 
@@ -70,6 +84,11 @@ class MunchbookService(Service):
             uc.parse_json(udata)
             self.user_configs.append(uc)
             self.databases[uc.name] = MunchbookDatabase(uc.db_path)
+
+        # set up dialogue interface for ingredient extraction (optional)
+        self.dialogue = None
+        if self.config.dialogue is not None:
+            self.dialogue = DialogueInterface(self.config.dialogue)
 
     def run(self):
         """Overridden main function implementation."""
@@ -99,6 +118,27 @@ class MunchbookService(Service):
             if uc.name == user_name:
                 return auth_username in uc.auth_usernames
         return False
+
+    def extract_ingredients(self, description: str):
+        """Uses the LLM to extract a list of ingredients from a food
+        description.
+
+        Returns a list of ingredient strings, or an empty list if the
+        dialogue interface is not configured or extraction fails.
+        """
+        if self.dialogue is None:
+            return []
+        try:
+            result = self.dialogue.oneshot(
+                INGREDIENT_EXTRACTION_INTRO,
+                description
+            )
+            # parse the comma-separated response
+            ingredients = [i.strip().lower().replace(" ", "_")
+                           for i in result.split(",") if i.strip()]
+            return ingredients
+        except Exception:
+            return []
 
 
 # ============================== Service Oracle ============================== #
@@ -227,14 +267,66 @@ class MunchbookOracle(Oracle):
             try:
                 entry = MunchbookEntry()
                 entry.parse_json(jdata)
+                # extract ingredients from the food description
+                entry.ingredients = \
+                    self.service.extract_ingredients(
+                        entry.description)
                 db.add(entry)
-                return self.make_response(msg="Added successfully.",
-                                          success=True,
-                                          payload={"entry_id": entry.get_id()})
+                return self.make_response(
+                    msg="Added successfully.",
+                    success=True,
+                    payload={
+                        "entry_id": entry.get_id(),
+                        "ingredients": entry.ingredients,
+                    })
             except Exception as e:
                 return self.make_response(
                     msg="Invalid entry data: %s" % e,
                     success=False, rstatus=400)
+
+        # Endpoint that deletes a food entry from a user's database.
+        @self.server.route("/entries/delete", methods=["POST"])
+        def endpoint_entries_delete():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            if not flask.g.jdata:
+                return self.make_response(msg="Missing JSON data.",
+                                          success=False, rstatus=400)
+
+            jdata = flask.g.jdata
+
+            # validate required fields
+            for field in ["user_name", "entry_id"]:
+                if field not in jdata:
+                    return self.make_response(
+                        msg="Must specify '%s' field." % field,
+                        success=False, rstatus=400)
+
+            user_name = str(jdata["user_name"])
+            entry_id = str(jdata["entry_id"])
+
+            # check access
+            username = flask.g.user.config.username
+            if not self.service.check_access(username, user_name):
+                return self.make_response(
+                    msg="Access denied.",
+                    success=False, rstatus=403)
+
+            # get the database
+            db = self.service.get_database(user_name)
+            if db is None:
+                return self.make_response(
+                    msg="User not found.",
+                    success=False, rstatus=404)
+
+            # attempt to delete the entry
+            deleted = db.delete(entry_id)
+            if not deleted:
+                return self.make_response(
+                    msg="Entry not found.",
+                    success=False, rstatus=404)
+            return self.make_response(
+                msg="Deleted successfully.", success=True)
 
 
 # =============================== Runner Code ================================ #

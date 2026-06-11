@@ -25,3 +25,6 @@ users:
   auth_usernames:
   - chef
   - __telegram
+dialogue:
+  openai_api_key: YOUR_OPENAI_API_KEY_HERE
+  openai_chat_model: gpt-4o-mini
