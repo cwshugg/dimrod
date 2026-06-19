@@ -38,10 +38,61 @@ from db import TransactionDatabaseConfig, TransactionDatabase
 
 
 # =============================== Config Classes ============================== #
+class TreasurerExclusionConfig(Config):
+    """Configuration for a single exclusion rule. Each rule specifies a
+    combination of regex patterns for category, category group, and/or entity
+    (payee). A transaction matches this exclusion if ALL specified fields match.
+    Fields left unset (None) are treated as wildcards.
+    """
+    def __init__(self):
+        """Constructor."""
+        super().__init__()
+        self.fields = [
+            ConfigField("category", [str], required=False, default=None),
+            ConfigField("category_group", [str], required=False, default=None),
+            ConfigField("entity", [str], required=False, default=None),
+        ]
+
+    def matches(self, category_name: str, group_name: str,
+                payee_name: str) -> bool:
+        """Returns True if the transaction fields match this exclusion rule.
+
+        All non-None fields must match for the exclusion to apply (AND logic).
+        """
+        if self.category is not None:
+            if not re.search(self.category, category_name or ""):
+                return False
+        if self.category_group is not None:
+            if not re.search(self.category_group, group_name or ""):
+                return False
+        if self.entity is not None:
+            if not re.search(self.entity, payee_name or ""):
+                return False
+        return True
+
+
+class TreasurerMonthlySummaryConfig(Config):
+    """Configuration for monthly spending summary behavior. Nested under each
+    budget config to control what appears in the monthly report.
+    """
+    def __init__(self):
+        """Constructor."""
+        super().__init__()
+        self.fields = [
+            ConfigField("top_categories", [int], required=False, default=10),
+            ConfigField("top_income_transactions", [int], required=False,
+                        default=5),
+            ConfigField("expense_exclusions", [TreasurerExclusionConfig],
+                        required=False, default=[]),
+            ConfigField("income_exclusions", [TreasurerExclusionConfig],
+                        required=False, default=[]),
+        ]
+
+
 class TreasurerBudgetConfig(Config):
     """Configuration for a single budget definition. Contains the YNAB budget
-    UUID, a human-readable name, the YNAB-side budget name for reference, the
-    path to the SQLite database file, and the ntfy.sh topic for notifications.
+    UUID, a human-readable name, the path to the SQLite database file, and the
+    ntfy.sh topic for notifications.
     """
     def __init__(self):
         """Constructor."""
@@ -51,9 +102,8 @@ class TreasurerBudgetConfig(Config):
             ConfigField("budget_name",      [str], required=True),
             ConfigField("db_path",          [str], required=True),
             ConfigField("ntfy_topic",       [str], required=True),
-            ConfigField("top_categories",  [int], required=False, default=10),
-            ConfigField("exclude_categories", [list], required=False, default=[]),
-            ConfigField("exclude_category_groups", [list], required=False, default=[]),
+            ConfigField("monthly_summary",  [TreasurerMonthlySummaryConfig],
+                        required=False, default=None),
         ]
 
 
@@ -104,14 +154,17 @@ class BudgetContext:
         # Create the notification channel
         self.ntfy = NtfyChannel(config.ntfy_topic)
 
-        # Top N categories for summary display
-        self.top_categories = config.top_categories
-
-        # Regex patterns for categories to exclude from ntfy summary display
-        self.exclude_categories = config.exclude_categories
-
-        # Regex patterns for category groups to exclude from ntfy summary display
-        self.exclude_category_groups = config.exclude_category_groups
+        # Monthly summary config (use defaults if not provided)
+        ms_config = config.monthly_summary
+        if ms_config is None:
+            ms_config = TreasurerMonthlySummaryConfig()
+            ms_config.parse_json({})
+        self.top_categories = ms_config.top_categories
+        self.top_income_transactions = ms_config.top_income_transactions
+        self.expense_exclusions = ms_config.expense_exclusions \
+            if ms_config.expense_exclusions else []
+        self.income_exclusions = ms_config.income_exclusions \
+            if ms_config.income_exclusions else []
 
         # Category cache: category_id -> category_name
         self.category_cache = {}
@@ -260,6 +313,9 @@ class TreasurerService(Service):
                          end_date: datetime) -> dict:
         """Generate a spending summary from the local DB.
 
+        Transactions matching the budget's excluded categories or excluded
+        category groups (via regex) are omitted from all calculations.
+
         Args:
             ctx: The BudgetContext to generate a summary for.
             start_date: Start of range (inclusive) as a datetime object.
@@ -282,23 +338,52 @@ class TreasurerService(Service):
         total_expenses = 0.0
         total_income = 0.0
         category_breakdown = {}
+        income_transactions = []
+        transaction_count = 0
 
         for row in rows:
             if row.is_transfer():
                 continue
-            amount = row.amount
+
             category_name = row.category_name or "Uncategorized"
+            group_name = row.category_group_name
+            payee_name = row.payee_name
+            amount = row.amount
+
+            # Apply the appropriate exclusion list based on direction
+            if amount < 0:
+                if ctx.expense_exclusions:
+                    if any(exc.matches(category_name, group_name, payee_name)
+                           for exc in ctx.expense_exclusions):
+                        continue
+            else:
+                if ctx.income_exclusions:
+                    if any(exc.matches(category_name, group_name, payee_name)
+                           for exc in ctx.income_exclusions):
+                        continue
+
+            transaction_count += 1
 
             if amount < 0:
                 total_expenses += abs(amount)
                 if category_name not in category_breakdown:
                     category_breakdown[category_name] = {
                         "amount": 0.0,
-                        "group_name": row.category_group_name
+                        "group_name": group_name
                     }
                 category_breakdown[category_name]["amount"] += amount
             else:
                 total_income += amount
+                income_transactions.append({
+                    "payee_name": row.payee_name or "Unknown",
+                    "amount": amount,
+                    "date": row.date,
+                    "category": category_name,
+                    "memo": row.memo,
+                })
+
+        # Sort income transactions by amount descending
+        income_transactions.sort(key=lambda x: x["amount"], reverse=True)
         net = total_income - total_expenses
 
         return {
@@ -309,7 +394,8 @@ class TreasurerService(Service):
             "total_income": total_income,
             "net": net,
             "categories": category_breakdown,
-            "transaction_count": len(rows),
+            "income_transactions": income_transactions,
+            "transaction_count": transaction_count,
         }
 
     def trigger_monthly_summaries(self):
@@ -375,8 +461,8 @@ class TreasurerService(Service):
                 month_name = first_day.strftime("%B")
                 message = self._format_monthly_summary(
                     ctx.name, month_name, prev_year, summary, top_n=ctx.top_categories,
-                    exclude_categories=ctx.exclude_categories,
-                    exclude_category_groups=ctx.exclude_category_groups
+                    top_income_n=ctx.top_income_transactions,
+                    expense_exclusions=ctx.expense_exclusions
                 )
                 ctx.ntfy.post(message,
                              title="📊 %s — %s %d" % (ctx.name, month_name, prev_year))
@@ -389,8 +475,8 @@ class TreasurerService(Service):
 
     def _format_monthly_summary(self, budget_name: str, month_name: str,
                                 year: int, summary: dict, top_n: int = 10,
-                                exclude_categories: list = None,
-                                exclude_category_groups: list = None) -> str:
+                                top_income_n: int = 5,
+                                expense_exclusions: list = None) -> str:
         """Formats a monthly summary as a bulleted message for ntfy.
 
         Args:
@@ -398,13 +484,10 @@ class TreasurerService(Service):
             month_name: Name of the month (e.g., "January").
             year: The year.
             summary: The summary dict from generate_summary().
-            top_n: Number of top categories to display.
-            exclude_categories: List of regex patterns. Categories matching
-                any pattern are hidden from the bulleted list but still
-                counted in totals/net.
-            exclude_category_groups: List of regex patterns. Categories whose
-                group name matches any pattern are hidden from the bulleted
-                list but still counted in totals/net.
+            top_n: Number of top expense categories to display.
+            top_income_n: Number of top income transactions to display.
+            expense_exclusions: List of TreasurerExclusionConfig objects for
+                defense-in-depth filtering of the expense category display.
 
         Returns:
             A formatted string.
@@ -427,19 +510,35 @@ class TreasurerService(Service):
             # Sort by absolute amount descending
             cat_list.sort(key=lambda x: abs(x[1]), reverse=True)
 
-            # Filter by exclude_categories (regex on category name)
-            if exclude_categories:
+            # Defense-in-depth: filter by expense exclusion rules
+            if expense_exclusions:
                 cat_list = [(n, a, g) for n, a, g in cat_list
-                            if not any(re.search(p, n) for p in exclude_categories)]
-
-            # Filter by exclude_category_groups (regex on group name)
-            if exclude_category_groups:
-                cat_list = [(n, a, g) for n, a, g in cat_list
-                            if g is None or not any(re.search(p, g) for p in exclude_category_groups)]
+                            if not any(exc.matches(n, g, None)
+                                       for exc in expense_exclusions)]
 
             msg += "Top %d Expense Categories:\n\n" % top_n
             for name, amount, _ in cat_list[:top_n]:
                 msg += "• %s: $%s\n" % (name, format(abs(amount), ",.2f"))
+
+        # Top income transactions
+        income_txns = summary.get("income_transactions", [])
+        if income_txns and top_income_n > 0:
+            msg += "\nTop %d Income Transactions:\n\n" % top_income_n
+            for txn in income_txns[:top_income_n]:
+                memo = txn.get("memo")
+                if memo:
+                    msg += "• %s: $%s (%s) — %s\n" % (
+                        txn["payee_name"],
+                        format(txn["amount"], ",.2f"),
+                        txn["date"],
+                        memo
+                    )
+                else:
+                    msg += "• %s: $%s (%s)\n" % (
+                        txn["payee_name"],
+                        format(txn["amount"], ",.2f"),
+                        txn["date"]
+                    )
 
         return msg
 

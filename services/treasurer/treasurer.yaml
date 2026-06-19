@@ -33,6 +33,8 @@ budgets:
   budget_name: "My Budget"
   db_path: "./.treasurer_my_budget.db"
   ntfy_topic: "dimrod-treasurer-my-budget"
-  top_categories: 10
-  exclude_categories: []
-  exclude_category_groups: []
+  monthly_summary:
+    top_categories: 10
+    top_income_transactions: 5
+    expense_exclusions: []
+    income_exclusions: []
