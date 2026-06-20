@@ -6,6 +6,9 @@ import sys
 import subprocess
 import re
 import json
+import html
+import calendar
+from datetime import datetime, date
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -14,6 +17,7 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.ynab import YNAB
+from lib.oracle import OracleSession
 
 transaction_context_parse_intro = "" \
     "You are an assistant that examines human-written budget transaction entries.\n" \
@@ -133,9 +137,231 @@ def parse_currency(text: str):
         return None
 
 
+def _esc(text: str) -> str:
+    """Escape text for safe use in Telegram HTML messages."""
+    if text is None:
+        return ""
+    return html.escape(str(text))
+
+
 # =================================== Main =================================== #
+def _get_treasurer_session(service, message):
+    """Create and authenticate an OracleSession with the Treasurer service.
+
+    Returns the session on success, or None on failure (after sending an
+    error message to the user).
+    """
+    if not hasattr(service.config, 'treasurer') or \
+            service.config.treasurer is None:
+        service.send_message(message.chat.id,
+                             "Treasurer is not configured for this bot.")
+        return None
+    session = OracleSession(service.config.treasurer)
+    try:
+        r = session.login()
+    except Exception:
+        service.send_message(message.chat.id,
+                             "Sorry, I couldn't reach Treasurer. "
+                             "It might be offline.")
+        return None
+
+    if r.status_code != 200 or not session.get_response_success(r):
+        service.send_message(message.chat.id,
+                             "Sorry, I couldn't authenticate with Treasurer.")
+        return None
+
+    return session
+
+
+def _budget_list(service, message, args):
+    """Handle '/budget list' — lists configured budgets."""
+    session = _get_treasurer_session(service, message)
+    if session is None:
+        return
+
+    r = session.get("/budgets")
+    if not session.get_response_success(r):
+        service.send_message(message.chat.id,
+                             "Failed to retrieve budgets. (%s)" %
+                             session.get_response_message(r))
+        return
+
+    data = session.get_response_json(r)
+    budgets = data.get("budgets", []) if isinstance(data, dict) else data
+    if not budgets or len(budgets) == 0:
+        service.send_message(message.chat.id, "No budgets configured.")
+        return
+
+    msg = "<b>Configured Budgets:</b>\n\n"
+    for b in budgets:
+        name = b.get("name", b.get("budget_name", "Unknown"))
+        bid = b.get("id", b.get("budget_id", ""))
+        msg += "• <code>%s</code> — <code>%s</code>\n" % (
+            _esc(name), _esc(bid)
+        )
+
+    service.send_message(message.chat.id, msg, parse_mode="HTML")
+
+
+def _budget_summary(service, message, args):
+    """Handle '/budget summary <budget_name_or_id> [start_date] [end_date]'.
+
+    If no dates provided, uses current month.
+    If one date provided, uses that month (first to last day).
+    If two dates provided, uses that range.
+    """
+    if len(args) < 3:
+        service.send_message(message.chat.id,
+                             "Usage: <code>/budget summary "
+                             "&lt;budget_name_or_id&gt; "
+                             "[YYYY-MM-DD] [YYYY-MM-DD]</code>",
+                             parse_mode="HTML")
+        return
+
+    session = _get_treasurer_session(service, message)
+    if session is None:
+        return
+
+    # Parse from the end: dates are YYYY-MM-DD formatted args at the tail.
+    # Everything between "summary" and the dates is the budget identifier.
+    date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    trailing_dates = []
+    remaining_args = args[2:]  # everything after "/budget summary"
+
+    # Check last two args for dates (scan from the end)
+    while len(remaining_args) > 0 and len(trailing_dates) < 2:
+        if date_pattern.match(remaining_args[-1]):
+            trailing_dates.insert(0, remaining_args.pop())
+        else:
+            break
+
+    # Whatever is left is the budget identifier
+    budget_identifier = " ".join(remaining_args).strip()
+    if not budget_identifier:
+        service.send_message(message.chat.id,
+                             "Please specify a budget name or ID.")
+        return
+
+    # Determine the date range
+    today = date.today()
+    if len(trailing_dates) == 2:
+        start_date = trailing_dates[0]
+        end_date = trailing_dates[1]
+    elif len(trailing_dates) == 1:
+        try:
+            dt = datetime.strptime(trailing_dates[0], "%Y-%m-%d")
+            start_date = "%d-%02d-01" % (dt.year, dt.month)
+            last_day = calendar.monthrange(dt.year, dt.month)[1]
+            end_date = "%d-%02d-%02d" % (dt.year, dt.month, last_day)
+        except ValueError:
+            service.send_message(message.chat.id,
+                                 "Invalid date format. Use YYYY-MM-DD.",
+                                 parse_mode="HTML")
+            return
+    else:
+        # No dates — current month
+        start_date = today.strftime("%Y-%m-01")
+        last_day = calendar.monthrange(today.year, today.month)[1]
+        end_date = "%d-%02d-%02d" % (today.year, today.month, last_day)
+
+    # Try by budget_name first, then by budget_id
+    payload = {
+        "budget_name": budget_identifier,
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+    r = session.get("/summary", payload=payload)
+
+    # If not found by name, try by ID
+    if r.status_code == 404:
+        payload = {
+            "budget_id": budget_identifier,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+        r = session.get("/summary", payload=payload)
+
+    if not session.get_response_success(r):
+        service.send_message(message.chat.id,
+                             "Failed to generate summary. (%s)" %
+                             session.get_response_message(r))
+        return
+
+    summary = session.get_response_json(r)
+    msg = _format_summary_message(summary)
+    service.send_message(message.chat.id, msg, parse_mode="HTML")
+
+
+def _format_summary_message(summary: dict) -> str:
+    """Formats a summary dict into an HTML message for Telegram."""
+    budget_name = summary.get("budget_name", "Unknown")
+    start_date = summary.get("start_date", "?")
+    end_date = summary.get("end_date", "?")
+    total_income = summary.get("total_income", 0.0)
+    total_expenses = summary.get("total_expenses", 0.0)
+    net = summary.get("net", 0.0)
+    transaction_count = summary.get("transaction_count", 0)
+
+    net_sign = "+" if net >= 0 else "-"
+    net_abs = abs(net)
+
+    msg = "<b>%s</b>\n" % _esc(budget_name)
+    msg += "%s → %s\n\n" % (start_date, end_date)
+    msg += "• Income: <code>$%s</code>\n" % format(total_income, ",.2f")
+    msg += "• Expenses: <code>$%s</code>\n" % format(total_expenses, ",.2f")
+    msg += "• Net: <code>%s$%s</code>\n" % (net_sign, format(net_abs, ",.2f"))
+    msg += "• Transactions: %d\n" % transaction_count
+
+    # Top expense categories
+    categories = summary.get("categories", {})
+    if categories:
+        cat_list = [(name, data["amount"], data.get("group_name"))
+                    for name, data in categories.items()]
+        cat_list.sort(key=lambda x: abs(x[1]), reverse=True)
+        msg += "\n<b>Top Expense Categories:</b>\n\n"
+        for name, amount, _ in cat_list[:10]:
+            msg += "• %s: <code>$%s</code>\n" % (
+                _esc(name), format(abs(amount), ",.2f")
+            )
+
+    # Top income transactions
+    income_txns = summary.get("income_transactions", [])
+    if income_txns:
+        msg += "\n<b>Top Income:</b>\n\n"
+        for txn in income_txns[:10]:
+            memo = txn.get("memo")
+            if memo:
+                msg += "• %s: <code>$%s</code> (%s) — %s\n" % (
+                    _esc(txn["payee_name"]),
+                    format(txn["amount"], ",.2f"),
+                    txn["date"],
+                    _esc(memo)
+                )
+            else:
+                msg += "• %s: <code>$%s</code> (%s)\n" % (
+                    _esc(txn["payee_name"]),
+                    format(txn["amount"], ",.2f"),
+                    txn["date"]
+                )
+
+    return msg
+
+
 def command_budget(service, message, args: list):
-    """Main function."""
+    """Main function for the /budget command."""
+    # Check for subcommands
+    if len(args) > 1:
+        subcommand = args[1].strip().lower()
+
+        if subcommand == "list":
+            return _budget_list(service, message, args)
+        if subcommand == "summary":
+            return _budget_summary(service, message, args)
+        if subcommand == "help":
+            _budget_help(service, message)
+            return
+
+    # Fall through to the original transaction-logging behavior
     # look for an argument that represents some amount of currency
     currency_amount = None
     currency_index = None
@@ -145,16 +371,9 @@ def command_budget(service, message, args: list):
             currency_index = i
             break
 
-    # if currency wasn't found, complain and exit
+    # if currency wasn't found, show help
     if currency_amount is None:
-        msg = "💰 <b>Usage:</b> <code>/budget &lt;$amount&gt; [description...]</code>\n\n" \
-              "<b>Examples:</b>\n" \
-              "  <code>/budget $12.50 Wegmans groceries</code>\n" \
-              "  <code>/budget $5 Coffee at Starbucks</code>\n" \
-              "  <code>/budget -$100 Paycheck deposit</code>\n\n" \
-              "Positive amounts = money spent.\n" \
-              "Negative amounts = money received."
-        service.send_message(message.chat.id, msg, parse_mode="HTML")
+        _budget_help(service, message)
         return
 
     # join all other arguments together, excluding the very first argument
@@ -221,4 +440,27 @@ def command_budget(service, message, args: list):
     # ---------- TODO TODO DEBUGGING ---------- #
 
     return
+
+
+def _budget_help(service, message):
+    """Show help text for the /budget command."""
+    msg = "<b>Budget Commands:</b>\n\n"
+    msg += "  <code>/budget list</code>"
+    msg += " — List configured budgets\n"
+    msg += "  <code>/budget summary &lt;name_or_id&gt;</code>"
+    msg += " — Summary for current month\n"
+    msg += "  <code>/budget summary &lt;name_or_id&gt; YYYY-MM-DD</code>"
+    msg += " — Summary for that month\n"
+    msg += "  <code>/budget summary &lt;name_or_id&gt; YYYY-MM-DD YYYY-MM-DD</code>"
+    msg += " — Summary for date range\n"
+    msg += "  <code>/budget &lt;$amount&gt; [description]</code>"
+    msg += " — Log a transaction\n"
+    msg += "  <code>/budget help</code>"
+    msg += " — Show this help message\n"
+    msg += "\n<b>Examples:</b>\n"
+    msg += "  <code>/budget list</code>\n"
+    msg += "  <code>/budget summary Master Budget</code>\n"
+    msg += "  <code>/budget summary Master Budget 2026-06-01 2026-06-30</code>\n"
+    msg += "  <code>/budget $12.50 Wegmans groceries</code>\n"
+    service.send_message(message.chat.id, msg, parse_mode="HTML")
 

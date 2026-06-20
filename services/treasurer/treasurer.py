@@ -60,13 +60,22 @@ class TreasurerExclusionConfig(Config):
         All non-None fields must match for the exclusion to apply (AND logic).
         """
         if self.category is not None:
-            if not re.search(self.category, category_name or ""):
+            try:
+                if not re.search(self.category, category_name or ""):
+                    return False
+            except re.error:
                 return False
         if self.category_group is not None:
-            if not re.search(self.category_group, group_name or ""):
+            try:
+                if not re.search(self.category_group, group_name or ""):
+                    return False
+            except re.error:
                 return False
         if self.entity is not None:
-            if not re.search(self.entity, payee_name or ""):
+            try:
+                if not re.search(self.entity, payee_name or ""):
+                    return False
+            except re.error:
                 return False
         return True
 
@@ -313,8 +322,9 @@ class TreasurerService(Service):
                          end_date: datetime) -> dict:
         """Generate a spending summary from the local DB.
 
-        Transactions matching the budget's excluded categories or excluded
-        category groups (via regex) are omitted from all calculations.
+        Transactions matching the budget's expense or income exclusion rules
+        are omitted from calculations. Each exclusion rule can specify regex
+        patterns for category, category_group, and/or entity (payee).
 
         Args:
             ctx: The BudgetContext to generate a summary for.
@@ -356,6 +366,8 @@ class TreasurerService(Service):
                     if any(exc.matches(category_name, group_name, payee_name)
                            for exc in ctx.expense_exclusions):
                         continue
+            elif amount == 0:
+                continue
             else:
                 if ctx.income_exclusions:
                     if any(exc.matches(category_name, group_name, payee_name)
@@ -511,6 +523,8 @@ class TreasurerService(Service):
             cat_list.sort(key=lambda x: abs(x[1]), reverse=True)
 
             # Defense-in-depth: filter by expense exclusion rules
+            # None is passed for payee_name because categories don't have a
+            # single associated payee; entity-based rules won't fire here.
             if expense_exclusions:
                 cat_list = [(n, a, g) for n, a, g in cat_list
                             if not any(exc.matches(n, g, None)
@@ -558,18 +572,30 @@ class TreasurerService(Service):
         return result
 
     def find_budget_by_name(self, name: str) -> BudgetContext:
-        """Finds a budget context by name (case-insensitive).
+        """Finds a budget context by name. Tries exact match first,
+        then falls back to case-sensitive substring match if exactly
+        one budget name contains the search term.
 
         Args:
-            name: The budget name to search for.
+            name: The budget name (or partial name) to search for.
 
         Returns:
-            The matching BudgetContext, or None if not found.
+            The matching BudgetContext, or None if not found or
+            ambiguous.
         """
-        name_lower = name.lower()
+        # Try exact match first (case-sensitive)
         for ctx in self.budgets:
-            if ctx.name.lower() == name_lower:
+            if ctx.name == name:
                 return ctx
+
+        # Fall back to case-sensitive substring match
+        partial_matches = [
+            ctx for ctx in self.budgets
+            if name in ctx.name
+        ]
+        if len(partial_matches) == 1:
+            return partial_matches[0]
+
         return None
 
     def find_budget_by_id(self, budget_id: str) -> BudgetContext:

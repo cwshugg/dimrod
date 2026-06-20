@@ -36,5 +36,11 @@ budgets:
   monthly_summary:
     top_categories: 10
     top_income_transactions: 5
-    expense_exclusions: []
-    income_exclusions: []
+    expense_exclusions:
+    # - category: "(?i)savings"
+    # - category_group: "(?i)Internal Master Category"
+    # - category: "(?i)Ready to Assign"
+    #   entity: "(?i)Fidelity"
+    income_exclusions:
+    # - category: "(?i)Ready to Assign"
+    #   entity: "(?i)Transfer"

@@ -74,6 +74,7 @@ class TelegramConfig(ServiceConfig):
             ConfigField("chef",     [OracleSessionConfig],      required=True),
             ConfigField("gearhead", [OracleSessionConfig],      required=True),
             ConfigField("munchbook", [OracleSessionConfig],     required=False, default=None),
+            ConfigField("treasurer", [OracleSessionConfig],    required=False, default=None),
             ConfigField("google_calendar_config",   [GoogleCalendarConfig], required=True),
             ConfigField("google_calendar_id",       [str],      required=True),
             ConfigField("google_calendar_timezone", [str],      required=False, default="America/New_York"),
