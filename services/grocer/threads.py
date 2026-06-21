@@ -44,6 +44,7 @@ __all__ = [
     "RECIPE_MAGIC_STRING",
     "EXPANDED_RECIPE_INGREDIENT_MAGIC",
     "RECIPE_RESOLUTION_FAILURE_MAGIC",
+    "RECIPE_RESOLUTION_UNDERWAY_MAGIC",
     "AUTOSORT_IGNORE_MAGIC",
     "INGREDIENT_ID_MAGIC",
     "TODOIST_RATE_LIMIT_RETRIES",
@@ -55,6 +56,15 @@ __all__ = [
 RECIPE_MAGIC_STRING = "recipe"
 EXPANDED_RECIPE_INGREDIENT_MAGIC = "dimrod::expanded_recipe_ingredient"
 RECIPE_RESOLUTION_FAILURE_MAGIC = "dimrod::recipe_resolution_failure"
+# Marks a recipe-reference task as currently being resolved ("underway"). The
+# recipe-resolver claims a task by appending this marker to its description
+# under the write lock BEFORE doing the slow chef work, so a concurrent
+# resolution pass sees the marker and skips the task — preventing the same
+# recipe from being expanded twice. The marker is removed when the resolution
+# reaches a terminal state (the task is deleted after its ingredients are added,
+# or marked with RECIPE_RESOLUTION_FAILURE_MAGIC on a 404) or un-claimed (the
+# marker stripped) when the resolution does not complete this cycle.
+RECIPE_RESOLUTION_UNDERWAY_MAGIC = "dimrod::recipe_resolution_underway"
 AUTOSORT_IGNORE_MAGIC = "dimrod::autosort_ignore"
 INGREDIENT_ID_MAGIC = "dimrod::ingredient_id::"
 

@@ -50,9 +50,11 @@ A persistent **sort record** (`.grocer_sort_record.pkl`, managed by `GrocerySort
 
 ### Recipe-Resolver
 
-`resolve_recipes()` scans the list for items whose title contains the `recipe` magic string, resolves each to a concrete recipe by calling the Chef service (`/recipes/list_all`, `/recipes/resolve`, `/recipes/get_by_id`), then expands the recipe into one grocery item per ingredient. Ingredient quantities are scaled by the resolved serving multiplier, and the original recipe-reference task is deleted.
+`resolve_recipes()` scans the list for items whose title contains the `recipe` magic string, resolves each to a concrete recipe by calling the Chef service (`/recipes/resolve`, `/recipes/get_by_id`), then expands the recipe into one grocery item per ingredient. Ingredient quantities are scaled by the resolved serving multiplier, and the original recipe-reference task is deleted.
 
-If Chef cannot find a matching recipe, the task is left in place, re-titled with a `❓` marker, and tagged with the `dimrod::recipe_resolution_failure` magic string so it is not retried.
+To prevent the same recipe reference from being expanded twice when two passes overlap (the periodic resolver thread plus an on-demand `/groceries resolve`/`process`), each eligible recipe task is **atomically claimed** under the write lock before the slow Chef work runs: its description is tagged with the `dimrod::recipe_resolution_underway` magic string. Because the "is it already claimed?" check and the marker write both happen while the write lock is held, a concurrent pass sees the marker and skips the task. The original task is deleted only after **all** of its ingredient items are added successfully; if any add fails, the original is left in place and un-claimed (the underway marker stripped) so it re-resolves next cycle without losing ingredients. Transient Chef failures likewise un-claim the task, so a recipe is never left permanently stuck "underway".
+
+If Chef cannot find a matching recipe, the task is left in place, re-titled with a `❓` marker, and tagged with the `dimrod::recipe_resolution_failure` magic string so it is not retried (the underway marker is removed at the same time).
 
 ### Deduplicator
 
@@ -68,6 +70,7 @@ The recipe-resolver and deduplicator coordinate through magic strings embedded i
 | `dimrod::ingredient_id::<id>` | Description | Embeds the Chef ingredient ID so the deduplicator can group identical ingredients |
 | `dimrod::expanded_recipe_ingredient` | Description | Marks an item that was already expanded from a recipe (so it is not re-resolved) |
 | `dimrod::recipe_resolution_failure` | Description | Marks a recipe reference that Chef could not resolve (so it is not retried) |
+| `dimrod::recipe_resolution_underway` | Description | Marks a recipe reference that is currently being resolved (claimed under the write lock) so a concurrent resolution pass skips it; removed when resolution reaches a terminal state or the task is un-claimed |
 | `dimrod::autosort_ignore` | Description | Marks a recipe reference so the auto-sorter skips it |
 
 ### Ingredient Title Format

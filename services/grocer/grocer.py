@@ -47,6 +47,7 @@ from threads import (
     RECIPE_MAGIC_STRING,
     EXPANDED_RECIPE_INGREDIENT_MAGIC,
     RECIPE_RESOLUTION_FAILURE_MAGIC,
+    RECIPE_RESOLUTION_UNDERWAY_MAGIC,
     AUTOSORT_IGNORE_MAGIC,
     INGREDIENT_ID_MAGIC,
     TODOIST_RATE_LIMIT_RETRIES,
@@ -460,205 +461,228 @@ class GrocerService(Service):
         references in the grocery list into individual ingredient tasks via the
         chef service.
 
-        The chef HTTP calls run WITHOUT holding any lock. The grocery tasks are
-        gathered under a read lock and the resulting Todoist mutations
-        (add/update/delete) are applied under a write lock, so read endpoints
-        are not blocked across the (potentially many) chef round-trips. The
-        read-then-write window is tolerated best-effort: a stale original task
-        whose delete/update fails is logged and skipped.
+        To prevent the SAME recipe reference from being expanded twice by two
+        overlapping passes (the periodic ``RecipeResolverThread`` plus an
+        on-demand ``/groceries resolve`` / ``process``), each eligible recipe
+        task is ATOMICALLY CLAIMED under the write lock before the slow chef
+        work runs: its description is tagged with
+        ``RECIPE_RESOLUTION_UNDERWAY_MAGIC``. Because the "is it already
+        claimed?" check and the marker write both happen while the write lock is
+        held, a concurrent pass sees the marker and skips the task.
+
+        The flow is four phases:
+
+          1. (read lock) Look up the Groceries project.
+          2. (write lock) Gather tasks, identify un-claimed recipe references,
+             and claim each by appending the underway marker.
+          3. (no lock) Resolve each CLAIMED task via the chef service, building
+             the per-recipe ingredient add-list.
+          4. (write lock) For each claimed recipe apply a single terminal
+             outcome: add its ingredients and (only if ALL adds succeed) delete
+             the original; on a chef 404 mark it failed; on any transient
+             failure / partial add failure UN-CLAIM it (strip the underway
+             marker) so it is retried next cycle.
+
+        The non-reentrant ``ReadWriteLock`` is never nested: the read lock is
+        released before the write lock is acquired, and helpers invoked inside a
+        locked section never re-acquire the lock. Every claimed task reaches a
+        terminal or un-claimed state, so a recipe is never left permanently
+        stuck "underway".
 
         Returns a status message string.
         """
         try:
-            # ---------------- Phase 1: gather inputs (read lock) ------------ #
+            # ---------------- Phase 1: look up project (read lock) ---------- #
             self.todoist_lock.acquire_read()
             try:
-                todoist = self.get_todoist()
                 proj = self._get_project_with_retry("[recipe-resolver]")
                 if proj is None:
                     return "Recipe resolution completed successfully."
                 project_id = proj.id
-                tasks = todoist.get_tasks(project_id=project_id)
             finally:
                 self.todoist_lock.release_read()
 
-            if len(tasks) == 0:
-                return "Recipe resolution completed successfully."
-
-            # ---------- Phase 2: chef resolution + build actions ------------ #
-            # No lock is held while we talk to the chef service. We accumulate
-            # the Todoist mutations to perform and apply them under the write
-            # lock afterwards.
-            adds = []             # [(title, description), ...]
-            failure_updates = []  # [(task_id, new_title, new_desc), ...]
-            deletes = []          # [task_id, ...]
-
-            chef = self._get_chef_session()
-            for task in tasks:
-                task_title = task.content.strip().lower()
-                task_description = (task.description.strip().lower()
-                                    if task.description else "")
-
-                # Skip tasks already processed.
-                keywords_to_skip = [
-                    EXPANDED_RECIPE_INGREDIENT_MAGIC,
-                    RECIPE_RESOLUTION_FAILURE_MAGIC,
-                ]
-                skip = False
-                for kw in keywords_to_skip:
-                    if kw in task_title or kw in task_description:
-                        skip = True
-                if skip:
-                    continue
-
-                # Only process tasks that contain the recipe magic string.
-                if RECIPE_MAGIC_STRING not in task_title:
-                    continue
-
-                self.log.write(
-                    "[recipe-resolver] Found recipe reference: \"%s\". Resolving..." % task.content
-                )
-
-                # Resolve the recipe via the chef service.
-                text_to_resolve = task_title
-                if task.description and len(task.description.strip()) > 0:
-                    text_to_resolve += "\n\n" + task.description.strip()
-
-                chef_result = chef.post("/recipes/resolve", {"text": text_to_resolve})
-                chef_status = OracleSession.get_response_status(chef_result)
-                if chef_status != 200:
-                    self.log.write(
-                        "[recipe-resolver] Failed to resolve recipe: status %d" % chef_status
-                    )
-                    if chef_status == 404:
-                        # Mark the task so the user knows resolution failed.
-                        new_title = "❓ %s" % task.content
-                        new_desc = "(Could not find a matching recipe)\n\n"
-                        if task.description and len(task.description.strip()) > 0:
-                            new_desc += task.description
-                        new_desc += "\n\n%s" % RECIPE_RESOLUTION_FAILURE_MAGIC
-
-                        failure_updates.append((task.id, new_title, new_desc))
-                    continue
-
-                recipe_info = OracleSession.get_response_json(chef_result)
-
-                # Fetch full recipe details.
-                chef_result = chef.post("/recipes/get_by_id", {"id": recipe_info["id"]})
-                if OracleSession.get_response_status(chef_result) != 200:
-                    msg = OracleSession.get_response_message(chef_result)
-                    self.log.write(
-                        "[recipe-resolver] Failed to fetch recipe "
-                        "details for \"%s\": status=%d, msg=%s" % (
-                            recipe_info["id"],
-                            OracleSession.get_response_status(
-                                chef_result
-                            ),
-                            msg,
-                        )
-                    )
-                    continue
-
-                recipe = Recipe.from_json(OracleSession.get_response_json(chef_result))
-                self.log.write(
-                    "[recipe-resolver] Resolved \"%s\" → recipe \"%s\"." % (task.content, recipe.id)
-                )
-
-                # Build ingredient list with quantity adjustments.
-                quantity_multiplier = float(recipe_info.get("quantity", 1.0))
-                ingredients = []
-                for ingredient in recipe.ingredients:
-                    i_json = ingredient.to_json()
-                    i_json["quantity"] = float(i_json.get("quantity", 1.0)) * quantity_multiplier
-                    ingredients.append(Ingredient.from_json(i_json))
-
-                # Build each ingredient task (added to Todoist in phase 3).
-                for ingredient in ingredients:
-                    title = ingredient.title if ingredient.title is not None else ingredient.id
-
-                    # Show quantity in the title using the (Nx) format.
-                    qty = ingredient.quantity
-                    if qty != 1.0:
-                        if int(qty) == qty:
-                            title = "(%dx) %s" % (int(qty), title)
-                        else:
-                            title = "(%.2fx) %s" % (qty, title)
-
-                    # Build the description.
-                    description = ""
-                    if ingredient.is_optional:
-                        description += "(OPTIONAL) "
-                    if ingredient.replenish == IngredientReplenishType.SOMETIMES:
-                        description += "(❗ You may already have this) "
-                    elif ingredient.replenish == IngredientReplenishType.RARELY:
-                        description += "(‼️  You probably already have this) "
-
-                    recipe_str = recipe.title if recipe.title is not None else recipe.id
-                    icon_str = ("%s " % recipe.icon) if recipe.icon is not None else ""
-                    description += "[%s%s]" % (icon_str, recipe_str)
-
-                    if quantity_multiplier != 1.0:
-                        serving_count = recipe.servings * quantity_multiplier
-                        if int(serving_count) == serving_count:
-                            description += " - %d servings" % int(serving_count)
-                        else:
-                            description += " - %.2f servings" % serving_count
-
-                    if ingredient.description is not None:
-                        description += "\n\n%s" % ingredient.description
-
-                    # Add the magic string to prevent re-resolution.
-                    description += "\n\n%s" % EXPANDED_RECIPE_INGREDIENT_MAGIC
-
-                    # CRITICAL: embed the chef ingredient ID for the deduplicator.
-                    description += "\n%s%s" % (INGREDIENT_ID_MAGIC, ingredient.id)
-
-                    adds.append((title, description))
-
-                # Schedule deletion of the original recipe-reference task.
-                deletes.append(task.id)
-
-            # ------------- Phase 3: apply mutations (write lock) ------------ #
-            if len(adds) == 0 and len(failure_updates) == 0 and len(deletes) == 0:
-                return "Recipe resolution completed successfully."
-
+            # ---------- Phase 2: claim recipe tasks (write lock) ------------ #
+            # Read the current tasks AND write the underway marker in the SAME
+            # write-locked section, so the claim is atomic: a concurrent
+            # resolve_recipes pass cannot claim the same task. Each claimed
+            # entry captures the original (pre-claim) description so it can be
+            # restored verbatim if the task is later un-claimed.
+            claimed = []  # [(task_id, content, original_description), ...]
             self.todoist_lock.acquire_write()
             try:
                 todoist = self.get_todoist()
+                tasks = todoist.get_tasks(project_id=project_id)
+                for task in tasks:
+                    task_title = task.content.strip().lower()
+                    task_description = (task.description.strip().lower()
+                                        if task.description else "")
 
-                # Mark recipes that could not be resolved (best-effort).
-                for task_id, new_title, new_desc in failure_updates:
+                    # Only process recipe references that have not already been
+                    # expanded, marked failed, or claimed (underway) by another
+                    # pass.
+                    if RECIPE_MAGIC_STRING not in task_title:
+                        continue
+                    keywords_to_skip = [
+                        EXPANDED_RECIPE_INGREDIENT_MAGIC,
+                        RECIPE_RESOLUTION_FAILURE_MAGIC,
+                        RECIPE_RESOLUTION_UNDERWAY_MAGIC,
+                    ]
+                    skip = False
+                    for kw in keywords_to_skip:
+                        if kw in task_title or kw in task_description:
+                            skip = True
+                    if skip:
+                        continue
+
+                    # Claim the task by appending the underway marker to its
+                    # description. Only treat it as claimed if the update
+                    # actually applied (a task that vanished returns None).
+                    original_description = task.description if task.description else ""
+                    underway_description = "%s\n\n%s" % (
+                        original_description, RECIPE_RESOLUTION_UNDERWAY_MAGIC
+                    )
                     try:
-                        todoist.update_task(task_id, title=new_title, body=new_desc)
+                        updated = todoist.update_task(task.id, body=underway_description)
                     except Exception as e:
                         self.log.write(
-                            "[recipe-resolver] Failed to mark task %s as "
-                            "unresolved (may have changed): %s" % (task_id, str(e))
+                            "[recipe-resolver] Failed to claim recipe task %s "
+                            "(may have changed); skipping: %s" % (task.id, str(e))
                         )
+                        continue
+                    if updated is None:
+                        # Task disappeared between read and update; nothing to do.
+                        continue
 
-                # Add the expanded ingredient tasks (best-effort).
-                for title, description in adds:
-                    try:
-                        todoist.add_task(title, description, project_id=project_id)
-                        self.log.write(
-                            "[recipe-resolver] Added ingredient \"%s\"." % title
-                        )
-                    except Exception as e:
-                        self.log.write(
-                            "[recipe-resolver] Failed to add ingredient "
-                            "\"%s\": %s" % (title, str(e))
-                        )
+                    self.log.write(
+                        "[recipe-resolver] Claimed recipe reference: \"%s\"." % task.content
+                    )
+                    claimed.append((task.id, task.content, original_description))
+            finally:
+                self.todoist_lock.release_write()
 
-                # Delete the original recipe-reference tasks (best-effort).
+            if len(claimed) == 0:
+                return "Recipe resolution completed successfully."
+
+            # ---------- Phase 3: chef resolution (no lock held) ------------- #
+            # Resolve each CLAIMED task and decide its terminal outcome. Each
+            # resolution is wrapped so a single failing recipe (or a chef
+            # outage) un-claims only the affected task(s) rather than leaving
+            # them stuck "underway". Outcomes are one of:
+            #   ("add",     task_id, original_description, [(title, desc), ...])
+            #   ("fail",    task_id, new_title, new_desc)        # chef 404
+            #   ("unclaim", task_id, original_description)       # transient
+            resolutions = []
+            try:
+                chef = self._get_chef_session()
+            except Exception as e:
+                self.log.write(
+                    "[recipe-resolver] Failed to open chef session; un-claiming "
+                    "%d task(s): %s" % (len(claimed), str(e))
+                )
+                chef = None
+
+            for task_id, content, original_description in claimed:
+                if chef is None:
+                    resolutions.append(("unclaim", task_id, original_description))
+                    continue
+                try:
+                    resolutions.append(
+                        self._resolve_claimed_recipe(chef, task_id, content,
+                                                     original_description)
+                    )
+                except Exception as e:
+                    self.log.write(
+                        "[recipe-resolver] Error resolving claimed recipe %s; "
+                        "un-claiming for retry: %s" % (task_id, str(e))
+                    )
+                    resolutions.append(("unclaim", task_id, original_description))
+
+            # ------------- Phase 4: apply mutations (write lock) ------------ #
+            self.todoist_lock.acquire_write()
+            try:
+                todoist = self.get_todoist()
                 tasks_resolved = 0
-                for task_id in deletes:
+                for outcome in resolutions:
+                    kind = outcome[0]
+
+                    if kind == "fail":
+                        # Chef 404: mark the task failed. The failure
+                        # description is rebuilt from the ORIGINAL description,
+                        # so it does not retain the underway marker.
+                        _, task_id, new_title, new_desc = outcome
+                        try:
+                            todoist.update_task(task_id, title=new_title, body=new_desc)
+                        except Exception as e:
+                            self.log.write(
+                                "[recipe-resolver] Failed to mark task %s as "
+                                "unresolved (may have changed): %s" % (task_id, str(e))
+                            )
+                        continue
+
+                    if kind == "unclaim":
+                        # Transient failure: strip the underway marker by
+                        # restoring the original description so the task is
+                        # retried on a later pass.
+                        _, task_id, original_description = outcome
+                        try:
+                            todoist.update_task(task_id, body=original_description)
+                        except Exception as e:
+                            self.log.write(
+                                "[recipe-resolver] Failed to un-claim recipe "
+                                "task %s (may have changed): %s" % (task_id, str(e))
+                            )
+                        continue
+
+                    # kind == "add": add every ingredient, and delete the
+                    # original recipe task ONLY if ALL of its adds succeeded.
+                    # If any add fails, the original is left in place and
+                    # un-claimed so it re-resolves next cycle (no ingredient is
+                    # lost). This mirrors the deduplicator's all-or-nothing
+                    # gating.
+                    _, task_id, original_description, ingredient_adds = outcome
+                    all_added = True
+                    for title, description in ingredient_adds:
+                        try:
+                            todoist.add_task(title, description, project_id=project_id)
+                            self.log.write(
+                                "[recipe-resolver] Added ingredient \"%s\"." % title
+                            )
+                        except Exception as e:
+                            all_added = False
+                            self.log.write(
+                                "[recipe-resolver] Failed to add ingredient "
+                                "\"%s\": %s" % (title, str(e))
+                            )
+
+                    if not all_added:
+                        # Do NOT delete the original — un-claim it instead so the
+                        # dropped ingredient(s) are recovered on the next cycle.
+                        self.log.write(
+                            "[recipe-resolver] Not all ingredients for task %s "
+                            "were added; un-claiming for retry." % task_id
+                        )
+                        try:
+                            todoist.update_task(task_id, body=original_description)
+                        except Exception as e:
+                            self.log.write(
+                                "[recipe-resolver] Failed to un-claim recipe "
+                                "task %s (may have changed): %s" % (task_id, str(e))
+                            )
+                        continue
+
+                    # All ingredients added: delete the original recipe task
+                    # (this also removes the underway marker). If the delete
+                    # fails the task is left marked underway, which safely
+                    # prevents it from being re-resolved (and re-added).
                     try:
                         todoist.delete_task(task_id)
                         tasks_resolved += 1
                     except Exception as e:
                         self.log.write(
-                            "[recipe-resolver] Failed to remove original "
-                            "recipe task %s (may have changed): %s" % (task_id, str(e))
+                            "[recipe-resolver] Failed to remove original recipe "
+                            "task %s (may have changed); it remains marked "
+                            "underway: %s" % (task_id, str(e))
                         )
 
                 if tasks_resolved > 0:
@@ -671,6 +695,125 @@ class GrocerService(Service):
             return "Recipe resolution completed successfully."
         except Exception as e:
             return "Recipe resolution failed: %s" % str(e)
+
+    def _resolve_claimed_recipe(self, chef, task_id, content, original_description):
+        """Resolves a single CLAIMED recipe task via the chef service and
+        returns the terminal outcome to apply in the write-locked phase. Runs
+        with NO lock held (only chef HTTP calls happen here).
+
+        The returned tuple is one of:
+          ``("add", task_id, original_description, [(title, desc), ...])``
+              the recipe resolved; add the ingredients then delete the original
+          ``("fail", task_id, new_title, new_desc)``
+              chef returned 404; mark the task failed (no underway marker)
+          ``("unclaim", task_id, original_description)``
+              a transient/non-terminal chef result; strip the underway marker
+
+        See `resolve_recipes` for how each outcome is applied.
+        """
+        self.log.write(
+            "[recipe-resolver] Resolving recipe reference: \"%s\"..." % content
+        )
+
+        # Resolve the recipe via the chef service. The text mirrors the original
+        # (pre-claim) title and description.
+        text_to_resolve = content.strip().lower()
+        if original_description and len(original_description.strip()) > 0:
+            text_to_resolve += "\n\n" + original_description.strip()
+
+        chef_result = chef.post("/recipes/resolve", {"text": text_to_resolve})
+        chef_status = OracleSession.get_response_status(chef_result)
+        if chef_status != 200:
+            self.log.write(
+                "[recipe-resolver] Failed to resolve recipe: status %d" % chef_status
+            )
+            if chef_status == 404:
+                # Mark the task so the user knows resolution failed. Rebuild the
+                # description from the ORIGINAL so the underway marker is dropped.
+                new_title = "❓ %s" % content
+                new_desc = "(Could not find a matching recipe)\n\n"
+                if original_description and len(original_description.strip()) > 0:
+                    new_desc += original_description
+                new_desc += "\n\n%s" % RECIPE_RESOLUTION_FAILURE_MAGIC
+                return ("fail", task_id, new_title, new_desc)
+            # Other non-200: transient — un-claim so it is retried.
+            return ("unclaim", task_id, original_description)
+
+        recipe_info = OracleSession.get_response_json(chef_result)
+
+        # Fetch full recipe details.
+        chef_result = chef.post("/recipes/get_by_id", {"id": recipe_info["id"]})
+        if OracleSession.get_response_status(chef_result) != 200:
+            msg = OracleSession.get_response_message(chef_result)
+            self.log.write(
+                "[recipe-resolver] Failed to fetch recipe details for \"%s\": "
+                "status=%d, msg=%s" % (
+                    recipe_info["id"],
+                    OracleSession.get_response_status(chef_result),
+                    msg,
+                )
+            )
+            # Transient — un-claim so it is retried next cycle.
+            return ("unclaim", task_id, original_description)
+
+        recipe = Recipe.from_json(OracleSession.get_response_json(chef_result))
+        self.log.write(
+            "[recipe-resolver] Resolved \"%s\" → recipe \"%s\"." % (content, recipe.id)
+        )
+
+        # Build ingredient list with quantity adjustments.
+        quantity_multiplier = float(recipe_info.get("quantity", 1.0))
+        ingredients = []
+        for ingredient in recipe.ingredients:
+            i_json = ingredient.to_json()
+            i_json["quantity"] = float(i_json.get("quantity", 1.0)) * quantity_multiplier
+            ingredients.append(Ingredient.from_json(i_json))
+
+        # Build each ingredient task (added to Todoist in the write-locked phase).
+        ingredient_adds = []  # [(title, description), ...]
+        for ingredient in ingredients:
+            title = ingredient.title if ingredient.title is not None else ingredient.id
+
+            # Show quantity in the title using the (Nx) format.
+            qty = ingredient.quantity
+            if qty != 1.0:
+                if int(qty) == qty:
+                    title = "(%dx) %s" % (int(qty), title)
+                else:
+                    title = "(%.2fx) %s" % (qty, title)
+
+            # Build the description.
+            description = ""
+            if ingredient.is_optional:
+                description += "(OPTIONAL) "
+            if ingredient.replenish == IngredientReplenishType.SOMETIMES:
+                description += "(❗ You may already have this) "
+            elif ingredient.replenish == IngredientReplenishType.RARELY:
+                description += "(‼️  You probably already have this) "
+
+            recipe_str = recipe.title if recipe.title is not None else recipe.id
+            icon_str = ("%s " % recipe.icon) if recipe.icon is not None else ""
+            description += "[%s%s]" % (icon_str, recipe_str)
+
+            if quantity_multiplier != 1.0:
+                serving_count = recipe.servings * quantity_multiplier
+                if int(serving_count) == serving_count:
+                    description += " - %d servings" % int(serving_count)
+                else:
+                    description += " - %.2f servings" % serving_count
+
+            if ingredient.description is not None:
+                description += "\n\n%s" % ingredient.description
+
+            # Add the magic string to prevent re-resolution.
+            description += "\n\n%s" % EXPANDED_RECIPE_INGREDIENT_MAGIC
+
+            # CRITICAL: embed the chef ingredient ID for the deduplicator.
+            description += "\n%s%s" % (INGREDIENT_ID_MAGIC, ingredient.id)
+
+            ingredient_adds.append((title, description))
+
+        return ("add", task_id, original_description, ingredient_adds)
 
     def deduplicate_items(self) -> str:
         """Performs one iteration of deduplication, merging grocery items that
