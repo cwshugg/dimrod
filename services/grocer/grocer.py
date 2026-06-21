@@ -12,7 +12,6 @@
 # Imports
 import os
 import sys
-import json
 import flask
 import time
 import re
@@ -167,9 +166,19 @@ class GrocerService(Service):
         return self._todoist
 
     def get_grocery_project(self):
+        """Returns the "Groceries" Todoist project WITHOUT creating it, or
+        ``None`` if it does not exist. This is a read-only lookup: callers may
+        hold either a read or write lock. Use `ensure_grocery_project` (or
+        `_create_grocery_project_locked` while already holding the write lock)
+        to create the project.
+        """
+        todoist = self.get_todoist()
+        return todoist.get_project_by_name("Groceries")
+
+    def _create_grocery_project_locked(self):
         """Returns the "Groceries" Todoist project, creating it if it doesn't
-        exist. Callers MUST hold the todoist_lock (read or write) before
-        calling this.
+        exist. Performs a write (`add_project`) when the project is missing, so
+        callers MUST already hold the WRITE lock before calling this.
         """
         todoist = self.get_todoist()
         proj = todoist.get_project_by_name("Groceries")
@@ -177,11 +186,26 @@ class GrocerService(Service):
             proj = todoist.add_project("Groceries", color="green")
         return proj
 
+    def ensure_grocery_project(self):
+        """Ensures the "Groceries" Todoist project exists, creating it exactly
+        once under the WRITE lock. This is called once at service startup
+        (before the worker threads start) so that the read-locked endpoints and
+        NLA handlers never need to perform the creating write themselves.
+        """
+        self.todoist_lock.acquire_write()
+        try:
+            return self._create_grocery_project_locked()
+        finally:
+            self.todoist_lock.release_write()
+
     # ------------------------------ Helpers --------------------------------- #
     def _get_project_with_retry(self, log_prefix: str):
-        """Retrieves the Groceries project with Todoist rate-limit retry.
+        """Retrieves the Groceries project (read-only) with Todoist rate-limit
+        retry. Returns the project, or ``None`` if it does not exist.
 
-        Callers MUST already hold the todoist_lock.
+        Callers MUST already hold the todoist_lock (read or write). This never
+        creates the project; the project is ensured at startup via
+        `ensure_grocery_project`.
         """
         for attempt in range(TODOIST_RATE_LIMIT_RETRIES):
             try:
@@ -275,152 +299,201 @@ class GrocerService(Service):
         """Performs one iteration of the auto-sort logic, using an LLM to sort
         unsorted grocery items into the appropriate Todoist section.
 
-        Acquires a write lock on the todoist_lock since this modifies tasks.
+        The slow LLM call runs WITHOUT holding any lock. Inputs are gathered
+        under a read lock and the resulting Todoist mutations (move/update) are
+        applied under a write lock, so read endpoints are not blocked for the
+        full LLM round-trip. The read-then-write window is tolerated
+        best-effort: a stale task whose mutation fails is logged and skipped
+        rather than aborting the whole iteration.
+
         Returns a status message string.
         """
-        self.todoist_lock.acquire_write()
         try:
-            todoist = self.get_todoist()
+            # ---------------- Phase 1: gather inputs (read lock) ------------ #
+            self.todoist_lock.acquire_read()
+            try:
+                todoist = self.get_todoist()
 
-            # Retrieve the grocery project with rate-limit retry.
-            proj = self._get_project_with_retry("[autosort]")
+                # Retrieve the grocery project with rate-limit retry.
+                proj = self._get_project_with_retry("[autosort]")
+                if proj is None:
+                    return "Auto-sort completed successfully."
 
-            # Fetch sections. No sections -> nothing to sort.
-            sections = todoist.get_sections(project_id=proj.id)
-            if len(sections) == 0:
+                # Fetch sections. No sections -> nothing to sort.
+                sections = todoist.get_sections(project_id=proj.id)
+                if len(sections) == 0:
+                    return "Auto-sort completed successfully."
+
+                section_dict = {}      # normalised name -> section object
+                section_id_dict = {}   # section ID -> section object
+                for s in sections:
+                    section_dict[self._section_key(s)] = s
+                    section_id_dict[s.id] = s
+
+                # Fetch all tasks in the grocery project.
+                tasks = todoist.get_tasks(project_id=proj.id)
+                if len(tasks) == 0:
+                    return "Auto-sort completed successfully."
+
+                # Determine which tasks are "dirty" (need sorting), and which
+                # recipe-reference tasks need the autosort-ignore marker added.
+                dirty_tasks = []
+                ignore_updates = []   # [(task_id, new_desc), ...]
+                task_dict = {}
+                for task in tasks:
+                    tname = self._task_key(task)
+                    task_dict[tname] = task
+
+                    # Skip tasks that look like recipe references (the
+                    # recipe-resolver handles those).
+                    task_title = task.content.strip().lower()
+                    task_description = task.description.strip().lower() if task.description else ""
+                    if RECIPE_MAGIC_STRING in task_title:
+                        if AUTOSORT_IGNORE_MAGIC not in task_description:
+                            # Mark the task so the user knows autosort skips it.
+                            new_desc = task.description if task.description else ""
+                            new_desc += "\n%s" % AUTOSORT_IGNORE_MAGIC
+                            ignore_updates.append((task.id, new_desc))
+                        continue
+
+                    # Check whether this task has already been sorted to the
+                    # same section as recorded.
+                    old_sname = self.gsr.get(tname)
+                    new_sname = None
+                    if task.section_id in section_id_dict:
+                        new_sname = self._section_key(section_id_dict[task.section_id])
+                    if old_sname is None or new_sname != old_sname:
+                        dirty_tasks.append(task)
+                        self.log.write("[autosort] Grocery item \"%s\" is dirty." % task.content)
+
+                # Compute stale sort-record keys (entries for tasks that no
+                # longer exist). The actual removal happens under the write
+                # lock below.
+                stale_keys = [key for key in self.gsr.dict.keys()
+                              if key not in task_dict]
+
+                # Build the LLM prompt inputs while we still hold the read lock.
+                if len(dirty_tasks) > 0:
+                    dialogue_intro = self._build_autosort_intro()
+                    dialogue_message = self._build_autosort_message(sections, dirty_tasks)
+            finally:
+                self.todoist_lock.release_read()
+
+            # ---------- Phase 2: slow LLM categorisation (no lock) ---------- #
+            # Parse the LLM response into a list of moves keyed by the
+            # normalised task/section names gathered above.
+            moves = []  # [(task_id, task_content, section_id, section_name, tdname, sdname), ...]
+            if len(dirty_tasks) > 0:
+                dialogue = DialogueInterface(self.config.dialogue)
+                result = dialogue.oneshot(dialogue_intro, dialogue_message)
+
+                delim = "|"
+                for line in result.split("\n"):
+                    if delim not in line:
+                        continue
+                    pieces = line.split(delim)
+                    if len(pieces) < 2:
+                        continue
+
+                    tdname = self._task_key(pieces[0])
+                    if tdname not in task_dict:
+                        continue
+                    sdname = self._section_key(pieces[1])
+                    if sdname not in section_dict:
+                        continue
+
+                    t = task_dict[tdname]
+                    s = section_dict[sdname]
+                    moves.append((t.id, t.content, s.id, s.name, tdname, sdname))
+
+            # ------------- Phase 3: apply mutations (write lock) ------------ #
+            if len(ignore_updates) == 0 and len(stale_keys) == 0 and len(moves) == 0:
                 return "Auto-sort completed successfully."
 
-            section_dict = {}      # normalised name -> section object
-            section_id_dict = {}   # section ID -> section object
-            for s in sections:
-                section_dict[self._section_key(s)] = s
-                section_id_dict[s.id] = s
+            self.todoist_lock.acquire_write()
+            try:
+                todoist = self.get_todoist()
 
-            # Fetch all tasks in the grocery project.
-            tasks = todoist.get_tasks(project_id=proj.id)
-            if len(tasks) == 0:
-                return "Auto-sort completed successfully."
+                # Add the autosort-ignore marker to recipe tasks (best-effort).
+                for task_id, new_desc in ignore_updates:
+                    try:
+                        todoist.update_task(task_id, body=new_desc)
+                    except Exception as e:
+                        self.log.write(
+                            "[autosort] Failed to mark task %s as ignored "
+                            "(may have changed): %s" % (task_id, str(e))
+                        )
 
-            # Determine which tasks are "dirty" (need sorting).
-            dirty_tasks = []
-            task_dict = {}
-            for task in tasks:
-                tname = self._task_key(task)
-                task_dict[tname] = task
+                # Prune stale entries from the sort record.
+                record_dirty = False
+                for key in stale_keys:
+                    if self.gsr.remove(key):
+                        record_dirty = True
 
-                # Skip tasks that look like recipe references (the
-                # recipe-resolver handles those).
-                task_title = task.content.strip().lower()
-                task_description = task.description.strip().lower() if task.description else ""
-                if RECIPE_MAGIC_STRING in task_title:
-                    if AUTOSORT_IGNORE_MAGIC not in task_description:
-                        # Mark the task so the user knows autosort will skip it.
-                        new_desc = task.description if task.description else ""
-                        new_desc += "\n%s" % AUTOSORT_IGNORE_MAGIC
-                        todoist.update_task(task.id, body=new_desc)
-                    continue
+                # Apply the moves computed from the LLM response (best-effort).
+                for task_id, task_content, section_id, section_name, tdname, sdname in moves:
+                    try:
+                        self.log.write(
+                            "[autosort] Moving \"%s\" to section \"%s\"." %
+                            (task_content, section_name)
+                        )
+                        todoist.move_task(task_id, section_id=section_id)
+                        self.gsr.set(tdname, sdname)
+                        record_dirty = True
+                    except Exception as e:
+                        self.log.write(
+                            "[autosort] Failed to move task %s (may have "
+                            "changed): %s" % (task_id, str(e))
+                        )
 
-                # Check whether this task has already been sorted to the same
-                # section as recorded.
-                old_sname = self.gsr.get(tname)
-                new_sname = None
-                if task.section_id in section_id_dict:
-                    new_sname = self._section_key(section_id_dict[task.section_id])
-                if old_sname is None or new_sname != old_sname:
-                    dirty_tasks.append(task)
-                    self.log.write("[autosort] Grocery item \"%s\" is dirty." % task.content)
+                if record_dirty:
+                    self.gsr.save()
+            finally:
+                self.todoist_lock.release_write()
 
-            # Prune stale entries from the sort record.
-            gsr_keys = list(self.gsr.dict.keys())
-            deletions = 0
-            for key in gsr_keys:
-                if key not in task_dict:
-                    self.gsr.remove(key)
-                    deletions += 1
-            if deletions > 0:
-                self.gsr.save()
-
-            # Nothing to sort? Done.
-            if len(dirty_tasks) == 0:
-                return "Auto-sort completed successfully."
-
-            # Ask the LLM to categorise the dirty tasks.
-            dialogue_intro = self._build_autosort_intro()
-            dialogue_message = self._build_autosort_message(sections, dirty_tasks)
-
-            dialogue = DialogueInterface(self.config.dialogue)
-            result = dialogue.oneshot(dialogue_intro, dialogue_message)
-
-            # Parse the LLM response and move tasks.
-            delim = "|"
-            for line in result.split("\n"):
-                if delim not in line:
-                    continue
-
-                pieces = line.split(delim)
-                if len(pieces) < 2:
-                    continue
-
-                tname = pieces[0]
-                sname = pieces[1]
-
-                tdname = self._task_key(tname)
-                if tdname not in task_dict:
-                    continue
-                sdname = self._section_key(sname)
-                if sdname not in section_dict:
-                    continue
-
-                t = task_dict[tdname]
-                s = section_dict[sdname]
-
-                self.log.write("[autosort] Moving \"%s\" to section \"%s\"." % (t.content, s.name))
-                todoist.move_task(t.id, section_id=s.id)
-
-                # Update the sort record.
-                self.gsr.set(tdname, sdname)
-
-            # Persist the sort record.
-            self.gsr.save()
             return "Auto-sort completed successfully."
         except Exception as e:
             return "Auto-sort failed: %s" % str(e)
-        finally:
-            self.todoist_lock.release_write()
 
     def resolve_recipes(self) -> str:
         """Performs one iteration of recipe resolution, expanding recipe
         references in the grocery list into individual ingredient tasks via the
         chef service.
 
-        Acquires a write lock since this adds/deletes tasks.
+        The chef HTTP calls run WITHOUT holding any lock. The grocery tasks are
+        gathered under a read lock and the resulting Todoist mutations
+        (add/update/delete) are applied under a write lock, so read endpoints
+        are not blocked across the (potentially many) chef round-trips. The
+        read-then-write window is tolerated best-effort: a stale original task
+        whose delete/update fails is logged and skipped.
+
         Returns a status message string.
         """
-        self.todoist_lock.acquire_write()
         try:
-            todoist = self.get_todoist()
-            proj = self._get_project_with_retry("[recipe-resolver]")
-            tasks = todoist.get_tasks(project_id=proj.id)
+            # ---------------- Phase 1: gather inputs (read lock) ------------ #
+            self.todoist_lock.acquire_read()
+            try:
+                todoist = self.get_todoist()
+                proj = self._get_project_with_retry("[recipe-resolver]")
+                if proj is None:
+                    return "Recipe resolution completed successfully."
+                project_id = proj.id
+                tasks = todoist.get_tasks(project_id=project_id)
+            finally:
+                self.todoist_lock.release_read()
 
             if len(tasks) == 0:
                 return "Recipe resolution completed successfully."
 
-            # Connect to the chef service and fetch the recipe listing.
-            chef = self._get_chef_session()
-            chef_result = chef.post("/recipes/list_all")
-            if OracleSession.get_response_status(chef_result) != 200:
-                msg = OracleSession.get_response_message(chef_result)
-                self.log.write(
-                    "[recipe-resolver] Failed to retrieve recipe list "
-                    "from chef: status=%d, msg=%s" % (
-                        OracleSession.get_response_status(chef_result),
-                        msg,
-                    )
-                )
-                return "Recipe resolution completed successfully."
-            recipes = OracleSession.get_response_json(chef_result)
+            # ---------- Phase 2: chef resolution + build actions ------------ #
+            # No lock is held while we talk to the chef service. We accumulate
+            # the Todoist mutations to perform and apply them under the write
+            # lock afterwards.
+            adds = []             # [(title, description), ...]
+            failure_updates = []  # [(task_id, new_title, new_desc), ...]
+            deletes = []          # [task_id, ...]
 
-            tasks_resolved = 0
+            chef = self._get_chef_session()
             for task in tasks:
                 task_title = task.content.strip().lower()
                 task_description = (task.description.strip().lower()
@@ -465,7 +538,7 @@ class GrocerService(Service):
                             new_desc += task.description
                         new_desc += "\n\n%s" % RECIPE_RESOLUTION_FAILURE_MAGIC
 
-                        todoist.update_task(task.id, title=new_title, body=new_desc)
+                        failure_updates.append((task.id, new_title, new_desc))
                     continue
 
                 recipe_info = OracleSession.get_response_json(chef_result)
@@ -499,7 +572,7 @@ class GrocerService(Service):
                     i_json["quantity"] = float(i_json.get("quantity", 1.0)) * quantity_multiplier
                     ingredients.append(Ingredient.from_json(i_json))
 
-                # Add each ingredient as a new grocery task.
+                # Build each ingredient task (added to Todoist in phase 3).
                 for ingredient in ingredients:
                     title = ingredient.title if ingredient.title is not None else ingredient.id
 
@@ -540,49 +613,94 @@ class GrocerService(Service):
                     # CRITICAL: embed the chef ingredient ID for the deduplicator.
                     description += "\n%s%s" % (INGREDIENT_ID_MAGIC, ingredient.id)
 
-                    todoist.add_task(
-                        title,
-                        description,
-                        project_id=proj.id,
-                    )
+                    adds.append((title, description))
+
+                # Schedule deletion of the original recipe-reference task.
+                deletes.append(task.id)
+
+            # ------------- Phase 3: apply mutations (write lock) ------------ #
+            if len(adds) == 0 and len(failure_updates) == 0 and len(deletes) == 0:
+                return "Recipe resolution completed successfully."
+
+            self.todoist_lock.acquire_write()
+            try:
+                todoist = self.get_todoist()
+
+                # Mark recipes that could not be resolved (best-effort).
+                for task_id, new_title, new_desc in failure_updates:
+                    try:
+                        todoist.update_task(task_id, title=new_title, body=new_desc)
+                    except Exception as e:
+                        self.log.write(
+                            "[recipe-resolver] Failed to mark task %s as "
+                            "unresolved (may have changed): %s" % (task_id, str(e))
+                        )
+
+                # Add the expanded ingredient tasks (best-effort).
+                for title, description in adds:
+                    try:
+                        todoist.add_task(title, description, project_id=project_id)
+                        self.log.write(
+                            "[recipe-resolver] Added ingredient \"%s\"." % title
+                        )
+                    except Exception as e:
+                        self.log.write(
+                            "[recipe-resolver] Failed to add ingredient "
+                            "\"%s\": %s" % (title, str(e))
+                        )
+
+                # Delete the original recipe-reference tasks (best-effort).
+                tasks_resolved = 0
+                for task_id in deletes:
+                    try:
+                        todoist.delete_task(task_id)
+                        tasks_resolved += 1
+                    except Exception as e:
+                        self.log.write(
+                            "[recipe-resolver] Failed to remove original "
+                            "recipe task %s (may have changed): %s" % (task_id, str(e))
+                        )
+
+                if tasks_resolved > 0:
                     self.log.write(
-                        "[recipe-resolver] [%s] Added ingredient \"%s\"." % (recipe.id, title)
+                        "[recipe-resolver] Resolved %d recipe(s) this cycle." % tasks_resolved
                     )
+            finally:
+                self.todoist_lock.release_write()
 
-                # Delete the original recipe-reference task.
-                todoist.delete_task(task.id)
-                self.log.write(
-                    "[recipe-resolver] [%s] Removed original item \"%s\"." % (recipe.id, task.content)
-                )
-                tasks_resolved += 1
-
-            if tasks_resolved > 0:
-                self.log.write(
-                    "[recipe-resolver] Resolved %d recipe(s) this cycle." % tasks_resolved
-                )
             return "Recipe resolution completed successfully."
         except Exception as e:
             return "Recipe resolution failed: %s" % str(e)
-        finally:
-            self.todoist_lock.release_write()
 
     def deduplicate_items(self) -> str:
         """Performs one iteration of deduplication, merging grocery items that
         share the same ``dimrod::ingredient_id::`` value by summing quantities,
         combining descriptions, and deleting the redundant tasks.
 
-        Acquires a write lock since this modifies/deletes tasks.
+        Inputs are gathered under a read lock and the CPU-only merge work is
+        done without any lock; only the Todoist mutations (update/delete) run
+        under the write lock. The read-then-write window is tolerated
+        best-effort: a stale task whose update/delete fails is logged and
+        skipped.
+
         Returns a status message string.
         """
-        self.todoist_lock.acquire_write()
         try:
-            todoist = self.get_todoist()
-            proj = self._get_project_with_retry("[deduplicator]")
-            tasks = todoist.get_tasks(project_id=proj.id)
+            # ---------------- Phase 1: gather inputs (read lock) ------------ #
+            self.todoist_lock.acquire_read()
+            try:
+                todoist = self.get_todoist()
+                proj = self._get_project_with_retry("[deduplicator]")
+                if proj is None:
+                    return "Deduplication completed successfully."
+                tasks = todoist.get_tasks(project_id=proj.id)
+            finally:
+                self.todoist_lock.release_read()
 
             if len(tasks) == 0:
                 return "Deduplication completed successfully."
 
+            # ---------- Phase 2: compute merges (CPU only, no lock) --------- #
             # Group tasks by their ingredient ID (only tasks that have one).
             groups = {}  # ingredient_id -> [task, ...]
             for task in tasks:
@@ -592,7 +710,8 @@ class GrocerService(Service):
                     continue
                 groups.setdefault(iid, []).append(task)
 
-            # Process each group that has more than one task (duplicates).
+            # Build the merge actions for each group with duplicates.
+            merges = []  # [(keep_task_id, merged_title, merged_desc, [delete_id, ...]), ...]
             for iid, group_tasks in groups.items():
                 if len(group_tasks) < 2:
                     continue
@@ -635,30 +754,65 @@ class GrocerService(Service):
 
                 # Update the first task, delete the rest.
                 keep_task = group_tasks[0]
-                delete_tasks = group_tasks[1:]
+                delete_ids = [dt.id for dt in group_tasks[1:]]
+                merges.append((keep_task.id, merged_title, merged_desc,
+                               delete_ids, len(group_tasks)))
 
-                todoist.update_task(
-                    keep_task.id,
-                    title=merged_title,
-                    body=merged_desc,
-                )
-                for dt in delete_tasks:
-                    todoist.delete_task(dt.id)
+            # ------------- Phase 3: apply mutations (write lock) ------------ #
+            if len(merges) == 0:
+                return "Deduplication completed successfully."
 
-                self.log.write(
-                    "[deduplicator] Merged %d items → \"%s\"." % (len(group_tasks), merged_title)
-                )
+            self.todoist_lock.acquire_write()
+            try:
+                todoist = self.get_todoist()
+                for keep_id, merged_title, merged_desc, delete_ids, group_size in merges:
+                    # Update the kept task; if this fails (e.g. it was deleted
+                    # since we read it), skip the whole group rather than
+                    # deleting the duplicates and losing the item entirely.
+                    try:
+                        todoist.update_task(keep_id, title=merged_title, body=merged_desc)
+                    except Exception as e:
+                        self.log.write(
+                            "[deduplicator] Failed to update kept task %s (may "
+                            "have changed); skipping group: %s" % (keep_id, str(e))
+                        )
+                        continue
+
+                    for dt_id in delete_ids:
+                        try:
+                            todoist.delete_task(dt_id)
+                        except Exception as e:
+                            self.log.write(
+                                "[deduplicator] Failed to delete duplicate task "
+                                "%s (may have changed): %s" % (dt_id, str(e))
+                            )
+
+                    self.log.write(
+                        "[deduplicator] Merged %d items → \"%s\"." % (group_size, merged_title)
+                    )
+            finally:
+                self.todoist_lock.release_write()
+
             return "Deduplication completed successfully."
         except Exception as e:
             return "Deduplication failed: %s" % str(e)
-        finally:
-            self.todoist_lock.release_write()
 
     def run(self):
         """Overridden main function. Launches the three worker threads, then
         sleeps forever (the Oracle and daemon threads do the real work).
         """
         super().run()
+
+        # Ensure the "Groceries" Todoist project exists exactly once, under the
+        # write lock, BEFORE the worker threads start. This way the read-locked
+        # endpoints and NLA handlers never have to perform the creating write
+        # themselves (which would race two concurrent readers). See I-1.
+        try:
+            self.ensure_grocery_project()
+        except Exception as e:
+            # Non-fatal: log and continue. The write-locked add endpoints can
+            # still lazily create the project later if needed.
+            self.log.write("Failed to ensure the Groceries project exists: %s" % str(e))
 
         # Create and store thread instances. The threads are thin loop
         # wrappers — all business logic lives in the GrocerService methods
@@ -704,7 +858,8 @@ class GrocerOracle(Oracle):
                 try:
                     todoist = self.service.get_todoist()
                     proj = self.service.get_grocery_project()
-                    sections = todoist.get_sections(project_id=proj.id)
+                    sections = todoist.get_sections(project_id=proj.id) \
+                        if proj is not None else []
                 finally:
                     self.service.todoist_lock.release_read()
 
@@ -732,7 +887,8 @@ class GrocerOracle(Oracle):
                 try:
                     todoist = self.service.get_todoist()
                     proj = self.service.get_grocery_project()
-                    tasks = todoist.get_tasks(project_id=proj.id)
+                    tasks = todoist.get_tasks(project_id=proj.id) \
+                        if proj is not None else []
                 finally:
                     self.service.todoist_lock.release_read()
 
@@ -773,7 +929,7 @@ class GrocerOracle(Oracle):
                 self.service.todoist_lock.acquire_write()
                 try:
                     todoist = self.service.get_todoist()
-                    proj = self.service.get_grocery_project()
+                    proj = self.service._create_grocery_project_locked()
                     task = todoist.add_task(
                         title,
                         description,
@@ -812,7 +968,7 @@ class GrocerOracle(Oracle):
                 self.service.todoist_lock.acquire_write()
                 try:
                     todoist = self.service.get_todoist()
-                    proj = self.service.get_grocery_project()
+                    proj = self.service._create_grocery_project_locked()
                     tasks = todoist.get_tasks(project_id=proj.id)
 
                     # Find the task whose derived ID matches the one given.
@@ -926,14 +1082,13 @@ class GrocerOracle(Oracle):
 # =============================== NLA Handlers =============================== #
 def nla_list_categories(oracle, jdata):
     """NLA handler that lists all grocery categories (Todoist sections)."""
-    params = NLAEndpointInvokeParameters.from_json(jdata)
-
     try:
         oracle.service.todoist_lock.acquire_read()
         try:
             todoist = oracle.service.get_todoist()
             proj = oracle.service.get_grocery_project()
-            sections = todoist.get_sections(project_id=proj.id)
+            sections = todoist.get_sections(project_id=proj.id) \
+                if proj is not None else []
         finally:
             oracle.service.todoist_lock.release_read()
 
@@ -961,15 +1116,17 @@ def nla_list_categories(oracle, jdata):
 
 def nla_list_grocery_items(oracle, jdata):
     """NLA handler that lists all items on the grocery list."""
-    params = NLAEndpointInvokeParameters.from_json(jdata)
-
     try:
         oracle.service.todoist_lock.acquire_read()
         try:
             todoist = oracle.service.get_todoist()
             proj = oracle.service.get_grocery_project()
-            tasks = todoist.get_tasks(project_id=proj.id)
-            sections = todoist.get_sections(project_id=proj.id)
+            if proj is not None:
+                tasks = todoist.get_tasks(project_id=proj.id)
+                sections = todoist.get_sections(project_id=proj.id)
+            else:
+                tasks = []
+                sections = []
         finally:
             oracle.service.todoist_lock.release_read()
 
@@ -1032,7 +1189,7 @@ def nla_add_grocery_item(oracle, jdata):
         oracle.service.todoist_lock.acquire_write()
         try:
             todoist = oracle.service.get_todoist()
-            proj = oracle.service.get_grocery_project()
+            proj = oracle.service._create_grocery_project_locked()
             task = todoist.add_task(
                 item_title.strip(),
                 "",
@@ -1041,7 +1198,6 @@ def nla_add_grocery_item(oracle, jdata):
         finally:
             oracle.service.todoist_lock.release_write()
 
-        did = derive_item_id(task.id)
         return NLAResult.from_json({
             "success": True,
             "message": "Added \"%s\" to the grocery list." % task.content,
@@ -1077,7 +1233,7 @@ def nla_remove_grocery_item(oracle, jdata):
         oracle.service.todoist_lock.acquire_write()
         try:
             todoist = oracle.service.get_todoist()
-            proj = oracle.service.get_grocery_project()
+            proj = oracle.service._create_grocery_project_locked()
             tasks = todoist.get_tasks(project_id=proj.id)
 
             # Search for the item by case-insensitive substring match.

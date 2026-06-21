@@ -4,6 +4,7 @@
 # Imports
 import os
 import sys
+import html
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -15,6 +16,20 @@ from lib.oracle import OracleSession
 
 
 # ================================= Helpers ================================== #
+def _esc(text) -> str:
+    """Escape text for safe interpolation into Telegram HTML messages.
+
+    ``telegram.py``'s ``sanitize_message_text`` only wraps bare URLs in anchor
+    tags for HTML mode; it does NOT escape ``<``/``&``/``>``. Dynamic content
+    (grocery item titles, category names, grocer-returned status strings) must
+    therefore be escaped before being interpolated into an HTML message so a
+    stray ``<`` or ``&`` cannot break Telegram's HTML parsing.
+    """
+    if text is None:
+        return ""
+    return html.escape(str(text))
+
+
 def _get_session(service, message):
     """Create and authenticate an OracleSession with Grocer.
 
@@ -25,6 +40,10 @@ def _get_session(service, message):
     try:
         r = session.login()
     except Exception as e:
+        # Log the underlying error (consistent with how telegram.py logs send
+        # failures) so connectivity issues are debuggable, while still showing
+        # the user a friendly message.
+        service.log.write("[groceries] Failed to reach Grocer: %s" % str(e))
         service.send_message(message.chat.id,
                              "Sorry, I couldn't reach Grocer. "
                              "It might be offline.")
@@ -107,10 +126,10 @@ def _groceries_list(service, message, session):
 
     msg = "<b>Grocery List:</b>\n"
     for name in sorted(groups.keys(), key=category_sort_key):
-        msg += "\n<b>%s</b>\n" % name
+        msg += "\n<b>%s</b>\n" % _esc(name)
         for item in groups[name]:
             title = item.get("title", "(Untitled)")
-            msg += "· %s\n" % title
+            msg += "· %s\n" % _esc(title)
 
     service.send_message(message.chat.id, msg, parse_mode="HTML")
     return True
@@ -131,7 +150,7 @@ def _groceries_categories(service, message, session):
 
     msg = "<b>Grocery Categories:</b>\n\n"
     for c in sorted(categories, key=lambda c: c.get("name", "").lower()):
-        msg += "· %s\n" % c.get("name", "(Unnamed)")
+        msg += "· %s\n" % _esc(c.get("name", "(Unnamed)"))
 
     service.send_message(message.chat.id, msg, parse_mode="HTML")
     return True
@@ -212,7 +231,7 @@ def _groceries_process(service, message, session):
             except Exception:
                 status_msg = None
             if status_msg:
-                lines.append("· %s: failed (%s)" % (label, status_msg))
+                lines.append("· %s: failed (%s)" % (label, _esc(status_msg)))
             else:
                 lines.append("· %s: failed" % label)
             continue
@@ -222,7 +241,7 @@ def _groceries_process(service, message, session):
         except Exception:
             status_msg = None
         if status_msg:
-            lines.append("· %s: %s" % (label, status_msg))
+            lines.append("· %s: %s" % (label, _esc(status_msg)))
         else:
             lines.append("· %s: done" % label)
 
@@ -324,7 +343,7 @@ def command_groceries(service, message, args: list):
 
     # Unknown subcommand -- show help.
     service.send_message(message.chat.id,
-                         "Unknown subcommand: <code>%s</code>" % subcommand,
+                         "Unknown subcommand: <code>%s</code>" % _esc(subcommand),
                          parse_mode="HTML")
     _groceries_help(service, message)
     return False

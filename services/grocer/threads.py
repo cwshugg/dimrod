@@ -26,7 +26,30 @@ if pdir not in sys.path:
 # GrocerService recipe-resolution logic can parse chef responses without
 # re-deriving the chef import path.
 sys.path.insert(0, os.path.join(pdir, "chef"))
-from recipe import Recipe, Ingredient, IngredientReplenishType
+from recipe import Recipe, Ingredient, IngredientReplenishType  # noqa: F401
+
+# Symbols this module intentionally re-exports. ``Recipe``, ``Ingredient`` and
+# ``IngredientReplenishType`` are imported above purely so ``grocer.py`` can
+# import them from here (alongside the thread classes and shared constants)
+# without re-deriving the chef import path. Listing them in ``__all__``
+# documents the intentional re-export and keeps linters quiet.
+__all__ = [
+    "AutoSorterThread",
+    "RecipeResolverThread",
+    "DeduplicatorThread",
+    "GrocerySortRecord",
+    "Recipe",
+    "Ingredient",
+    "IngredientReplenishType",
+    "RECIPE_MAGIC_STRING",
+    "EXPANDED_RECIPE_INGREDIENT_MAGIC",
+    "RECIPE_RESOLUTION_FAILURE_MAGIC",
+    "AUTOSORT_IGNORE_MAGIC",
+    "INGREDIENT_ID_MAGIC",
+    "TODOIST_RATE_LIMIT_RETRIES",
+    "TODOIST_RATE_LIMIT_TIMEOUT",
+    "QUANTITY_RE",
+]
 
 # ========================== Magic String Constants ========================== #
 RECIPE_MAGIC_STRING = "recipe"
@@ -94,8 +117,6 @@ class AutoSorterThread(threading.Thread):
 
     This thread is a thin loop wrapper; the actual sorting logic lives in
     ``GrocerService.sort_items``.
-
-    Ported from ``taskmaster/tasks/groceries/autosort.py``.
     """
     def __init__(self, service):
         super().__init__(name="grocer-autosort")
@@ -122,8 +143,6 @@ class RecipeResolverThread(threading.Thread):
 
     This thread is a thin loop wrapper; the actual resolution logic lives in
     ``GrocerService.resolve_recipes``.
-
-    Ported from ``taskmaster/tasks/groceries/recipe_resolver.py``.
     """
     def __init__(self, service):
         super().__init__(name="grocer-recipe-resolver")

@@ -40,7 +40,6 @@ Jobs are organized under `tasks/` by domain:
 |----------|-------|-------------------|
 | **Finance** | YNAB budget auto-categorization, transaction reports | YNAB, Speaker (LLM) |
 | **Garmin** | Health data sync (steps, sleep, heart rate, activities) | Garmin Connect |
-| **Groceries** | Grocery list management | Todoist |
 | **Household** | Recurring household tasks | Todoist, Google Calendar |
 | **Automotive** | Vehicle maintenance tasks | Todoist, Google Calendar |
 | **Medical** | Medical appointment tasks | Todoist, Google Calendar |

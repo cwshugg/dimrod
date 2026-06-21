@@ -1,6 +1,6 @@
 # DImROD Services
 
-DImROD consists of 12 Python-based microservices, each running as a systemd service. Services communicate via authenticated HTTP/JSON APIs using the [Oracle](../library.md#oraclepy--http-api-server) framework.
+DImROD consists of 13 Python-based microservices, each running as a systemd service. Services communicate via authenticated HTTP/JSON APIs using the [Oracle](../library.md#oraclepy--http-api-server) framework.
 
 ## Service Overview
 
@@ -13,6 +13,7 @@ DImROD consists of 12 Python-based microservices, each running as a systemd serv
 | [Notif](notif.md) | Reminder scheduling and delivery | ✓ | ✓ |
 | [Nimbus](nimbus.md) | Weather forecasts (US NWS API) | ✓ | — |
 | [Chef](chef.md) | Recipe registry and search | ✓ | — |
+| [Grocer](grocer.md) | Grocery list management (Todoist) | ✓ | ✓ |
 | [Gatekeeper](gatekeeper.md) | Event routing and subscriber dispatch | ✓ | — |
 | [Historian](historian.md) | Event archival (SQLite) | ✓ | — |
 | [Gearhead](gearhead.md) | Vehicle & mileage tracking | ✓ | ✓ |
@@ -29,11 +30,14 @@ Services communicate via `OracleSession`, an HTTP client that authenticates with
 graph TD
     User <-->|chat| Telegram
     Telegram <-->|conversation & NLA| Speaker["Speaker (LLM)"]
-    Speaker <-->|invoke| NLA["NLA Services (Lumen, Notif, Gearhead)"]
+    Speaker <-->|invoke| NLA["NLA Services (Lumen, Notif, Gearhead, Grocer)"]
     Telegram -->|commands| Lumen
     Telegram -->|commands| Warden
     Telegram -->|commands| Notif
     Telegram -->|commands| Chef
+    Telegram -->|/groceries| Grocer
+    Grocer -->|recipe resolution| Chef
+    Grocer -->|grocery list| Todoist
     Lumen -->|control| IoT["LIFX, Wyze, IFTTT (IoT devices)"]
     Cron["Cron Jobs"] --> Nimbus
     Cron --> Warden
@@ -50,4 +54,4 @@ graph TD
 
 ### NLA (Natural Language Actions)
 
-Services that expose NLA endpoints (currently Lumen, Notif, and Gearhead) register their capabilities with the Oracle. Speaker discovers these at runtime and dispatches natural-language requests to the appropriate service. See the [NLA types documentation](../data-types.md#nla-types) for details.
+Services that expose NLA endpoints (currently Lumen, Notif, Gearhead, and Grocer) register their capabilities with the Oracle. Speaker discovers these at runtime and dispatches natural-language requests to the appropriate service. See the [NLA types documentation](../data-types.md#nla-types) for details.
