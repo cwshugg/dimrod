@@ -177,23 +177,64 @@ def _groceries_process(service, message, session):
     """Handle '/groceries process' (and 'all') -- run all three grocer
     operations in sequence: resolve recipes, deduplicate, then sort.
 
-    Each operation behaves like its individual subcommand (sending its own
-    acknowledgement and reporting completion as a reply). This is a
-    best-effort sequence: if one operation fails, the remaining operations
-    are still attempted, and the overall result reflects whether every
-    operation succeeded.
+    Unlike the individual subcommands, this sends only two messages total:
+    a single acknowledgement up front, then a single summary reply once all
+    three operations have completed. This is a best-effort sequence: if one
+    operation fails, the remaining operations are still attempted, and the
+    overall result reflects whether every operation succeeded.
     """
     operations = [
-        ("/items/resolve_recipes", "Resolving recipes into ingredients..."),
-        ("/items/deduplicate", "Deduplicating the grocery list..."),
-        ("/items/sort", "Sorting the grocery list..."),
+        ("/items/resolve_recipes", "Resolve recipes"),
+        ("/items/deduplicate", "Deduplicate"),
+        ("/items/sort", "Sort"),
     ]
 
+    # Send a single acknowledgement up front and capture it so the summary
+    # can be threaded as a reply to it.
+    ack = service.send_message(message.chat.id, "Processing groceries...")
+    reply_to = ack.message_id if ack is not None else None
+
+    # Issue each request in order, best-effort: keep going even if one fails.
     success = True
-    for endpoint, action_msg in operations:
-        if not _groceries_operation(service, message, session,
-                                    endpoint, action_msg):
+    lines = []
+    for endpoint, label in operations:
+        try:
+            r = session.post(endpoint)
+        except Exception:
             success = False
+            lines.append("· %s: failed (request error)" % label)
+            continue
+
+        if r.status_code != 200:
+            success = False
+            try:
+                status_msg = OracleSession.get_response_message(r)
+            except Exception:
+                status_msg = None
+            if status_msg:
+                lines.append("· %s: failed (%s)" % (label, status_msg))
+            else:
+                lines.append("· %s: failed" % label)
+            continue
+
+        try:
+            status_msg = OracleSession.get_response_message(r)
+        except Exception:
+            status_msg = None
+        if status_msg:
+            lines.append("· %s: %s" % (label, status_msg))
+        else:
+            lines.append("· %s: done" % label)
+
+    # Build a single summary reply describing the overall outcome.
+    if success:
+        summary = "<b>Done processing groceries.</b>\n"
+    else:
+        summary = "<b>Finished processing groceries with errors.</b>\n"
+    summary += "\n".join(lines)
+
+    service.send_message(message.chat.id, summary, parse_mode="HTML",
+                         reply_to_message_id=reply_to)
     return success
 
 
