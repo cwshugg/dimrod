@@ -1,0 +1,38 @@
+# ===========================================================================
+# TEMPLATE CONFIG — Replace all placeholder values before use.
+#
+# This file contains example/placeholder values that must be replaced with
+# real values for a working deployment. Copy this file, fill in your actual
+# configuration, and reference the copy in your service setup.
+# ===========================================================================
+
+service_name: grocer
+service_log: stdout
+msghub_name: YOUR_MSGHUB_NAME
+oracle:
+  addr: 0.0.0.0
+  port: 2375
+  log: stdout
+  auth_cookie: grocer_auth
+  auth_secret: YOUR_JWT_SECRET_HERE
+  auth_users:
+  - username: admin
+    password: YOUR_PASSWORD_HERE
+    privilege: 0
+
+todoist:
+  api_key: YOUR_TODOIST_API_KEY
+
+dialogue:
+  openai_api_key: YOUR_OPENAI_API_KEY
+  openai_chat_model: gpt-4o-mini
+
+chef_oracle:
+  addr: 0.0.0.0
+  port: 2362
+  auth_username: YOUR_CHEF_USERNAME
+  auth_password: YOUR_CHEF_PASSWORD
+
+autosort_refresh_rate: 120
+recipe_resolver_refresh_rate: 120
+deduplicator_refresh_rate: 120

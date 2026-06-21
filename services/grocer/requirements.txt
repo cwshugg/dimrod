@@ -1,0 +1,12 @@
+# Python dependencies for the grocer service.
+#
+# These are the same core dependencies used by other DImROD services.
+# Install into the service's virtual environment:
+#   pip install -r requirements.txt
+
+flask
+gevent
+requests
+todoist-api-python
+PyJWT
+openai

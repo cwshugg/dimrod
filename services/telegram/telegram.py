@@ -48,6 +48,7 @@ from commands.calendar import command_calendar
 from commands.budget import command_budget
 from commands.news import command_news
 from commands.recipes import command_recipes
+from commands.groceries import command_groceries
 from commands.vehicles import command_vehicles
 from commands.foodlog import command_foodlog
 from commands.s_reset import command_s_reset
@@ -75,6 +76,7 @@ class TelegramConfig(ServiceConfig):
             ConfigField("gearhead", [OracleSessionConfig],      required=True),
             ConfigField("munchbook", [OracleSessionConfig],     required=False, default=None),
             ConfigField("treasurer", [OracleSessionConfig],    required=False, default=None),
+            ConfigField("grocer",   [OracleSessionConfig],      required=False, default=None),
             ConfigField("google_calendar_config",   [GoogleCalendarConfig], required=True),
             ConfigField("google_calendar_id",       [str],      required=True),
             ConfigField("google_calendar_timezone", [str],      required=False, default="America/New_York"),
@@ -127,6 +129,9 @@ class TelegramService(Service):
             TelegramCommand(["foodlog", "food", "f", "munchbook"],
                             "Log and search food entries",
                             command_foodlog),
+            TelegramCommand(["groceries", "grocery", "grocer", "groc", "g"],
+                            "Manage the grocery list",
+                            command_groceries),
             TelegramCommand(["_reset"],
                             "Resets the current chat conversation.",
                             command_s_reset,
@@ -406,7 +411,8 @@ class TelegramService(Service):
 
     def send_message(self, chat_id, text,
                      parse_mode=None,
-                     reply_markup=None):
+                     reply_markup=None,
+                     reply_to_message_id=None):
         """Wrapper for sending a message."""
         text = self.sanitize_message_text(text, parse_mode=parse_mode)
 
@@ -415,7 +421,8 @@ class TelegramService(Service):
             try:
                 return self.bot.send_message(chat_id, text,
                                              parse_mode=parse_mode,
-                                             reply_markup=reply_markup)
+                                             reply_markup=reply_markup,
+                                             reply_to_message_id=reply_to_message_id)
             except Exception as e:
                 # on failure, sleep for a small amount of time, and get a new
                 # bot instance

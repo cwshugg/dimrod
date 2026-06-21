@@ -53,6 +53,11 @@ munchbook:
   port: 2371
   auth_username: ABC
   auth_password: XYZ
+grocer:
+  addr: 0.0.0.0
+  port: 2375
+  auth_username: ABC
+  auth_password: XYZ
 google_calendar_config:
   service_account_credentials_path: /path/to/google/cloud/service_account_creds.json
 google_calendar_id: your_google_calendar_id
