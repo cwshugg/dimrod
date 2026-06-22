@@ -15,6 +15,7 @@ import sys
 import flask
 import time
 import re
+import json
 import hashlib
 import requests
 
@@ -1169,7 +1170,7 @@ class GrocerOracle(Oracle):
                 "name": "add_grocery_item",
                 "description": "Add an item to the grocery list. "
                                "Phrases like \"add milk to the grocery list\", "
-                               "\"put bananas on the groceries\", \"I need eggs\", etc.",
+                               "\"put bananas on the groceries\", \"I need eggs\", \"put peanut butter and bread on the grocery list\", etc.",
             }).set_handler(nla_add_grocery_item),
             NLAEndpoint.from_json({
                 "name": "remove_grocery_item",
@@ -1266,10 +1267,12 @@ def nla_list_grocery_items(oracle, jdata):
 
 
 def nla_add_grocery_item(oracle, jdata):
-    """NLA handler that adds an item to the grocery list.
+    """NLA handler that adds one or more items to the grocery list.
 
-    Parses the item title from the user's message. The message itself is used
-    as the item title after stripping common preamble phrases.
+    Uses a cheap/fast LLM (via the grocer's existing `dialogue` config) to parse
+    a LIST of grocery items out of the user's natural-language message, then adds
+    EACH parsed item to Todoist. Reports partial success — which items were added
+    versus which failed.
     """
     params = NLAEndpointInvokeParameters.from_json(jdata)
 
@@ -1278,44 +1281,79 @@ def nla_add_grocery_item(oracle, jdata):
     if params.has_substring():
         user_text = params.substring
 
-    # Strip common preamble phrases to extract the item name.
-    item_title = _extract_item_name(user_text)
-    if not item_title or len(item_title.strip()) == 0:
+    # Parse the item list with the LLM (regex single-item fallback on failure).
+    # This is the slow step and is intentionally performed OUTSIDE the write
+    # lock — we never hold the todoist_lock across the LLM call.
+    items = _parse_grocery_items(oracle, user_text)
+    if len(items) == 0:
         return NLAResult.from_json({
             "success": False,
             "message": "I could not determine which item to add. "
                        "Please specify the item name.",
         })
 
+    added = []           # contents of tasks successfully added
+    failed = []          # (item, reason) tuples for items that could not be added
     try:
+        # Acquire the write lock ONCE around the whole batch of Todoist
+        # mutations (the slow LLM parse already happened above, lock-free).
         oracle.service.todoist_lock.acquire_write()
         try:
             todoist = oracle.service.get_todoist()
             proj = oracle.service._create_grocery_project_locked()
-            task = todoist.add_task(
-                item_title.strip(),
-                "",
-                project_id=proj.id,
-            )
+            for item in items:
+                title = item.strip()
+                if len(title) == 0:
+                    continue
+                # Add each item independently so one failure doesn't abort the
+                # rest of the batch (partial-success behavior).
+                try:
+                    task = todoist.add_task(title, "", project_id=proj.id)
+                    added.append(task.content)
+                except Exception as e:
+                    failed.append((title, str(e)))
         finally:
             oracle.service.todoist_lock.release_write()
-
-        return NLAResult.from_json({
-            "success": True,
-            "message": "Added \"%s\" to the grocery list." % task.content,
-        })
     except Exception as e:
         return NLAResult.from_json({
             "success": False,
-            "message": "Failed to add item: %s" % str(e),
+            "message": "Failed to add item(s): %s" % str(e),
         })
+
+    # Build a single summary message reporting partial success.
+    parts = []
+    if len(added) > 0:
+        parts.append("Added %s to the grocery list." % _join_items(added))
+    if len(failed) > 0:
+        parts.append("Could not add: %s." %
+                     ", ".join("\"%s\" (%s)" % (i, r) for (i, r) in failed))
+
+    return NLAResult.from_json({
+        # Success if at least one item was added; failure only if none were.
+        "success": len(added) > 0,
+        "message": " ".join(parts) if len(parts) > 0
+                   else "I could not add any items to the grocery list.",
+    })
 
 
 def nla_remove_grocery_item(oracle, jdata):
-    """NLA handler that removes an item from the grocery list.
+    """NLA handler that removes one or more items from the grocery list.
 
-    Parses the item name from the user's message, then searches for a matching
-    task by title (case-insensitive substring match).
+    Rather than LLM-parsing item NAMES and substring-matching them, this
+    presents the ENTIRE current grocery list to a cheap/fast LLM as an ephemeral
+    numbered list (1..N) alongside the user's message, and asks the model which
+    NUMBERS to remove. The numbers are mapped back to task ids and deleted. This
+    makes multi-item and fuzzy/semantic removals ("take off the milk and that
+    bread", "remove the dairy") far more reliable.
+
+    Locking is deliberately narrow: the current list is snapshotted under a READ
+    lock, the slow LLM call runs UNLOCKED, and the deletes happen under a single
+    WRITE lock. The LLM call is never made while holding the write lock.
+
+    If the LLM-by-number path fails or yields no usable selection, this falls
+    back to the legacy name-parse (`_parse_grocery_items`) + substring-match
+    removal logic. Reports partial success — which items were removed versus
+    which were not found.
     """
     params = NLAEndpointInvokeParameters.from_json(jdata)
 
@@ -1323,48 +1361,98 @@ def nla_remove_grocery_item(oracle, jdata):
     if params.has_substring():
         user_text = params.substring
 
-    item_name = _extract_item_name(user_text)
-    if not item_name or len(item_name.strip()) == 0:
+    # --- (a) Snapshot the current grocery tasks under a READ lock. ---
+    # We only need a consistent read of the list to build the ephemeral numbered
+    # list for the LLM; the slow LLM call happens lock-free below. We use the
+    # read-only `get_grocery_project` (the project is ensured at startup) so this
+    # never performs a write while holding the read lock.
+    try:
+        oracle.service.todoist_lock.acquire_read()
+        try:
+            todoist = oracle.service.get_todoist()
+            proj = oracle.service.get_grocery_project()
+            tasks = todoist.get_tasks(project_id=proj.id) \
+                if proj is not None else []
+        finally:
+            oracle.service.todoist_lock.release_read()
+    except Exception as e:
         return NLAResult.from_json({
             "success": False,
-            "message": "I could not determine which item to remove. "
-                       "Please specify the item name.",
+            "message": "Failed to read the grocery list: %s" % str(e),
         })
 
+    # Short-circuit: an empty list means there is nothing to remove.
+    if tasks is None or len(tasks) == 0:
+        return NLAResult.from_json({
+            "success": False,
+            "message": "The grocery list is empty, "
+                       "so I could not find those items to remove.",
+        })
+
+    # --- (b) UNLOCKED: ask the LLM which numbered items to remove. ---
+    not_found = []      # item descriptions the user asked for that aren't present
+    targets = None      # list of task objects selected for deletion
+    identified = _identify_removal_items(oracle, user_text, tasks)
+    if identified is not _REMOVAL_IDENTIFY_FAILED:
+        targets, not_found = identified
+    else:
+        # --- (c) Fallback: legacy name-parse + substring-match removal. ---
+        # The LLM-by-number path failed/returned nothing usable; fall back to
+        # parsing item NAMES (another UNLOCKED LLM call, regex fallback within)
+        # and substring-matching them against the snapshot we already took.
+        oracle.service.log.write(
+            "[nla] removal-by-number unavailable; "
+            "falling back to name-parse + substring matching."
+        )
+        items = _parse_grocery_items(oracle, user_text)
+        if len(items) == 0:
+            return NLAResult.from_json({
+                "success": False,
+                "message": "I could not determine which item to remove. "
+                           "Please specify the item name.",
+            })
+        targets, not_found = _match_items_by_substring(items, tasks)
+
+    # --- (d) Delete the selected tasks under a SINGLE write lock. ---
+    removed = []       # contents of tasks actually deleted
     try:
         oracle.service.todoist_lock.acquire_write()
         try:
             todoist = oracle.service.get_todoist()
-            proj = oracle.service._create_grocery_project_locked()
-            tasks = todoist.get_tasks(project_id=proj.id)
-
-            # Search for the item by case-insensitive substring match.
-            target = None
-            item_lower = item_name.strip().lower()
-            for t in tasks:
-                if item_lower in t.content.strip().lower():
-                    target = t
-                    break
-
-            if target is None:
-                return NLAResult.from_json({
-                    "success": False,
-                    "message": "Could not find \"%s\" on the grocery list." % item_name,
-                })
-
-            todoist.delete_task(target.id)
+            for target in targets:
+                try:
+                    todoist.delete_task(target.id)
+                    removed.append(target.content)
+                except Exception as e:
+                    # Tolerate a task that no longer exists (e.g. removed by a
+                    # concurrent op between our snapshot and this delete): treat
+                    # it as already-gone rather than failing the whole batch.
+                    oracle.service.log.write(
+                        "[nla] delete of task %s failed/already-gone (%s); "
+                        "continuing." % (target.id, str(e))
+                    )
         finally:
             oracle.service.todoist_lock.release_write()
-
-        return NLAResult.from_json({
-            "success": True,
-            "message": "Removed \"%s\" from the grocery list." % target.content,
-        })
     except Exception as e:
         return NLAResult.from_json({
             "success": False,
-            "message": "Failed to remove item: %s" % str(e),
+            "message": "Failed to remove item(s): %s" % str(e),
         })
+
+    # --- (e) Partial-success reporting. ---
+    parts = []
+    if len(removed) > 0:
+        parts.append("Removed %s from the grocery list." % _join_items(removed))
+    if len(not_found) > 0:
+        parts.append("Could not find: %s." %
+                     ", ".join("\"%s\"" % i for i in not_found))
+
+    return NLAResult.from_json({
+        # Success if at least one item was removed.
+        "success": len(removed) > 0,
+        "message": " ".join(parts) if len(parts) > 0
+                   else "I could not find any of those items on the grocery list.",
+    })
 
 
 # =============================== NLA Helpers ================================ #
@@ -1388,6 +1476,327 @@ def _extract_item_name(text: str) -> str:
         if m:
             return m.group(1).strip()
     return text
+
+
+def _join_items(items: list) -> str:
+    """Joins a list of item names into a human-readable, comma-separated string
+    with each item quoted (e.g. '"milk", "eggs", and "bread"')."""
+    quoted = ["\"%s\"" % i for i in items]
+    if len(quoted) == 1:
+        return quoted[0]
+    if len(quoted) == 2:
+        return "%s and %s" % (quoted[0], quoted[1])
+    return "%s, and %s" % (", ".join(quoted[:-1]), quoted[-1])
+
+
+def _parse_item_list_response(response: str) -> list:
+    """Parses an LLM grocery-list response into a de-duplicated list of item
+    strings.
+
+    Tries strict JSON first (tolerating a surrounding markdown code fence); if
+    that fails, falls back to splitting on newlines (tolerating "- "/"* "
+    bullet prefixes). Whitespace is stripped, empties are dropped, and items are
+    de-duplicated case-insensitively while preserving first-seen order. Returns
+    `[]` when nothing usable is found.
+    """
+    if response is None:
+        return []
+    text = response.strip()
+    if len(text) == 0:
+        return []
+
+    # Strip a surrounding markdown code fence (```json ... ```), if present.
+    if text.startswith("```"):
+        lines = text.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if len(lines) > 0 and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+
+    raw_items = []
+
+    # Primary path: parse the response as a JSON array of strings.
+    parsed_json = False
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            raw_items = [str(x) for x in data]
+            parsed_json = True
+    except Exception:
+        parsed_json = False
+
+    # Secondary path: treat the response as one item per line.
+    if not parsed_json:
+        for line in text.split("\n"):
+            # Drop common bullet prefixes and stray quoting/bracketing.
+            line = line.strip().lstrip("-*•").strip()
+            line = line.strip("[]").strip().strip("\"'").strip().rstrip(",").strip("\"'").strip()
+            if len(line) > 0:
+                raw_items.append(line)
+
+    # Normalize: strip whitespace, drop empties, dedup case-insensitively.
+    items = []
+    seen = set()
+    for item in raw_items:
+        item = item.strip()
+        if len(item) == 0:
+            continue
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(item)
+    return items
+
+
+def _parse_grocery_items(oracle, user_text: str) -> list:
+    """Parses a LIST of grocery item names out of natural-language `user_text`
+    using a cheap/fast LLM (the grocer's existing `dialogue` config, whose
+    default model is `gpt-4o-mini`).
+
+    The LLM is asked to return a strict JSON array of item-name strings, which
+    is parsed robustly by `_parse_item_list_response`.
+
+    IMPORTANT: this performs a slow network LLM call and therefore MUST be
+    invoked OUTSIDE the `todoist_lock` write lock.
+
+    On ANY failure — exception, empty/unparseable response, or an empty parsed
+    list — this falls back to the original single-item regex extraction and
+    returns `[_extract_item_name(user_text)]` (the fallback is logged).
+    """
+    # Guard: nothing to parse.
+    if user_text is None or len(user_text.strip()) == 0:
+        return []
+
+    # Focused system prompt instructing the model to behave as a strict parser.
+    intro = (
+        "You are a grocery-list parser. "
+        "Given a user's message, extract the distinct grocery items they want to act on. "
+        "Return ONLY a JSON array of strings (for example: [\"milk\", \"eggs\", \"bread\"]) "
+        "and nothing else: no prose, no explanation, no markdown fences. "
+        "Split conjunctions and lists into separate items: \"milk and eggs\" becomes "
+        "[\"milk\", \"eggs\"], and \"milk, eggs, bread\" becomes [\"milk\", \"eggs\", \"bread\"]. "
+        "Keep quantities and descriptors as part of the item text "
+        "(for example \"2 gallons of whole milk\" stays as a single item, exactly as written). "
+        "Do not invent, normalize, translate, or pluralize items. "
+        "If there are no grocery items, return an empty array []."
+    )
+
+    try:
+        # Construct the dialogue interface the same way the autosort path does,
+        # reusing the existing (cheap/fast) dialogue config. This call is slow,
+        # so the caller must NOT be holding the todoist write lock here.
+        dialogue = DialogueInterface(oracle.service.config.dialogue)
+        response = dialogue.oneshot(intro, user_text)
+
+        items = _parse_item_list_response(response)
+        if len(items) > 0:
+            return items
+
+        # Empty/unparseable LLM output -> fall through to the regex fallback.
+        oracle.service.log.write(
+            "[nla] LLM returned no parseable grocery items; "
+            "falling back to regex extraction."
+        )
+    except Exception as e:
+        # Any failure in the LLM path falls back to the regex extractor.
+        oracle.service.log.write(
+            "[nla] LLM grocery-item parse failed (%s); "
+            "falling back to regex extraction." % str(e)
+        )
+
+    # Fallback: single-item regex extraction (original behavior).
+    fallback = _extract_item_name(user_text).strip()
+    return [fallback] if len(fallback) > 0 else []
+
+
+# Sentinel returned by `_identify_removal_items` when the LLM-by-number path
+# could not be used (exception, unparseable response, or no usable selection).
+# It signals the caller to fall back to the legacy name-parse + substring path.
+_REMOVAL_IDENTIFY_FAILED = object()
+
+
+def _parse_removal_selection(response: str, count: int):
+    """Parses the LLM's removal-selection response.
+
+    Expects a strict JSON object of the form
+    `{"remove": [<numbers>], "not_found": [<strings>]}`. Tolerates a surrounding
+    markdown code fence. Each `remove` entry must be an integer (or numeric
+    string) within 1..count (inclusive); out-of-range, non-integer, and
+    duplicate numbers are dropped while preserving first-seen order. `not_found`
+    entries are coerced to stripped, non-empty strings.
+
+    Returns a `(remove_numbers, not_found)` tuple on success, or `None` if the
+    response is missing/unparseable or is not a JSON object (so the caller can
+    fall back to the legacy removal path).
+    """
+    if response is None:
+        return None
+    text = response.strip()
+    if len(text) == 0:
+        return None
+
+    # Strip a surrounding markdown code fence (```json ... ```), if present.
+    if text.startswith("```"):
+        lines = text.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if len(lines) > 0 and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+
+    try:
+        data = json.loads(text)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    # Validate / sanitize the "remove" numbers: integers in-range, de-duped.
+    remove_numbers = []
+    seen = set()
+    for raw in (data.get("remove") or []):
+        # Accept ints and clean numeric strings; ignore anything else.
+        if isinstance(raw, bool):
+            continue  # bool is an int subclass — reject it explicitly
+        try:
+            n = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if n < 1 or n > count:
+            continue  # out-of-range -> drop (never invent numbers)
+        if n in seen:
+            continue
+        seen.add(n)
+        remove_numbers.append(n)
+
+    # Collect the "not_found" descriptions (for reporting only).
+    not_found = []
+    for raw in (data.get("not_found") or []):
+        s = str(raw).strip()
+        if len(s) > 0:
+            not_found.append(s)
+
+    return (remove_numbers, not_found)
+
+
+def _identify_removal_items(oracle, user_text: str, tasks: list):
+    """Asks a cheap/fast LLM which of the CURRENT grocery tasks to remove.
+
+    The `tasks` snapshot is presented to the model as an ephemeral numbered list
+    (1..N) together with the user's message, and the model returns a strict JSON
+    object `{"remove": [<numbers>], "not_found": [<strings>]}`. The numbers are
+    per-request only (an internal `number -> task` mapping); they are never
+    persisted nor shown to the user. Returned numbers are mapped back to the
+    corresponding task objects.
+
+    IMPORTANT: this performs a slow network LLM call and therefore MUST be
+    invoked OUTSIDE the `todoist_lock` write lock.
+
+    Returns a `(targets, not_found)` tuple where `targets` is the list of task
+    objects to delete and `not_found` is the list of user-described items the
+    model reported as absent. Returns the `_REMOVAL_IDENTIFY_FAILED` sentinel on
+    ANY failure (exception, unparseable response, or an empty `remove`
+    selection) so the caller can fall back to the legacy removal path.
+    """
+    # Guard: nothing to parse / nothing to remove from.
+    if user_text is None or len(user_text.strip()) == 0:
+        return _REMOVAL_IDENTIFY_FAILED
+    if tasks is None or len(tasks) == 0:
+        return _REMOVAL_IDENTIFY_FAILED
+
+    # Build the ephemeral numbered list and the internal number -> task map.
+    # Numbers are 1-based and exist only for the duration of this request.
+    number_to_task = {}
+    lines = []
+    for idx, task in enumerate(tasks, start=1):
+        number_to_task[idx] = task
+        lines.append("%d. %s" % (idx, task.content))
+    numbered_list = "\n".join(lines)
+
+    # System prompt: a strict removal SELECTOR that returns numbers, not names.
+    intro = (
+        "You are a grocery-list removal selector. "
+        "You are given a numbered grocery list and a user's message describing "
+        "which items they want to remove. Decide WHICH numbered items the user "
+        "wants removed, matching by meaning: synonyms, categories (for example "
+        "\"dairy\" matches milk and cheese), partial names, and typos are all "
+        "OK. "
+        "Return ONLY a strict JSON object and nothing else — no prose, no "
+        "explanation, no markdown fences — of the form "
+        "{\"remove\": [<numbers>], \"not_found\": [<strings>]}. "
+        "\"remove\" is the list of item NUMBERS (from the provided list) the "
+        "user wants removed. \"not_found\" is the list of item descriptions the "
+        "user asked to remove that are NOT present on the list. "
+        "Only use numbers that appear in the list; never invent numbers. "
+        "Return empty arrays when appropriate.\n\n"
+        "Grocery list:\n%s" % numbered_list
+    )
+
+    try:
+        # Construct the dialogue interface the same way the autosort / item-parse
+        # paths do, reusing the existing (cheap/fast) dialogue config. This call
+        # is slow, so the caller must NOT hold the todoist write lock here.
+        dialogue = DialogueInterface(oracle.service.config.dialogue)
+        response = dialogue.oneshot(intro, user_text)
+
+        parsed = _parse_removal_selection(response, len(tasks))
+        if parsed is None:
+            oracle.service.log.write(
+                "[nla] LLM removal-selection response was unparseable; "
+                "falling back to substring removal."
+            )
+            return _REMOVAL_IDENTIFY_FAILED
+
+        remove_numbers, not_found = parsed
+        if len(remove_numbers) == 0:
+            # No usable selection -> let the caller try the substring strategy.
+            oracle.service.log.write(
+                "[nla] LLM removal-selection yielded no removable numbers; "
+                "falling back to substring removal."
+            )
+            return _REMOVAL_IDENTIFY_FAILED
+
+        # Map the validated numbers back to their captured task objects.
+        targets = [number_to_task[n] for n in remove_numbers]
+        return (targets, not_found)
+    except Exception as e:
+        # Any failure in the LLM path falls back to the legacy removal logic.
+        oracle.service.log.write(
+            "[nla] LLM removal-selection failed (%s); "
+            "falling back to substring removal." % str(e)
+        )
+        return _REMOVAL_IDENTIFY_FAILED
+
+
+def _match_items_by_substring(items: list, tasks: list):
+    """Legacy removal matcher (preserved as the fallback path).
+
+    For each parsed item NAME, finds the first task whose content contains it
+    (case-insensitive substring), consuming matched tasks so two different items
+    cannot select the same task. Returns a `(targets, not_found)` tuple of the
+    matched task objects and the unmatched item names.
+    """
+    pool = list(tasks)
+    targets = []
+    not_found = []
+    for item in items:
+        item_lower = item.strip().lower()
+        if len(item_lower) == 0:
+            continue
+        match = None
+        for t in pool:
+            if item_lower in t.content.strip().lower():
+                match = t
+                break
+        if match is None:
+            not_found.append(item)
+            continue
+        targets.append(match)
+        # Drop the matched task so a later item can't re-match it.
+        pool = [t for t in pool if t.id != match.id]
+    return (targets, not_found)
 
 
 # =============================== Runner Code ================================ #
