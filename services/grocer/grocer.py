@@ -16,7 +16,6 @@ import flask
 import time
 import re
 import hashlib
-import threading
 import requests
 
 # Enable import from the parent directory
@@ -32,6 +31,13 @@ from lib.nla import NLAEndpoint, NLAEndpointInvokeParameters, NLAResult
 from lib.cli import ServiceCLI
 from lib.dialogue import DialogueConfig, DialogueInterface
 from lib.todoist import Todoist, TodoistConfig
+
+# The writer-priority, non-reentrant readers-writer lock used by the grocer's
+# threads and endpoints now lives in `lib/lock.py` (promoted out of this file so
+# it can be shared with other services). It is re-imported here so existing
+# references — including `from grocer import ReadWriteLock` in the grocer tests —
+# continue to work unchanged.
+from lib.lock import ReadWriteLock  # noqa: F401
 
 # Thread classes plus the supporting records, constants, and recipe helpers
 # they share. The per-iteration business logic lives in GrocerService (below);
@@ -54,53 +60,6 @@ from threads import (
     TODOIST_RATE_LIMIT_TIMEOUT,
     QUANTITY_RE,
 )
-
-
-# ============================== ReadWriteLock =============================== #
-class ReadWriteLock:
-    """A readers-writer lock. Multiple readers can hold the lock concurrently,
-    but a writer gets exclusive access. Writers are given priority to prevent
-    starvation.
-    """
-
-    def __init__(self):
-        self._read_ready = threading.Condition(threading.Lock())
-        self._readers = 0
-        self._writers_waiting = 0
-        self._writing = False
-
-    def acquire_read(self):
-        """Acquire a read lock. Multiple threads can hold this
-        simultaneously.
-        """
-        with self._read_ready:
-            while self._writing or self._writers_waiting > 0:
-                self._read_ready.wait()
-            self._readers += 1
-
-    def release_read(self):
-        """Release a read lock."""
-        with self._read_ready:
-            self._readers -= 1
-            if self._readers == 0:
-                self._read_ready.notify_all()
-
-    def acquire_write(self):
-        """Acquire a write lock. Exclusive access — no other readers or
-        writers.
-        """
-        with self._read_ready:
-            self._writers_waiting += 1
-            while self._readers > 0 or self._writing:
-                self._read_ready.wait()
-            self._writers_waiting -= 1
-            self._writing = True
-
-    def release_write(self):
-        """Release a write lock."""
-        with self._read_ready:
-            self._writing = False
-            self._read_ready.notify_all()
 
 
 # ================================= Helpers ================================== #

@@ -12,6 +12,15 @@ oracle:
     privilege: 0
 dialogue:
   openai_api_key: YOUR_OPENAI_KEY_HERE
+# Optional NLA selection cache. Caches the LLM's "which endpoints to invoke"
+# decision per (sanitized) message to skip the LLM on repeated phrasings. When
+# this block is omitted entirely, the cache still runs with these defaults.
+nla_cache:
+  enabled: true                  # set false to fully disable the cache (no DB)
+  # path: services/speaker/nla_cache.db  # default: beside speaker.py; set for a persistent volume
+  default_expiration: 1209600    # absolute entry lifetime in seconds (2 weeks)
+  sweep_interval: 3600           # background expiry/eviction sweep period in seconds (1 hour)
+  # max_entries: 1000            # optional cap; soonest-to-expire rows evicted first
 nla_services:
 - name: Lumen
   oracle:

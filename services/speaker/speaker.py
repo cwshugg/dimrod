@@ -33,6 +33,10 @@ from lib.dialogue import DialogueConfig, DialogueInterface, \
                          DialogueConversation, DialogueMessage
 from lib.nla import NLAService, NLAEndpoint, NLAResult, NLAEndpointInvokeParameters
 
+# The NLA selection cache lives beside this module. It transparently speeds up
+# repeated messages by caching the LLM's endpoint-selection decision.
+from nla_cache import NLACache, NLACacheConfig
+
 
 # =============================== Config Class =============================== #
 class SpeakerConfig(ServiceConfig):
@@ -46,6 +50,7 @@ class SpeakerConfig(ServiceConfig):
             ConfigField("nla_services",     [NLAService], required=False,   default=[]),
             ConfigField("nla_dialogue_retry_count", [int], required=False,  default=5),
             ConfigField("nla_threads",      [int],      required=False,     default=8),
+            ConfigField("nla_cache",        [NLACacheConfig], required=False, default=None),
         ]
 
 
@@ -215,18 +220,48 @@ class SpeakerService(Service):
             t.start()
             self.nla_threads.append(t)
 
+        # build the NLA selection cache. When no `nla_cache` block is present in
+        # the config we fall back to a default (enabled) cache so existing
+        # deployments transparently gain the speedup. A disabled cache is a
+        # complete no-op (see `NLACache`).
+        cache_cfg = self.config.nla_cache
+        if cache_cfg is None:
+            cache_cfg = NLACacheConfig()
+            cache_cfg.init_defaults()
+        self.nla_cache = NLACache(cache_cfg)
+
+        # timestamp of the last background NLA-cache sweep (set in `run()`).
+        self.last_sweep_timestamp = None
+
 
     def run(self):
         """Overridden main function implementation."""
         super().run()
 
         self.remood()
+        self.last_sweep_timestamp = datetime.now()
         while True:
             # periodically, choose a new mood for DImROD's dialogue library to use
             # for building responses
             now = datetime.now()
             if now.timestamp() - self.mood_timestamp.timestamp() >= self.config.mood_timeout:
                 self.remood()
+
+            # periodically sweep the NLA cache to reclaim expired/over-capacity
+            # entries. The sweep self-synchronizes (write lock) inside the cache,
+            # and is guarded behind `enabled`. Lazy expiry in `get()` means
+            # correctness never depends on this sweep — it's pure space
+            # reclamation.
+            if self.nla_cache is not None and self.nla_cache.config.enabled:
+                if now.timestamp() - self.last_sweep_timestamp.timestamp() >= \
+                   self.nla_cache.config.sweep_interval:
+                    try:
+                        removed = self.nla_cache.sweep()
+                        if removed > 0:
+                            self.log.write("NLA cache sweep removed %d entr(ies)." % removed)
+                    except Exception as e:
+                        self.log.write("NLA cache sweep failed: %s" % e)
+                    self.last_sweep_timestamp = now
 
             # sleep before re-looping
             time.sleep(self.config.tick_rate)
@@ -295,101 +330,200 @@ class SpeakerService(Service):
                                    (nla_service.name, str(entry), e))
                     continue
 
-        # build a prompt that we'll use to ask an LLM which API endpoints
-        # should be invoked
-        prompt_intro = "You are an AI assistant that processes messages written by the user, " \
-                        "and determines if a specific API endpoint should be invoked.\n" \
-                        "Below is a list of the API endpoints in question:\n\n"
-        for ep_id in endpoints:
-            ep = endpoints[ep_id]["endpoint"]
-            prompt_intro += "* \"%s\": %s\n" % (ep_id, ep.description)
-        prompt_intro += "\nFor each endpoint, you must determine if the endpoint should be invoked, " \
-                        "based on the description of the endpoint and the message provided by the user.\n" \
-                        "You must respond with a JSON object in this format:\n\n" \
-                        "[\n" \
-                        "   {\n" \
-                        "       \"id\": \"ID_OF_ENDPOINT_TO_INVOKE_1\",\n" \
-                        "       \"substring\": \"SPECIFIC_SUBSTRING_OF_MESSAGE_REFERRING_TO_THIS_ENDPOINT\"\n" \
-                        "   },\n" \
-                        "   {\n" \
-                        "       \"id\": \"ID_OF_ENDPOINT_TO_INVOKE_2\",\n" \
-                        "       \"substring\": \"SPECIFIC_SUBSTRING_OF_MESSAGE_REFERRING_TO_THIS_ENDPOINT\"\n" \
-                        "   }\n" \
-                        "]\n" \
-                        "The list should contain an entry for every API endpoint that should be invoked.\n" \
-                        "The \"substring\" field is optional. " \
-                        "If there is a specific substring (i.e. a part of the message that is *not* the full string) " \
-                        "in the message that provides context for the specific endpoint, include it in the \"substring\" field.\n" \
-                        "The substring can span multiple sentences. It does not need to be bound to oke sentence. If you include a substring, please make sure it contains all possible context.\n" \
-                        "If there is no specific substring, please omit the \"substring\" field entirely.\n" \
-                        "If you decide that no endpoints should be invoked, respond with an empty list: []\n" \
-                        "Do not include any other text in your response; only respond with the JSON object."
-        prompt_content = "%s" % message
-
-        # attempt to use the LLM to determine which endpoints should be
-        # invoked. Parse the response as JSON
-        fail_count = 0
+        # ===== [B0] NLA CACHE LOOKUP — after ping, before the LLM ========== #
+        # On a hit we replay the cached selection and skip the (slow, costly)
+        # LLM step entirely. The cache call below is the ONLY locked region in
+        # this branch; the ping above, the validation/replay below, and the
+        # invocation later all run with no cache lock held.
         endpoints_to_invoke = []
-        for attempt in range(self.config.nla_dialogue_retry_count):
+        cache_hit = False
+        if self.nla_cache is not None and self.nla_cache.config.enabled:
+            # The cache is a transparent, best-effort optimization: a transient
+            # cache fault (locked/corrupt DB, disk error, etc.) must NEVER fail
+            # the request. Wrap the lookup/validation/stale-delete in try/except
+            # and treat any error as a cache MISS, falling through to the full
+            # LLM path below — mirroring the resilience around the [B1] write.
+            # The try is scoped to the cache lookup ONLY; the LLM/ping/invoke
+            # logic outside this block is intentionally NOT guarded here.
             try:
-                r = self.dialogue.oneshot(prompt_intro, prompt_content)
+                # `get()` sanitizes internally, handles lazy expiry, and returns
+                # a DETACHED copy (so the work below never re-touches the cache).
+                entry = self.nla_cache.get(message)
+                if entry is not None:
+                    rebuilt = []
+                    stale = False
+                    for item in entry.nla_sequence:
+                        ep_id = item["endpoint_id"]
 
-                # attempt to parse and verify the contents of the JSON;
-                # retry on failure
-                endpoint_id_list = json.loads(r)
+                        # ---- stale-endpoint validation: every cached endpoint
+                        # must still exist among the freshly-pinged endpoints. If
+                        # any is missing, delete the (now-stale) entry and fall
+                        # back to the full LLM path. We bail on the FIRST missing
+                        # id — an entry is an all-or-nothing sequence.
+                        if ep_id not in endpoints:
+                            self.log.write("NLA cache entry references missing endpoint "
+                                           "\"%s\"; deleting cache entry and falling back "
+                                           "to LLM selection." % ep_id)
+                            # keyed + conditional delete (won't drop a newer entry
+                            # for this key that another thread may have written).
+                            self.nla_cache.delete(message, created_at=entry.created_at)
+                            stale = True
+                            break
 
-                # make sure the response is a list
-                if not isinstance(endpoint_id_list, list):
-                    raise Exception("LLM's response did not contain a list.")
+                        # ---- replay parameter rules: use the CURRENT message and
+                        # the CACHED substring/extra_params, but overwrite ONLY
+                        # `request_data` with the current call's value (preserving
+                        # every other extra_params key).
+                        cached_params = item["invoke_params"]
+                        cached_substring = cached_params.get("substring", None)
+                        cached_extra = cached_params.get("extra_params", None)
+                        if cached_extra is None:
+                            cached_extra = {}
+                        else:
+                            cached_extra = copy.deepcopy(cached_extra)
+                        cached_extra["request_data"] = request_data
 
-                # iterate through the list and match each string to an endpoint ID
-                for entry in endpoint_id_list:
-                    entry_id = str(entry["id"]).lower().strip()
+                        invoke_params = NLAEndpointInvokeParameters.from_json({
+                            "message": message,            # CURRENT message (unmodified)
+                            "substring": cached_substring, # CACHED substring (context only)
+                            "extra_params": cached_extra,  # CACHED extras, request_data overwritten
+                        })
 
-                    # set up an object containing invocation parameters for the
-                    # NLA endpoint
-                    invoke_params = NLAEndpointInvokeParameters.from_json({
-                        "message": message,
-                        "extra_params": {
-                            "request_data": request_data
-                        }
-                    })
-
-                    # get the substring field from the parsed JSON, if it was
-                    # provided
-                    if "substring" in entry:
-                        substr = entry["substring"]
-                        if substr is not None and len(str(substr).strip()) > 0:
-                            invoke_params.substring = str(entry["substring"]).strip()
-
-                    # if the ID string points to one of the endpoints, create a
-                    # deep copy of the object and add it to the list of
-                    # endpoints to invoke. Additionally, modify the object to
-                    # store the invocation parameters; these'll be needed later
-                    #
-                    # (we do a deep copy, because the same endpoint may end up
-                    # getting invoked more than once, each time with different
-                    # paramters)
-                    if entry_id in endpoints:
-                        ep_copy = copy.deepcopy(endpoints[entry_id])
+                        # the endpoint object itself is the LIVE one resolved by id
+                        # (deep-copied, like the LLM path, since the same endpoint
+                        # can appear multiple times with different params).
+                        ep_copy = copy.deepcopy(endpoints[ep_id])
                         ep_copy["invoke_params"] = invoke_params
-                        endpoints_to_invoke.append(ep_copy)
+                        rebuilt.append(ep_copy)
 
-                # break out of the loop on the first success
-                break
+                    if not stale:
+                        endpoints_to_invoke = rebuilt
+                        cache_hit = True
+                        self.log.write("NLA cache HIT for message \"%s\" (%d endpoint(s))." %
+                                       (message, len(rebuilt)))
             except Exception as e:
-                msg = "Failed to process NLA prompt: %s." % e
-                if attempt < self.config.nla_dialogue_retry_count - 1:
-                    msg += " Retrying..."
-                self.log.write(msg)
-                fail_count += 1
-                continue
+                # Any cache-lookup failure degrades gracefully to a cache miss:
+                # reset partial state and let the LLM path recompute the result.
+                self.log.write("NLA cache lookup failed: %s; falling back to LLM "
+                               "selection (treating as cache miss)." % e)
+                endpoints_to_invoke = []
+                cache_hit = False
+        # =================================================================== #
 
-        # if all attempts failed, return early
-        if fail_count >= self.config.nla_dialogue_retry_count:
-            self.log.write("Failed to assign NLA endpoints to user message after %d attempts." %
-                           self.config.nla_dialogue_retry_count)
-            return results
+        if not cache_hit:
+            # build a prompt that we'll use to ask an LLM which API endpoints
+            # should be invoked
+            prompt_intro = "You are an AI assistant that processes messages written by the user, " \
+                            "and determines if a specific API endpoint should be invoked.\n" \
+                            "Below is a list of the API endpoints in question:\n\n"
+            for ep_id in endpoints:
+                ep = endpoints[ep_id]["endpoint"]
+                prompt_intro += "* \"%s\": %s\n" % (ep_id, ep.description)
+            prompt_intro += "\nFor each endpoint, you must determine if the endpoint should be invoked, " \
+                            "based on the description of the endpoint and the message provided by the user.\n" \
+                            "You must respond with a JSON object in this format:\n\n" \
+                            "[\n" \
+                            "   {\n" \
+                            "       \"id\": \"ID_OF_ENDPOINT_TO_INVOKE_1\",\n" \
+                            "       \"substring\": \"SPECIFIC_SUBSTRING_OF_MESSAGE_REFERRING_TO_THIS_ENDPOINT\"\n" \
+                            "   },\n" \
+                            "   {\n" \
+                            "       \"id\": \"ID_OF_ENDPOINT_TO_INVOKE_2\",\n" \
+                            "       \"substring\": \"SPECIFIC_SUBSTRING_OF_MESSAGE_REFERRING_TO_THIS_ENDPOINT\"\n" \
+                            "   }\n" \
+                            "]\n" \
+                            "The list should contain an entry for every API endpoint that should be invoked.\n" \
+                            "The \"substring\" field is optional. " \
+                            "If there is a specific substring (i.e. a part of the message that is *not* the full string) " \
+                            "in the message that provides context for the specific endpoint, include it in the \"substring\" field.\n" \
+                            "The substring can span multiple sentences. It does not need to be bound to oke sentence. If you include a substring, please make sure it contains all possible context.\n" \
+                            "If there is no specific substring, please omit the \"substring\" field entirely.\n" \
+                            "If you decide that no endpoints should be invoked, respond with an empty list: []\n" \
+                            "Do not include any other text in your response; only respond with the JSON object."
+            prompt_content = "%s" % message
+
+            # attempt to use the LLM to determine which endpoints should be
+            # invoked. Parse the response as JSON
+            fail_count = 0
+            for attempt in range(self.config.nla_dialogue_retry_count):
+                try:
+                    r = self.dialogue.oneshot(prompt_intro, prompt_content)
+
+                    # attempt to parse and verify the contents of the JSON;
+                    # retry on failure
+                    endpoint_id_list = json.loads(r)
+
+                    # make sure the response is a list
+                    if not isinstance(endpoint_id_list, list):
+                        raise Exception("LLM's response did not contain a list.")
+
+                    # iterate through the list and match each string to an endpoint ID
+                    for entry in endpoint_id_list:
+                        entry_id = str(entry["id"]).lower().strip()
+
+                        # set up an object containing invocation parameters for the
+                        # NLA endpoint
+                        invoke_params = NLAEndpointInvokeParameters.from_json({
+                            "message": message,
+                            "extra_params": {
+                                "request_data": request_data
+                            }
+                        })
+
+                        # get the substring field from the parsed JSON, if it was
+                        # provided
+                        if "substring" in entry:
+                            substr = entry["substring"]
+                            if substr is not None and len(str(substr).strip()) > 0:
+                                invoke_params.substring = str(entry["substring"]).strip()
+
+                        # if the ID string points to one of the endpoints, create a
+                        # deep copy of the object and add it to the list of
+                        # endpoints to invoke. Additionally, modify the object to
+                        # store the invocation parameters; these'll be needed later
+                        #
+                        # (we do a deep copy, because the same endpoint may end up
+                        # getting invoked more than once, each time with different
+                        # paramters)
+                        if entry_id in endpoints:
+                            ep_copy = copy.deepcopy(endpoints[entry_id])
+                            ep_copy["invoke_params"] = invoke_params
+                            endpoints_to_invoke.append(ep_copy)
+
+                    # break out of the loop on the first success
+                    break
+                except Exception as e:
+                    msg = "Failed to process NLA prompt: %s." % e
+                    if attempt < self.config.nla_dialogue_retry_count - 1:
+                        msg += " Retrying..."
+                    self.log.write(msg)
+                    fail_count += 1
+                    continue
+
+            # if all attempts failed, return early
+            if fail_count >= self.config.nla_dialogue_retry_count:
+                self.log.write("Failed to assign NLA endpoints to user message after %d attempts." %
+                               self.config.nla_dialogue_retry_count)
+                return results
+
+            # ===== [B1] NLA CACHE WRITE — cache the LLM's decision ========== #
+            # Cache iff the LLM SELECTED >=1 NLA, regardless of whether the
+            # later invocation succeeds or fails. Never cache a zero-NLA result.
+            # The write is the only locked region here (INSERT OR REPLACE +
+            # capacity eviction); the LLM call above ran fully unlocked.
+            if self.nla_cache is not None and self.nla_cache.config.enabled \
+               and len(endpoints_to_invoke) > 0:
+                nla_sequence = []
+                for ep_info in endpoints_to_invoke:
+                    nla_sequence.append({
+                        "endpoint_id": ep_info["id"],
+                        "invoke_params": ep_info["invoke_params"].to_json(),
+                    })
+                try:
+                    self.nla_cache.put(message, nla_sequence)
+                except Exception as e:
+                    self.log.write("Failed to write NLA cache entry: %s" % e)
+            # =============================================================== #
 
         # log the endpoints that were selected
         endpoints_to_invoke_len = len(endpoints_to_invoke)

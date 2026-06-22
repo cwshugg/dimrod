@@ -22,6 +22,9 @@ dimrod*.service
 # databases
 *.db
 *.db-journal
+# SQLite WAL-mode sidecar files (e.g. speaker nla_cache.db-wal / .db-shm)
+*.db-wal
+*.db-shm
 
 # spreadsheets
 *.xlsx
