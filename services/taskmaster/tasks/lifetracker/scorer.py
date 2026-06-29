@@ -42,10 +42,12 @@ class TaskJob_LifeTracker_Scorer(TaskJob_LifeTracker):
             return False
 
         # first, collect a list of scorable metrics; that is, metrics whose
-        # values all do NOT have zero for their possible scores
+        # values all do NOT have zero for their possible scores. Disabled
+        # metrics are excluded so they stay fully dormant and don't appear in
+        # the weekly score report.
         smetrics = []
         for metric in tracker.metrics:
-            if metric.has_nonzero_scores():
+            if metric.has_nonzero_scores() and not metric.disabled:
                 smetrics.append(metric)
 
         lw_start = dtu.set_time_beginning_of_day(dtu.add_weeks(now, -1))

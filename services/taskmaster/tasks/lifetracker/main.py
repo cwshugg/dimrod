@@ -28,6 +28,13 @@ class TaskJob_LifeTracker_Main(TaskJob_LifeTracker):
         # iterate through all metrics within the tracker, and look for ones
         # that are ready to be triggered
         for metric in tracker.metrics:
+            # skip metrics that have been disabled: do not check readiness, send
+            # a menu, or create a new entry for them. (Any already-"alive" menus
+            # for a just-disabled metric are still resolved by the loop below.)
+            if metric.disabled:
+                self.log("Metric: \"%s\" is disabled. Skipping." % metric.name)
+                continue
+
             # retrieve the latest entry in the database for this metric
             latest_entry = tracker.get_latest_metric_entry(metric)
             latest_entry_timestamp = None

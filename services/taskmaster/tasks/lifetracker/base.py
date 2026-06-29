@@ -138,6 +138,12 @@ class LifeMetric(Uniserdes):
             UniserdesField("trigger",      [LifeMetricTrigger],    required=True),
             UniserdesField("telegram_menu_timeout", [int],         required=False, default=90000),
             UniserdesField("telegram_menu_behavior_type", [str],   required=False, default="SINGLE_CHOICE"),
+            # When `disabled` is true, the metric is dormant: it is no longer
+            # triggered/collected (see main.py) and is excluded from the weekly
+            # score report (see scorer.py). Kept `required=False` with a
+            # `default=False` so all existing metrics and the existing database
+            # remain backward-compatible without editing main.json.
+            UniserdesField("disabled",     [bool],                 required=False, default=False),
         ]
 
     def has_nonzero_scores(self):
