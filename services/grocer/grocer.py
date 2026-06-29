@@ -15,6 +15,7 @@ import sys
 import flask
 import time
 import re
+import threading
 import json
 import hashlib
 import requests
@@ -106,6 +107,23 @@ class GrocerService(Service):
         # this before making any Todoist API call. Read operations acquire a
         # read lock; write operations acquire a write lock.
         self.todoist_lock = ReadWriteLock()
+
+        # Resolver-pass guard (defense-in-depth against double-expansion).
+        #
+        # The two recipe-resolver entry points — the periodic
+        # ``RecipeResolverThread`` and the on-demand
+        # ``POST /items/resolve_recipes`` endpoint — can call
+        # ``resolve_recipes`` concurrently on different threads. The per-task
+        # underway marker is the primary defense, but it can be clobbered by a
+        # concurrent full-body description write, so we ALSO serialize whole
+        # resolver passes with this non-reentrant lock: a second concurrent
+        # pass acquires it with ``blocking=False`` and, finding it held, skips
+        # rather than running an overlapping pass. This lock is acquired at the
+        # very top of ``resolve_recipes`` (OUTSIDE ``todoist_lock``) and
+        # released in a ``finally``, so it can never deadlock with
+        # ``todoist_lock`` (consistent outermost ordering) and never blocks
+        # read/write endpoints.
+        self._resolver_pass_lock = threading.Lock()
 
         # Todoist handle (lazily initialised on first access).
         self._todoist = None
@@ -299,7 +317,14 @@ class GrocerService(Service):
                 # Determine which tasks are "dirty" (need sorting), and which
                 # recipe-reference tasks need the autosort-ignore marker added.
                 dirty_tasks = []
-                ignore_updates = []   # [(task_id, new_desc), ...]
+                # Recipe-reference task IDs that currently lack the autosort
+                # ignore marker. We deliberately store only IDs here (not a
+                # description snapshot): the marker is applied later under the
+                # write lock via a read-modify-write against the task's LIVE
+                # description, so we never write back a stale full-body snapshot
+                # that could clobber a marker added by another thread (e.g. the
+                # recipe-resolver's underway claim). See Phase 3.
+                ignore_task_ids = []   # [task_id, ...]
                 task_dict = {}
                 for task in tasks:
                     tname = self._task_key(task)
@@ -311,10 +336,9 @@ class GrocerService(Service):
                     task_description = task.description.strip().lower() if task.description else ""
                     if RECIPE_MAGIC_STRING in task_title:
                         if AUTOSORT_IGNORE_MAGIC not in task_description:
-                            # Mark the task so the user knows autosort skips it.
-                            new_desc = task.description if task.description else ""
-                            new_desc += "\n%s" % AUTOSORT_IGNORE_MAGIC
-                            ignore_updates.append((task.id, new_desc))
+                            # Queue the task for an informational ignore-marker
+                            # write; the actual (safe) write happens in Phase 3.
+                            ignore_task_ids.append(task.id)
                         continue
 
                     # Check whether this task has already been sorted to the
@@ -368,17 +392,42 @@ class GrocerService(Service):
                     moves.append((t.id, t.content, s.id, s.name, tdname, sdname))
 
             # ------------- Phase 3: apply mutations (write lock) ------------ #
-            if len(ignore_updates) == 0 and len(stale_keys) == 0 and len(moves) == 0:
+            if len(ignore_task_ids) == 0 and len(stale_keys) == 0 and len(moves) == 0:
                 return "Auto-sort completed successfully."
 
             self.todoist_lock.acquire_write()
             try:
                 todoist = self.get_todoist()
 
-                # Add the autosort-ignore marker to recipe tasks (best-effort).
-                for task_id, new_desc in ignore_updates:
+                # Add the informational autosort-ignore marker to recipe tasks
+                # via a READ-MODIFY-WRITE under the write lock (best-effort).
+                #
+                # We re-fetch each task's LIVE description here instead of
+                # writing back the snapshot captured in Phase 1. Between Phase 1
+                # and now we released the read lock and made a slow LLM call,
+                # during which the recipe-resolver may have CLAIMED the task by
+                # appending RECIPE_RESOLUTION_UNDERWAY_MAGIC. A blind full-body
+                # write of the stale snapshot would silently erase that claim
+                # and re-open the double-expansion race. So we:
+                #   * skip if the task vanished,
+                #   * skip if it is already marked (nothing to do),
+                #   * skip if the resolver has claimed it (don't fight the
+                #     resolver this cycle — the marker is only cosmetic), and
+                #   * otherwise append the marker to the CURRENT description,
+                #     preserving anything added since the snapshot.
+                for task_id in ignore_task_ids:
                     try:
-                        todoist.update_task(task_id, body=new_desc)
+                        live = todoist.get_task_by_id(task_id)
+                        if live is None:
+                            continue
+                        desc = live.description if live.description else ""
+                        if AUTOSORT_IGNORE_MAGIC in desc:
+                            continue
+                        if RECIPE_RESOLUTION_UNDERWAY_MAGIC in desc:
+                            continue
+                        todoist.update_task(
+                            task_id, body=desc + "\n%s" % AUTOSORT_IGNORE_MAGIC
+                        )
                     except Exception as e:
                         self.log.write(
                             "[autosort] Failed to mark task %s as ignored "
@@ -451,6 +500,27 @@ class GrocerService(Service):
 
         Returns a status message string.
         """
+        # Resolver-pass guard (Finding 2 / defense-in-depth): serialize whole
+        # resolver passes so the periodic thread and the on-demand endpoint
+        # cannot run two overlapping passes. We acquire NON-BLOCKING: if a pass
+        # is already in flight, skip this one instead of racing it. This guard
+        # is the outermost lock (acquired before any todoist_lock), so it can
+        # never deadlock with todoist_lock, and it is released in the finally
+        # below regardless of outcome.
+        if not self._resolver_pass_lock.acquire(blocking=False):
+            self.log.write(
+                "[recipe-resolver] A resolver pass is already in progress; "
+                "skipping this pass."
+            )
+            return "Recipe resolution already in progress; skipped."
+        try:
+            return self._resolve_recipes_locked()
+        finally:
+            self._resolver_pass_lock.release()
+
+    def _resolve_recipes_locked(self) -> str:
+        """Body of one recipe-resolution pass. Callers MUST already hold
+        ``_resolver_pass_lock`` (see ``resolve_recipes``)."""
         try:
             # ---------------- Phase 1: look up project (read lock) ---------- #
             self.todoist_lock.acquire_read()
