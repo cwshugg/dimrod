@@ -240,42 +240,109 @@ class TreasurerService(Service):
 
             time.sleep(60)
 
-    def sync_budget(self, ctx: BudgetContext) -> int:
-        """Sync transactions from YNAB for a single budget.
+    def fetch_transactions_delta(self, budget_id: str,
+                                 last_knowledge_of_server: int = None):
+        """Fetch a YNAB transaction delta for a budget using server_knowledge.
 
-        Fetches transactions since the last sync date, resolves category names,
-        and upserts them into the local database.
+        This bypasses the higher-level YNAB.get_transactions() wrapper because
+        that wrapper (a) does not expose the response's `server_knowledge` and
+        (b) silently drops transactions marked `deleted`. Delta sync needs both:
+        the new server-knowledge to persist, and the deleted transactions so we
+        can remove them locally.
+
+        When `last_knowledge_of_server` is None, YNAB returns the FULL set of
+        transactions (first sync / one-time full re-sync / backfill). When it is
+        provided, YNAB returns only entities that were created, modified, or
+        deleted since that knowledge value -- regardless of each transaction's
+        DATE. This is what fixes the moving-date-cursor bug: a back-dated or
+        late-clearing transaction still shows up in the delta because it changed
+        on the server after the last sync.
+
+        Args:
+            budget_id: The YNAB budget id to fetch.
+            last_knowledge_of_server: The previously-stored server_knowledge, or
+                None to force a full fetch.
+
+        Returns:
+            A tuple (upserts, deleted_ids, server_knowledge) where:
+              - upserts is a list of YNABTransactionInfo for created/modified
+                transactions (splits expanded into their subtransactions),
+              - deleted_ids is a list of YNAB transaction ids to remove locally,
+              - server_knowledge is the new server-knowledge value to persist
+                once the changes are durably applied.
+        """
+        api = self.ynab.api_transactions()
+        r = api.get_transactions(
+            budget_id,
+            last_knowledge_of_server=last_knowledge_of_server
+        )
+        server_knowledge = r.data.server_knowledge
+
+        upserts = []
+        deleted_ids = []
+        for t in r.data.transactions:
+            # A deleted parent transaction removes itself and any of its
+            # subtransactions from the local store.
+            if getattr(t, "deleted", False):
+                deleted_ids.append(t.id)
+                for sub in (t.subtransactions or []):
+                    deleted_ids.append(sub.id)
+                continue
+
+            subs = t.subtransactions or []
+            if len(subs) > 0:
+                # Split transaction: store each (non-deleted) subtransaction and
+                # remove any subtransaction that was deleted in this delta.
+                for sub in subs:
+                    if getattr(sub, "deleted", False):
+                        deleted_ids.append(sub.id)
+                    else:
+                        upserts.append(
+                            YNABTransactionInfo.from_ynab_subtransaction(sub, t)
+                        )
+            else:
+                upserts.append(YNABTransactionInfo.from_ynab_transaction(t))
+
+        return upserts, deleted_ids, server_knowledge
+
+    def sync_budget(self, ctx: BudgetContext) -> int:
+        """Sync transactions from YNAB for a single budget via delta sync.
+
+        Uses YNAB's `server_knowledge` delta mechanism instead of a moving
+        date cursor. The previously-stored server_knowledge is sent as
+        `last_knowledge_of_server`; YNAB returns everything that changed since
+        then (created/modified/deleted) regardless of transaction date, which
+        the old date-window cursor could permanently skip. The new
+        server_knowledge is persisted ONLY after the changes are durably applied
+        so that a failed fetch or DB write retries the same delta next run
+        rather than silently skipping data.
+
+        On the first run after upgrade (no stored server_knowledge), the delta
+        request has no knowledge value and YNAB returns the FULL transaction
+        set, naturally backfilling any transactions the old cursor skipped.
 
         Args:
             ctx: The BudgetContext to sync.
 
         Returns:
-            The number of transactions synced.
+            The number of transactions upserted.
         """
-        # Read the last sync date under lock
+        # Read the stored server_knowledge under lock (None => full fetch).
         with ctx.lock:
-            last_sync_date = ctx.db.get_last_sync_date()
+            last_knowledge = ctx.db.get_server_knowledge(ctx.budget_id)
 
-        since_date = None
-        if last_sync_date is not None:
-            try:
-                since_date = datetime.strptime(last_sync_date, "%Y-%m-%d")
-            except ValueError:
-                since_date = None
-
-        # Fetch transactions from YNAB (network I/O — no lock needed)
+        # Fetch the delta from YNAB (network I/O — no lock needed). On ANY fetch
+        # error, do NOT advance server_knowledge; return so the same delta is
+        # retried next run instead of creating a permanent gap.
         try:
-            transactions = self.ynab.get_transactions(
-                ctx.budget_id, since_date=since_date
-            )
+            upserts, deleted_ids, server_knowledge = \
+                self.fetch_transactions_delta(
+                    ctx.budget_id,
+                    last_knowledge_of_server=last_knowledge
+                )
         except Exception as e:
             self.log.write("Error fetching transactions for '%s': %s" %
                           (ctx.name, str(e)))
-            return 0
-
-        if len(transactions) == 0:
-            with ctx.lock:
-                ctx.db.set_last_sync_date(dtu.format_yyyymmdd(datetime.now()))
             return 0
 
         # Populate category cache if empty (write under lock for thread safety)
@@ -290,18 +357,35 @@ class TreasurerService(Service):
                 self.log.write("Error fetching categories for '%s': %s" %
                               (ctx.name, str(e)))
 
-        # Build YNABTransactionInfo objects with category names (in-memory — no lock needed)
+        # Build YNABTransactionInfo objects with category names (in-memory — no
+        # lock needed).
         txn_list = []
-        for txn in transactions:
+        for txn in upserts:
             category_name = self.resolve_category_name(ctx, txn.get_category_id())
             txn.category_name = category_name
             txn.category_group_name = ctx.category_group_cache.get(txn.category_id) if txn.category_id else None
             txn.synced_at = datetime.now().isoformat()
             txn_list.append(txn)
 
-        # Batch upsert and update sync date under lock
+        # Apply DB changes and advance knowledge under lock. If applying the
+        # changes fails, do NOT advance server_knowledge (and do not lose the
+        # old value) so the same delta is retried next run.
         with ctx.lock:
-            ctx.db.upsert_transactions_batch(txn_list)
+            try:
+                ctx.db.upsert_transactions_batch(txn_list)
+                for txn_id in deleted_ids:
+                    ctx.db.delete_transaction(txn_id)
+            except Exception as e:
+                self.log.write("Error applying transactions for '%s': %s" %
+                              (ctx.name, str(e)))
+                return 0
+
+            # Only now, after a successful apply, advance the persisted
+            # server_knowledge so the next sync continues from this point.
+            if server_knowledge is not None:
+                ctx.db.set_server_knowledge(ctx.budget_id, server_knowledge)
+            # Keep last_sync_date updated for observability (delta sync no longer
+            # depends on it, but it is retained alongside server_knowledge).
             ctx.db.set_last_sync_date(dtu.format_yyyymmdd(datetime.now()))
 
         return len(txn_list)
@@ -352,13 +436,16 @@ class TreasurerService(Service):
         transaction_count = 0
 
         for row in rows:
-            if row.is_transfer():
-                continue
-
             category_name = row.category_name or "Uncategorized"
             group_name = row.category_group_name
             payee_name = row.payee_name
             amount = row.amount
+
+            # DEBUGGING: uncomment if you want to see every transaction.
+            print("%s, category='%s', category_group='%s', entity='%s'" % (row, category_name, group_name, payee_name))
+
+            if row.is_transfer():
+                continue
 
             # Apply the appropriate exclusion list based on direction
             if amount < 0:

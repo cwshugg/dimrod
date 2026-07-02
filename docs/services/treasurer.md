@@ -162,10 +162,43 @@ Each budget has its own SQLite database file containing two tables.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
-| `key` | `TEXT` | `PRIMARY KEY` | State key (e.g., `"last_sync_date"`) |
+| `key` | `TEXT` | `PRIMARY KEY` | State key (e.g., `"last_sync_date"`, `"server_knowledge:<budget_id>"`) |
 | `value` | `TEXT` | `NOT NULL` | State value |
 
-Used to track `last_sync_date` so that subsequent syncs only fetch transactions since the last successful sync.
+Stores two kinds of per-budget sync state:
+
+* `server_knowledge:<budget_id>` — the YNAB **server-knowledge** value used for delta sync (see below). This is the authoritative sync cursor: it is passed back to YNAB as `last_knowledge_of_server` and only advances after a delta has been durably applied.
+* `last_sync_date` — retained for observability (the date of the last successful sync). Delta sync no longer depends on it; it is kept alongside `server_knowledge`, not used to decide what to fetch.
+
+## Transaction Sync — YNAB `server_knowledge` delta sync
+
+Treasurer syncs transactions using YNAB's **delta (server-knowledge) mechanism** rather than a date-based cursor.
+
+**Why:** the earlier implementation used a moving `since_date` cursor — it fetched `get_transactions(budget_id, since_date=last_sync_date)` and then advanced `last_sync_date` to "today". YNAB's `since_date` filters by the transaction's **date field**, so any transaction that later appeared with a date *older* than the cursor — a pending charge that clears days later, a delayed bank import, or a manually back-dated entry — failed `date >= since_date` and was **never re-fetched**, so it never reached the DB and was missing from monthly summaries. (See investigation report `eaf41eb0f3ef2f66`.)
+
+**How delta sync works:**
+
+* Each budget stores a `server_knowledge` integer per budget in `sync_state`.
+* On each sync, Treasurer sends the stored value as `last_knowledge_of_server`. YNAB returns **only the entities that were created, modified, or deleted since that value — regardless of transaction date** — plus a new top-level `server_knowledge` to persist for next time.
+* Created/modified transactions are upserted (`INSERT OR REPLACE`, primary key = YNAB transaction id). Transactions returned with `deleted: true` are removed from the local `transactions` table so they drop out of summaries. Split transactions are expanded into their subtransactions (and a deleted subtransaction is removed).
+* The new `server_knowledge` is persisted **only after** the transactions are durably applied. If the fetch fails, or the DB apply fails, the stored `server_knowledge` is **not advanced and not lost** — so the next run retries the exact same delta instead of skipping data.
+* **First sync / no stored knowledge:** when there is no `server_knowledge` yet, the request is made with `last_knowledge_of_server=None`, which returns the **full** transaction set. This is also the natural **backfill** path (see below).
+
+> Implementation note: delta sync calls the YNAB SDK's transactions API directly (via `self.ynab.api_transactions().get_transactions(..., last_knowledge_of_server=...)`) rather than the `YNAB.get_transactions()` helper, because the helper does not surface the response's `server_knowledge` and silently drops `deleted` transactions — both of which delta sync needs.
+
+### One-time full re-sync after deploying (backfill)
+
+Because the old moving-date cursor already skipped past some transactions, those rows are missing from the local DB and will **not** come back through a normal incremental delta (they did not "change" recently). To recover them, run **one full re-sync** after deploying this change:
+
+* The first sync after upgrade automatically does a full fetch, because no `server_knowledge` value exists yet in `sync_state`. This repopulates historical / back-dated transactions.
+* If a `server_knowledge` value somehow already exists (e.g. a partial deploy) and you still need to backfill, clear it for the affected budget so the next sync does a full fetch:
+
+  ```sql
+  -- Run against the budget's .treasurer_*.db (service stopped):
+  DELETE FROM sync_state WHERE key LIKE 'server_knowledge:%';
+  ```
+
+  The next sync then performs a full fetch and re-persists a fresh `server_knowledge`. This is safe and idempotent because upserts are keyed by the unique YNAB transaction id.
 
 ## Service Loop Logic
 
@@ -178,13 +211,14 @@ Every iteration of the main loop:
   1. Check current time
   2. If current hour == sync_hour AND not already synced today:
      For each budget in config.budgets:
-       a. Read last_sync_date from sync_state table
-       b. Call ynab.get_transactions(budget_id, since_date=last_sync_date)
-       c. For each returned YNABTransactionInfo:
-          - Resolve category_name via ynab.get_categories() (cached)
-          - INSERT OR REPLACE into transactions table
-       d. Update last_sync_date in sync_state to today
-       e. Log success/failure
+       a. Read server_knowledge:<budget_id> from sync_state (None => full fetch)
+       b. Call the YNAB transactions API with last_knowledge_of_server = that value
+          -> returns created/modified/deleted transactions + a new server_knowledge
+       c. Resolve category_name via ynab.get_categories() (cached)
+       d. Upsert created/modified (INSERT OR REPLACE); delete `deleted: true` rows
+       e. Only after a successful apply, persist the new server_knowledge
+          (on any fetch/apply error, do NOT advance it -> the delta is retried)
+       f. Log success/failure
      Mark today as synced (in-memory flag, resets at midnight)
 ```
 
@@ -435,6 +469,9 @@ class TransactionDatabase(Database):
     def get_transactions_in_range(self, start_date: str, end_date: str) -> list[tuple]: ...
     def get_last_sync_date(self) -> str | None: ...
     def set_last_sync_date(self, date_str: str) -> None: ...
+    def get_server_knowledge(self, budget_id: str) -> int | None: ...   # delta-sync cursor (None => full fetch)
+    def set_server_knowledge(self, budget_id: str, knowledge: int) -> None: ...  # advance only after a durable apply
+    def delete_transaction(self, txn_id: str) -> None: ...              # applies YNAB `deleted: true`
     def save_summary(self, summary: dict) -> None: ...
     def get_summaries(self, limit: int = 12) -> list[tuple]: ...
 ```
@@ -447,7 +484,8 @@ class TreasurerService(Service):
     def run(self) -> None: ...                          # Main loop
 
     # Core operations
-    def sync_budget(self, ctx: BudgetContext) -> int: ...          # Returns count of synced txns
+    def fetch_transactions_delta(self, budget_id: str, last_knowledge_of_server: int = None) -> tuple: ...  # (upserts, deleted_ids, server_knowledge)
+    def sync_budget(self, ctx: BudgetContext) -> int: ...          # Delta sync; returns count of upserted txns
     def sync_all_budgets(self) -> None: ...
     def generate_summary(self, ctx: BudgetContext, start_date: str, end_date: str) -> dict: ...
     def trigger_monthly_summaries(self) -> None: ...
@@ -491,10 +529,11 @@ class TreasurerOracle(Oracle):
 └─────────────┘    └──────────────┘    └──────────┘    └────────────────┘
                           │
                           ▼
-                   ┌──────────────┐
-                   │ Update       │
-                   │ last_sync    │
-                   └──────────────┘
+                   ┌────────────────────┐
+                   │ Advance            │
+                   │ server_knowledge   │
+                   │ (only after apply) │
+                   └────────────────────┘
 ```
 
 ### Monthly Report Flow
