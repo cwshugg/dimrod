@@ -19,6 +19,7 @@ services/lib/
 ├── news.py             # NewsAPI wrapper
 ├── lifx.py             # LIFX smart lighting (LAN)
 ├── wyze.py             # Wyze smart home devices
+├── govee.py            # Govee lights & plugs (Developer API v2)
 ├── ifttt.py            # IFTTT webhook sender
 ├── dtu.py              # Date/time utilities
 ├── lu.py               # Location utilities
@@ -286,6 +287,30 @@ Controls Wyze devices (primarily smart plugs) via the Wyze SDK.
 | `get_devices()` | List all Wyze devices |
 | `get_plug(macaddr)` | Find a plug by MAC address |
 | `toggle_plug(macaddr, power_on)` | Turn a plug on or off |
+
+### `govee.py` — Govee Lights & Plugs
+
+A `requests`-based client for the **Govee Developer API v2**, used by Lumen to
+control Govee lights and plugs with a single cloud call (replacing a slow IFTTT
+hop). See the [Govee integration guide](services/govee-integration.md) for
+setup and configuration.
+
+**`Govee` methods:**
+
+| Method | Description |
+|--------|-------------|
+| `get_devices(refresh)` | Fetch account devices (cached for `refresh_delay`) |
+| `get_device_by_name(name)` | Find a device by its Govee-app name |
+| `get_device_by_address(mac, sku)` | Find (or build) a device by MAC + model |
+| `get_device_state(device)` | Query a device's state and online status |
+| `set_device_power(device, action)` | Turn a device on or off |
+| `set_device_brightness(device, brightness)` | Set brightness (`0.0`–`1.0` → `1`–`100`) |
+| `set_device_color(device, color)` | Set color (`[r, g, b]` → packed int) |
+| `toggle_plug(device, power_on)` | Turn an `H5083` plug on or off |
+
+`GoveeConfig` holds the (secret) `api_key`, request-tuning fields, and an
+optional `{id, sku, mac}` device map. Value conversions and rate-limit backoff
+are handled internally.
 
 ### `ifttt.py` — IFTTT Webhooks
 

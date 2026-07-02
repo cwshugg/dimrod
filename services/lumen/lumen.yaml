@@ -24,10 +24,45 @@ lights:
   - bulb
   has_color: true
   has_brightness: true
-webhook_event: YOUR_IFTTT_WEBHOOK_HERE
-webhook_key: YOUR_IFTTT_KEY_HERE
 wyze_config:
   email: YOUR_WYZE_EMAIL
   password: YOUR_WYZE_PASSWORD
   api_key_id: YOUR_WYZE_API_KEY_ID
   api_key: YOUR_WYZE_API_KEY
+# Optional: direct Govee Developer API v2 control. When omitted, Govee-tagged
+# lights simply aren't controllable (power_on / power_off warn and skip). The
+# api_key is a secret and must NOT be committed with a real value; the real key
+# + device MACs live only in the git-ignored per-host config (e.g.
+# cwshugg_lumen.yaml).
+govee_config:
+  api_key: YOUR_GOVEE_API_KEY_HERE
+  # Optional tuning fields (defaults shown):
+  # base_url: https://openapi.api.govee.com
+  # retry_attempts: 4
+  # retry_delay: 1
+  # request_timeout: 10
+  # refresh_delay: 7200
+  # Optional lumen-id -> Govee identity map. Each entry maps a light `id` to
+  # its Govee `sku` (model) and `mac` (device id). This is preferred over
+  # name-matching because it is deterministic. Fill in real MACs per-host.
+  #
+  # Each entry also accepts two OPTIONAL per-light fields selecting which Govee
+  # API generation to use for that light's color and brightness:
+  #   color_api:      "v1" or "v2" (default "v1")
+  #   brightness_api: "v1" or "v2" (default "v2")
+  # Missing or invalid values fall back to the defaults. The defaults reflect
+  # what is verified working on the H6160 strip: color via the legacy v1
+  # control API (the v2 colorRgb capability is a physical no-op there), and
+  # brightness via the v2 range/brightness capability. Power is always v2 and
+  # is not configurable.
+  devices:
+  - id: strip_staircase
+    sku: H6160
+    mac: YOUR_GOVEE_DEVICE_MAC_HERE
+    # Optional per-light API-version overrides (defaults shown):
+    # color_api: v1
+    # brightness_api: v2
+  # Example plug entry (H5083 plugs support on/off only):
+  # - id: plug_stereo
+  #   sku: H5083
+  #   mac: YOUR_GOVEE_DEVICE_MAC_HERE

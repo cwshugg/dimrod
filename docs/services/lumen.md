@@ -5,7 +5,7 @@ Lumen controls WiFi-connected lights and smart plugs through multiple backends.
 ## Purpose
 
 * Manage and control smart home lighting devices
-* Support multiple toggle backends: IFTTT webhooks, Wyze SDK, and LIFX LAN protocol
+* Support multiple toggle backends: IFTTT webhooks, Wyze SDK, LIFX LAN protocol, and the Govee Developer API
 * Expose NLA endpoints for natural-language device control
 * Provide HTTP endpoints for programmatic light control
 
@@ -13,13 +13,14 @@ Lumen controls WiFi-connected lights and smart plugs through multiple backends.
 
 Lumen maintains an async action queue with a configurable pool of worker threads. When a toggle request arrives, it's placed on the queue and processed by the next available `LumenThread`. Per-light locks prevent concurrent actions on the same device.
 
-The service supports three toggle backends:
+The service supports four toggle backends:
 
 | Backend | Protocol | Use Case |
 |---------|----------|----------|
-| **IFTTT** | Cloud webhooks | Lights controlled via IFTTT applets |
+| **IFTTT** | Cloud webhooks | Lights controlled via IFTTT applets (also the fallback) |
 | **Wyze** | Cloud SDK | Wyze smart plugs |
 | **LIFX** | LAN protocol | LIFX bulbs on the local network |
+| **Govee** | Cloud API v2 | Govee lights and plugs (see [Govee integration](govee-integration.md)) |
 
 Each light in the config specifies which backend it uses.
 
@@ -57,6 +58,7 @@ The `toggle_device` NLA endpoint uses the LLM to resolve natural-language reques
 | `webhook_key` | `str` | IFTTT webhook API key |
 | `wyze_config` | `WyzeConfig` | Wyze account credentials and API keys |
 | `lifx_config` | `LIFXConfig` | LIFX LAN settings (optional) |
+| `govee_config` | `GoveeConfig` | Govee Developer API v2 settings (optional; see [Govee integration](govee-integration.md)) |
 | `dialogue` | `DialogueConfig` | OpenAI settings for NLA text resolution |
 | `refresh_rate` | `int` | Service tick interval |
 | `action_threads` | `int` | Number of action worker threads |
@@ -78,12 +80,13 @@ The toggle backend for each light is determined by its tags:
 
 * Lights tagged `"wyze"` are controlled via the Wyze SDK
 * Lights tagged `"lifx"` are controlled via the LIFX LAN protocol
+* Lights tagged `"govee"` are controlled via the Govee Developer API (when a `govee_config` is present; otherwise they fall back to IFTTT)
 * All other lights fall back to the IFTTT webhook backend
 
 ## Dependencies
 
-* **Library modules:** `lib.ifttt`, `lib.wyze`, `lib.lifx`, `lib.dialogue`, `lib.oracle`, `lib.service`
-* **External services:** IFTTT (cloud), Wyze (cloud), LIFX (LAN)
+* **Library modules:** `lib.ifttt`, `lib.wyze`, `lib.lifx`, `lib.govee`, `lib.dialogue`, `lib.oracle`, `lib.service`
+* **External services:** IFTTT (cloud), Wyze (cloud), LIFX (LAN), Govee (cloud API v2)
 * **Other services:** None (Lumen is called by others, not the other way around)
 
 ## Notable Details

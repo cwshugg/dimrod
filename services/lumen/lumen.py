@@ -21,11 +21,18 @@ from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle, OracleSessionConfig
 from lib.nla import NLAEndpoint, NLAEndpointHandlerFunction, NLAResult, NLAEndpointInvokeParameters
-from lib.ifttt import WebhookConfig, Webhook
 from lib.cli import ServiceCLI
 from lib.dialogue import DialogueConfig, DialogueInterface
 from lib.wyze import WyzeConfig, Wyze
 from lib.lifx import LIFXConfig, LIFX
+from lib.govee import (
+    GoveeConfig,
+    Govee,
+    GoveeError,
+    normalize_api_version,
+    GOVEE_DEFAULT_COLOR_API,
+    GOVEE_DEFAULT_BRIGHTNESS_API,
+)
 
 # Service imports
 from light import Light, LightConfig
@@ -39,11 +46,10 @@ class LumenConfig(ServiceConfig):
         # create lumen-specific fields to append to the existing service fields
         fields = [
             ConfigField("lights",               [list],         required=True),
-            ConfigField("webhook_event",        [str],          required=True),
-            ConfigField("webhook_key",          [str],          required=True),
             ConfigField("wyze_config",          [WyzeConfig],   required=True),
             ConfigField("dialogue",             [DialogueConfig], required=True),
             ConfigField("lifx_config",          [LIFXConfig],   required=False, default=None),
+            ConfigField("govee_config",         [GoveeConfig],  required=False, default=None),
             ConfigField("refresh_rate",         [int],          required=False, default=60),
             ConfigField("action_threads",       [int],          required=False, default=8),
             ConfigField("nla_toggle_dialogue_retries", [int],   required=False, default=4),
@@ -142,11 +148,6 @@ class LumenService(Service):
         self.config = LumenConfig()
         self.config.parse_file(config_path)
 
-        # set up IFTTT webhook object
-        webhook_conf = WebhookConfig()
-        webhook_conf.parse_file(config_path)
-        self.webhooker = Webhook(webhook_conf)
-
         # set up a Wyze API object
         self.wyze = Wyze(self.config.wyze_config)
         try:
@@ -176,6 +177,37 @@ class LumenService(Service):
                 self.log.write("Initially discovered no LIFX lights.")
         except Exception as e:
             self.log.write("Failed to initially discover LIFX lights: %s" % e)
+
+        # set up a Govee Developer API v2 object. This is optional: hosts
+        # without a Govee API key will run unchanged, but Govee-tagged devices
+        # won't be controllable (power_on / power_off will warn and skip).
+        govee_config = self.config.govee_config
+        if govee_config is None:
+            self.govee = None
+            self.log.write("No Govee config provided; Govee-direct control is disabled.")
+        else:
+            try:
+                self.log.write("Attempting to set up the Govee API client...")
+                self.govee = Govee(govee_config)
+                self.log.write("Set up the Govee API client successfully.")
+            except Exception as e:
+                self.govee = None
+                self.log.write("Failed to set up the Govee API client: %s" % e)
+
+            # warm the device cache so the first Govee toggle doesn't incur a
+            # discovery round-trip (mirrors the LIFX warm-up above). Failures
+            # here are non-fatal.
+            if self.govee is not None:
+                try:
+                    self.log.write("Attempting to initially discover Govee devices...")
+                    govee_devices = self.govee.get_devices()
+                    govee_devices_len = len(govee_devices)
+                    if govee_devices_len > 0:
+                        self.log.write("Initially discovered %d Govee devices." % govee_devices_len)
+                    else:
+                        self.log.write("Initially discovered no Govee devices.")
+                except Exception as e:
+                    self.log.write("Failed to initially discover Govee devices: %s" % e)
 
         # for each of the entries in the config's 'lights' field, we'll create a
         # new Light object
@@ -244,8 +276,11 @@ class LumenService(Service):
             r = self.toggle_wyze(light, "on", color=color, brightness=brightness)
         elif light.match_tags("lifx"):
             r = self.toggle_lifx(light, "on", color=color, brightness=brightness)
+        elif light.match_tags("govee") and self.govee is not None:
+            r = self.toggle_govee(light, "on", color=color, brightness=brightness)
         else:
-            r = self.toggle_webhook(light, "on", color=color, brightness=brightness)
+            self.log.write("No available transport for light \"%s\"; skipping." % light.lid)
+            r = None
         light.set_power(True)
         light.unlock() # release the light's lock
         return r
@@ -271,8 +306,11 @@ class LumenService(Service):
             r = self.toggle_wyze(light, "off")
         elif light.match_tags("lifx"):
             r = self.toggle_lifx(light, "off")
+        elif light.match_tags("govee") and self.govee is not None:
+            r = self.toggle_govee(light, "off")
         else:
-            r = self.toggle_webhook(light, "off")
+            self.log.write("No available transport for light \"%s\"; skipping." % light.lid)
+            r = None
         light.unlock() # release the light's lock
         light.set_power(False)
         return r
@@ -284,23 +322,6 @@ class LumenService(Service):
         self.queue.push(a)
 
     # ------------------------------- Helpers -------------------------------- #
-    def toggle_webhook(self, light: Light, action: str, color=None, brightness=None):
-        """Uses IFTTT webhooks to toggle a light."""
-        action = action.strip().lower()
-        assert action in ["on", "off"]
-
-        # build a payload to send to IFTTT
-        jdata = {"id": light.lid, "action": action}
-        if color is not None:
-            jdata["color"] = "%s,%s,%s" % (color[0], color[1], color[2])
-        if brightness is not None:
-            jdata["brightness"] = brightness
-
-        # build a payload, update the light's current state, and send the
-        # request to IFTTT
-        light.set_power(True if action == "on" else False)
-        return self.webhooker.send(self.config.webhook_event, jdata)
-
     def toggle_wyze(self, light: Light, action: str, color=None, brightness=None):
         """Uses the Wyze API to toggle a light."""
         action = action.strip().lower()
@@ -342,6 +363,117 @@ class LumenService(Service):
         # if brightness was specified, apply it
         if brightness is not None:
             self.lifx.set_light_brightness(l, brightness)
+
+    def toggle_govee(self, light: Light, action: str, color=None, brightness=None):
+        """Uses the Govee Developer API v2 (via the `Govee` wrapper) to toggle a
+        Govee device directly, replacing the triple IFTTT hop.
+
+        Mirrors `toggle_lifx`: resolve the device, toggle power, then (for
+        lights that support them) apply color and brightness. Plugs
+        (`has_color=False`, `has_brightness=False`) naturally receive power
+        only. Unresolved devices are logged and skipped (never raise), matching
+        the graceful handling of `toggle_lifx`/`toggle_wyze`.
+        """
+        action = action.strip().lower()
+        assert action in ["on", "off"]
+
+        # resolve the Govee device (config map -> name match -> None)
+        device = self._resolve_govee_device(light)
+        if device is None:
+            self.log.write("Govee device \"%s\" not found." % light.lid)
+            return
+
+        # toggle the device's power. A power failure is fatal to the toggle and
+        # propagates (mirrors the other transports), but is logged first.
+        self.log.write("Toggling Govee device \"%s\" to \"%s\"." % (light.lid, action))
+        r = self.govee.set_device_power(device, action)
+
+        # only apply color/brightness when turning on, and only for devices that
+        # advertise support for them (skip for plugs / unsupported devices).
+        #
+        # A color/brightness failure must NOT crash the power toggle (the light
+        # is already on), but it must be surfaced in the log rather than
+        # silently swallowed, so a rejected color command is diagnosable.
+        if action == "on":
+            if color is not None and light.has_color:
+                self._apply_govee_attribute(
+                    light, "color", self.govee.set_device_color, device, color)
+            if brightness is not None and light.has_brightness:
+                self._apply_govee_attribute(
+                    light, "brightness", self.govee.set_device_brightness,
+                    device, brightness)
+        return r
+
+    def _apply_govee_attribute(self, light: Light, attr: str, setter,
+                               device, value):
+        """Applies a single Govee attribute (color/brightness) for a light,
+        logging the outcome.
+
+        The `setter` (e.g. `self.govee.set_device_color`) is invoked with
+        `(device, value)`. A successful call is logged; a `GoveeError` (or any
+        other exception) is caught and logged as a failure so it is surfaced
+        rather than silently swallowed, and does NOT propagate (a color or
+        brightness failure must not crash a power toggle that already
+        succeeded).
+        """
+        try:
+            setter(device, value)
+            self.log.write("Applied %s %s to Govee device \"%s\"." %
+                           (attr, value, light.lid))
+        except GoveeError as e:
+            self.log.write(
+                "Failed to apply %s to Govee device \"%s\": %s "
+                "(http_status=%s, code=%s)" %
+                (attr, light.lid, e.message, e.http_status, e.code))
+        except Exception as e:
+            # Defensive: never let an attribute failure crash the toggle.
+            self.log.write(
+                "Unexpected error applying %s to Govee device \"%s\": %s" %
+                (attr, light.lid, e))
+
+    def _resolve_govee_device(self, light: Light):
+        """Resolves a `Light` to a `GoveeDevice` using a three-tier precedence:
+
+          1. The `govee_config.devices` map: match `light.lid` against a
+             `{id, sku, mac}` entry (plus optional `color_api`/`brightness_api`)
+             and build via `get_device_by_address`, carrying the entry's
+             per-light API-version preferences onto the device.
+          2. Name match: `get_device_by_name(light.lid)`.
+          3. None (caller logs + skips).
+
+        The config map is preferred because it is deterministic and does not
+        depend on the Govee-app device naming.
+        """
+        # tier 1: config-driven {id, sku, mac} map
+        govee_config = self.config.govee_config
+        if govee_config is not None:
+            for entry in getattr(govee_config, "devices", []) or []:
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("id") == light.lid:
+                    mac = entry.get("mac")
+                    sku = entry.get("sku")
+                    if mac is not None:
+                        device = self.govee.get_device_by_address(mac, sku)
+                        # Carry the per-light API-version preferences onto the
+                        # resolved device (the config map is the source of
+                        # truth). Missing/invalid values fall back to the
+                        # defaults (color=v1, brightness=v2) via
+                        # `normalize_api_version`.
+                        device.color_api = normalize_api_version(
+                            entry.get("color_api"), GOVEE_DEFAULT_COLOR_API)
+                        device.brightness_api = normalize_api_version(
+                            entry.get("brightness_api"),
+                            GOVEE_DEFAULT_BRIGHTNESS_API)
+                        return device
+
+        # tier 2: match on the Govee-app device name
+        device = self.govee.get_device_by_name(light.lid)
+        if device is not None:
+            return device
+
+        # tier 3: unresolved
+        return None
 
     def search_wyze(self, lid: str):
         """Searches for a Wyze device with the given ID string and returns it (or
