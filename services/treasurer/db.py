@@ -184,6 +184,62 @@ class TransactionDatabase:
         )
         conn.commit()
 
+    def get_server_knowledge(self, budget_id: str) -> int:
+        """Returns the stored YNAB `server_knowledge` value for the given budget,
+        or None if no delta sync has completed yet.
+
+        The value is stored per budget in the sync_state table under the key
+        "server_knowledge:<budget_id>" so a single database file can (in
+        principle) track more than one budget. YNAB's delta endpoint accepts
+        this value as `last_knowledge_of_server` and returns only entities that
+        changed since it. A None result means "no knowledge yet" -> the caller
+        should perform a full fetch (first sync / backfill).
+        """
+        key = "server_knowledge:%s" % budget_id
+        results = self.db.search(
+            self.table_sync_state,
+            "key = ?",
+            params=(key,)
+        )
+        if isinstance(results, list):
+            return None
+        rows = results.fetchall()
+        if len(rows) == 0:
+            return None
+        try:
+            return int(rows[0][1])
+        except (TypeError, ValueError):
+            return None
+
+    def set_server_knowledge(self, budget_id: str, knowledge: int) -> None:
+        """Sets/updates the `server_knowledge` value for the given budget in the
+        sync_state table. The integer is stored as text (the sync_state.value
+        column is TEXT NOT NULL). Callers must only advance this AFTER the
+        corresponding transactions have been durably applied, so a failed run
+        retries the same delta instead of skipping data.
+        """
+        key = "server_knowledge:%s" % budget_id
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO sync_state VALUES (?, ?)",
+            (key, str(knowledge))
+        )
+        conn.commit()
+
+    def delete_transaction(self, txn_id: str) -> None:
+        """Removes a transaction row by its YNAB transaction id (the primary
+        key). Used to apply YNAB delta responses that mark a transaction
+        `deleted: true`, so removed transactions drop out of summaries.
+        """
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM transactions WHERE id = ?",
+            (txn_id,)
+        )
+        conn.commit()
+
     def save_summary(self, summary: dict) -> None:
         """Inserts or replaces a summary row.
 
