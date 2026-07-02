@@ -1013,8 +1013,48 @@ class SpeakerOracle(Oracle):
                 if nla_response_msg is None:
                     return self.make_response(success=True)
 
-                # build a payload to respond with, containing the message
+                # Incorporate this NLA turn into a conversation so that clients
+                # threading by conversation (e.g. the mailman email service)
+                # retain continuity. If a valid conversation was supplied, it
+                # was already validated above (an unknown id returned a 400);
+                # continue it. Otherwise, bootstrap a new conversation just as
+                # normal (non-NLA) turns do.
+                if convo is None:
+                    convo = DialogueConversation.from_json({})
+
+                # append the user's message to the conversation
+                user_msg = DialogueMessage.from_json({
+                    "author": author,
+                    "content": msg,
+                })
+                convo.add(user_msg)
+
+                # build an author for the NLA-generated reply and append the
+                # reply itself to the conversation
+                nla_author = DialogueAuthor.from_json({
+                    "name": "assistant",
+                    "type": DialogueAuthorType.SYSTEM.name,
+                })
+                reply_msg = DialogueMessage.from_json({
+                    "author": nla_author,
+                    "content": nla_response_msg,
+                })
+                convo.add(reply_msg)
+
+                # persist the authors and the (new or continued) conversation
+                self.service.dialogue.save_author(author)
+                self.service.dialogue.save_author(nla_author)
+                self.service.dialogue.save_conversation(convo)
+
+                # build a payload to respond with, containing the message as
+                # well as the conversation/message IDs (mirroring a normal
+                # turn's response shape) so callers can continue the thread
                 rdata = {
+                    "conversation_id": convo.get_id(),
+                    "request_message_id": user_msg.get_id(),
+                    "request_author_id": user_msg.author.get_id(),
+                    "response_message_id": reply_msg.get_id(),
+                    "response_author_id": reply_msg.author.get_id(),
                     "response": nla_response_msg
                 }
                 return self.make_response(payload=rdata)

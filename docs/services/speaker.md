@@ -25,6 +25,8 @@ When a `/talk` request arrives, Speaker can optionally invoke NLA endpoints on o
 3. Worker threads (`SpeakerNLAThread`) call the selected services' `/nla/invoke/<name>` endpoints concurrently
 4. Results are collected, combined, and reworded by the LLM before responding
 
+Whether or not an NLA action fires, a `/talk` turn now participates in a conversation. When an NLA action produces a reply, Speaker appends both the user's message and the NLA-generated reply to the conversation and returns the `conversation_id` (continuing an existing conversation when a valid id is supplied, or creating a new one otherwise). This lets clients that thread by conversation — such as the mailman email service — retain continuity even for action turns.
+
 The NLA dispatch system uses a `SpeakerNLAQueue` backed by `SpeakerNLAQueueEntry` objects. Each entry tracks its status via `SpeakerNLAQueueEntryStatus` (`PENDING`, `PROCESSING`, `SUCCESS`, `FAILURE`) and includes a condition variable so callers can block until the entry completes.
 
 The NLA worker pool size is configurable via `nla_threads`.
@@ -64,6 +66,8 @@ The NLA worker pool size is configurable via `nla_threads`.
 | `conversation_id` | No | Existing conversation to continue |
 | `author_name` | No | Display name for the message author |
 | `author_id` | No | ID of an existing author |
+
+The response payload always includes a `conversation_id` (plus `request_message_id`, `request_author_id`, `response_message_id`, and `response_author_id`) alongside the `response` text — for both normal dialogue turns and NLA-action turns — so callers can continue the same conversation on subsequent requests. An explicitly-provided but unknown `conversation_id` yields a `400 "Unknown conversation ID"` (no conversation is silently created).
 
 ## Configuration
 

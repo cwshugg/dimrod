@@ -1,0 +1,8 @@
+# Mailman service dependencies.
+#
+# mailman has NO service-specific third-party dependencies: its IMAP/SMTP
+# transport is the shared, STDLIB-ONLY `services/lib/email_client.py` wrapper
+# (imaplib + smtplib + email), and everything else it uses comes from the
+# existing DImROD `services/lib/` stack (installed from services/lib/requirements.txt
+# by scripts/run-service.sh). This file is intentionally empty of packages; it
+# exists so the runner's per-service install step has a file to read.

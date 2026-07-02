@@ -1,6 +1,6 @@
 # DImROD Services
 
-DImROD consists of 13 Python-based microservices, each running as a systemd service. Services communicate via authenticated HTTP/JSON APIs using the [Oracle](../library.md#oraclepy--http-api-server) framework.
+DImROD consists of 14 Python-based microservices, each running as a systemd service. Services communicate via authenticated HTTP/JSON APIs using the [Oracle](../library.md#oraclepy--http-api-server) framework.
 
 ## Service Overview
 
@@ -8,6 +8,7 @@ DImROD consists of 13 Python-based microservices, each running as a systemd serv
 |---------|---------|:----------:|:---:|
 | [Speaker](speaker.md) | LLM dialogue engine and NLA dispatcher | ✓ | — |
 | [Telegram](telegram.md) | Telegram bot — primary user interface | ✓ | — |
+| [Mailman](mailman.md) | Email listener — email front-end onto Speaker | ✓ | — |
 | [Lumen](lumen.md) | Smart home lighting control | ✓ | ✓ |
 | [Warden](warden.md) | Network device monitoring | ✓ | — |
 | [Notif](notif.md) | Reminder scheduling and delivery | ✓ | ✓ |
@@ -29,7 +30,9 @@ Services communicate via `OracleSession`, an HTTP client that authenticates with
 ```mermaid
 graph TD
     User <-->|chat| Telegram
+    User <-->|email| Mailman
     Telegram <-->|conversation & NLA| Speaker["Speaker (LLM)"]
+    Mailman <-->|conversation & NLA| Speaker
     Speaker <-->|invoke| NLA["NLA Services (Lumen, Notif, Gearhead, Grocer)"]
     Telegram -->|commands| Lumen
     Telegram -->|commands| Warden

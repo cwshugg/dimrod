@@ -1,0 +1,82 @@
+# =========================================================================== #
+# Mailman service configuration TEMPLATE.
+# =========================================================================== #
+
+service_name: mailman
+service_log: stdout
+msghub_name: YOUR_NTFY_TOPIC_HERE
+
+# ------------------------------------------------------------------ Oracle --- #
+# Optional HTTP control surface (enabled by launching with --oracle). Included
+# for parity/health checks with every other DImROD service. Pick a free port.
+oracle:
+  addr: 0.0.0.0
+  port: 2380                          # placeholder -- confirm a free DImROD port
+  log: stdout
+  auth_cookie: mailman_auth
+  auth_secret: YOUR_JWT_SECRET_HERE
+  auth_users: []
+
+# ---------------------------------------------------- Email transport (IMAP/SMTP) --- #
+# The shared email-client transport block. Gmail is shown as the first target,
+# but any IMAP/SMTP provider works -- provider portability is entirely a matter
+# of changing these values.
+email:
+  imap_host: imap.gmail.com
+  imap_port: 993
+  imap_ssl: true
+  smtp_host: smtp.gmail.com
+  smtp_port: 587
+  smtp_ssl: false
+  username: YOUR_DEDICATED_ADDRESS@gmail.com
+  password: YOUR_APP_PASSWORD_HERE
+  # Optional reply identity:
+  # from_address: YOUR_DEDICATED_ADDRESS@gmail.com
+  # from_name: DImROD
+  mailbox: INBOX
+  imap_timeout: 30
+  smtp_timeout: 30
+  idle_refresh_interval: 1740         # ~29 min: renew IDLE before the server drops it
+  # How processed mail is PERMANENTLY removed:
+  #   gmail_trash_expunge -> copy to Trash + expunge Trash (true delete on Gmail)
+  #   expunge             -> \Deleted + EXPUNGE (RFC-standard / non-Gmail servers)
+  delete_mode: gmail_trash_expunge
+  gmail_trash_folder: "[Gmail]/Trash"
+
+# ----------------------------------------------------------------- Speaker --- #
+# How mailman reaches the speaker service (same block shape telegram uses). The
+# auth_username/auth_password must match a speaker `auth_users` entry.
+speaker:
+  addr: 0.0.0.0
+  port: 2357
+  auth_username: ABC
+  auth_password: XYZ
+
+# --------------------------------------------------------------- Allowlist --- #
+# HARD security control. Only these sender addresses receive a reply; matching
+# is exact and case-insensitive. An EMPTY or MISSING list denies EVERY sender
+# (fail-closed) -- all mail is then ignored and deleted.
+allowlist:
+  - you@example.com
+  - trusted.person@example.com
+
+# ------------------------------------------------------- Worker / listener --- #
+worker_count: 4                       # size of the worker-thread pool (>= 1)
+idle_wait_timeout: 1740               # per-cycle IMAP IDLE wait (seconds)
+reconnect_delay: 10                   # initial backoff after an IMAP drop
+reconnect_delay_max: 300              # cap on the exponential reconnect backoff
+max_message_bytes: 1048576            # cap on body text relayed to speaker
+
+# ------------------------------------------------ Conversation continuity --- #
+# Persisted email-thread <-> speaker conversation_id map. Optional: when this
+# block is omitted, a default (enabled) map is created beside the service at
+# services/mailman/mailman_convo.db. The DB stores only opaque Message-IDs and
+# conversation ids -- no addresses, subjects, bodies, or secrets.
+convo_map:
+  enabled: true
+  # path: services/mailman/mailman_convo.db   # default derived beside the service
+  ttl: 2592000                        # prune threads inactive for > 30 days
+  sweep_interval: 3600                # run the prune sweep hourly
+
+# --------------------------------------------------------------- Misc text --- #
+# error_reply_text: "Sorry -- I couldn't process your message right now. Please try again later."

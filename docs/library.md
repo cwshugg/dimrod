@@ -25,6 +25,7 @@ services/lib/
 ├── lu.py               # Location utilities
 ├── db.py               # SQLite wrapper
 ├── mail.py             # Email sender (via IFTTT)
+├── email_client.py     # IMAP/SMTP mailbox transport (listen + reply)
 ├── ntfy.py             # Push notifications (ntfy.sh)
 ├── requirements.txt    # Shared Python dependencies
 ├── google/
@@ -427,6 +428,67 @@ Sends emails via IFTTT webhooks.
 
 * `Messenger(config)` — Wraps an IFTTT `Webhook` to send emails
 * `send(email, subject, content)` — Send an email with `to`, `subject`, and `content` fields
+
+### `email_client.py` — IMAP/SMTP Mailbox Transport
+
+A reusable wrapper that both **listens to** and **replies from** a real email
+mailbox over IMAP + SMTP. This is distinct from `mail.py` (a one-way IFTTT email
+sender): `email_client.py` owns a live mailbox connection for reading, IDLE
+waiting, threaded replies, and permanent deletion. It is the transport used by
+the `mailman` service and is intentionally provider-portable (Gmail-friendly
+defaults, all overridable).
+
+Implemented with the **Python standard library only** (`imaplib`, `smtplib`,
+`email`) — no third-party dependency is added to `services/lib/requirements.txt`,
+so nothing extra is installed into any service venv.
+
+* `EmailClientConfig` — Config for the IMAP + SMTP connection: `imap_host`,
+  `imap_port` (993), `imap_ssl` (true), `smtp_host`, `smtp_port` (587),
+  `smtp_ssl` (false), `username`, `password` (an **app-password secret — never
+  logged**), optional `from_address`/`from_name`, `mailbox` (INBOX),
+  `imap_timeout`/`smtp_timeout` (30s), `idle_refresh_interval` (1740s ≈ 29 min),
+  `delete_mode` (`gmail_trash_expunge` default, or `expunge`), and
+  `gmail_trash_folder` (`[Gmail]/Trash`).
+* `EmailClient(config, log=None)` — The transport wrapper.
+    * `connect()` / `disconnect()` — Open/close and authenticate the IMAP + SMTP
+      connections.
+    * `idle_wait(timeout)` — Issue IMAP IDLE and block until a new-mail (EXISTS)
+      event or timeout; proactively reconnects the IDLE connection every
+      ~29 min and transparently reconnects on drop. Returns `True` on a new-mail
+      event, `False` on timeout/reconnect.
+    * `search_unseen()` — Return the UIDs of `UNSEEN` messages.
+    * `refresh()` — Issue an IMAP `NOOP` to flush the server's pending untagged
+      `EXISTS` updates so messages that arrived **after** the last `select()`
+      become visible/fetchable on a long-lived connection. Cheaper than a full
+      re-`SELECT` and sufficient per RFC 3501; raises on a non-OK response.
+    * `fetch(uid)` — Fetch a message with `BODY.PEEK[]` (does **not** set
+      `\Seen`) and return a `ParsedEmail` exposing `from_address`, `subject`,
+      `message_id`, `in_reply_to`, `references`, plain-text `body_text`, and the
+      raw `.message` (`email.message.EmailMessage`).
+    * `mark_seen(uid)` — Explicitly flag a message `\Seen`.
+    * `build_reply(original, body_text)` — Build a threaded reply
+      (`Subject: Re: …` with empty-subject ⇒ `Re:` and no double-prefix,
+      `To` = original sender, correct `In-Reply-To`/`References`) as an
+      `EmailMessage`.
+    * `send(message)` — Send an `EmailMessage` over authenticated SMTP.
+    * `delete(uid, message_id=None)` — **Permanently** remove a message. On Gmail
+      (`gmail_trash_expunge`) it copies to `[Gmail]/Trash`, removes it from the
+      source mailbox, then expunges only the matching message out of Trash (a
+      plain `\Deleted`+`EXPUNGE` only archives on Gmail); `expunge` mode does the
+      RFC-standard in-place delete for other providers. The Trash message is
+      located **unambiguously** by its RFC 5322 `Message-ID` (pass `message_id`).
+      **Fail-safe:** if the copied message cannot be unambiguously identified in
+      Trash (no `message_id`, or no header match), the Trash expunge is **skipped**
+      rather than guessing — no arbitrary/"newest" message is ever expunged, so an
+      unidentified delete can never destroy the wrong email. The message is still
+      removed from the source mailbox and left safely in Trash for manual/auto
+      (Gmail ~30-day) cleanup, and a warning is logged. A failed post-delete
+      re-`SELECT` of the source mailbox is surfaced as `EmailClientError` so the
+      caller forces a reconnect instead of continuing on a bad connection.
+* `EmailClientError` — Raised on connection/auth/send/IMAP failures.
+
+**Important:** this file is named `email_client.py` (not `email.py`) so it can
+never shadow the standard-library `email` package it depends on.
 
 ### `ntfy.py` — Push Notifications
 
