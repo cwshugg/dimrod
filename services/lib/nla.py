@@ -8,6 +8,7 @@
 # Imports
 import os
 import sys
+from enum import Enum
 from typing import Callable
 
 # Enable import from the parent directory
@@ -22,6 +23,19 @@ from lib.oracle import Oracle, OracleSessionConfig
 # A specific function definition that represents the handler function
 # for a single NLA endpoint.
 NLAEndpointHandlerFunction = Callable[[Oracle, dict], dict]
+
+class NLAResultMessagePostprocess(Enum):
+    """Controls how the speaker service post-processes an `NLAResult` message
+    when composing a reply to the user.
+
+    The enum values are strings so that the field serializes/deserializes as a
+    human-readable string (e.g. ``"REWORD"`` / ``"RAW"``) via the Uniserdes
+    machinery.
+    """
+    # The message should be reworded by the LLM before being sent to the user.
+    REWORD = "REWORD"
+    # The message should be returned as-is, unmodified. This is the default.
+    RAW = "RAW"
 
 class NLAService(Uniserdes):
     """Defines an object used to represent a single service that supports one or
@@ -77,6 +91,9 @@ class NLAResult(Uniserdes):
             UniserdesField("success",      [bool],     required=True),
             UniserdesField("message",      [str],      required=False, default=None),
             UniserdesField("message_context", [str],   required=False, default=None),
+            UniserdesField("message_postprocess", [NLAResultMessagePostprocess],
+                           required=False,
+                           default=NLAResultMessagePostprocess.RAW),
             UniserdesField("payload",      [dict],     required=False, default=None),
         ]
 

@@ -31,7 +31,8 @@ from lib.cli import ServiceCLI
 from lib.dialogue import DialogueConfig, DialogueInterface, \
                          DialogueAuthor, DialogueAuthorType, \
                          DialogueConversation, DialogueMessage
-from lib.nla import NLAService, NLAEndpoint, NLAResult, NLAEndpointInvokeParameters
+from lib.nla import NLAService, NLAEndpoint, NLAResult, \
+                    NLAEndpointInvokeParameters, NLAResultMessagePostprocess
 
 # The NLA selection cache lives beside this module. It transparently speeds up
 # repeated messages by caching the LLM's endpoint-selection decision.
@@ -561,14 +562,63 @@ class SpeakerService(Service):
 
         return results
 
+    def nla_reword_message(self, message: str, message_context: str = None):
+        """Rewords a single NLA result's `message` via the LLM.
+
+        A reword prompt is built from a generic instruction plus this single
+        result's own `message_context` (which may be `None` or empty). The
+        prompt is handed to `self.dialogue.reword()` and the reworded text is
+        returned.
+
+        If the `reword()` call raises, the error is logged and the original,
+        un-reworded `message` is returned as a fallback so a single LLM failure
+        never drops the underlying information.
+        """
+        # create a prompt to tell the LLM how to reword the message
+        reword_context = "This message contains a list of actions performed, or information retrieved, " \
+                         "by a home assistant.\n" \
+                         "Reword the message such that the sentences and information flow together naturally.\n"
+
+        # if this result provided context, include it in the prompt. Only this
+        # single result's context is used; context is never accumulated across
+        # results.
+        if message_context is not None:
+            ctx = message_context.strip()
+            if len(ctx) > 0:
+                reword_context += "The following additional context is provided; " \
+                                  "please consider this when rewording the message:\n\n%s" % \
+                                  ctx
+
+        # invoke the LLM to reword the message into something more well
+        # formatted and human-like. If rewording fails, fall back to the
+        # un-reworded text for this message.
+        try:
+            return self.dialogue.reword(message, extra_context=reword_context)
+        except Exception as e:
+            self.log.write("Failed to reword NLA response message: %s" % e)
+            return message
+
     def nla_compose_message(self, nla_results: list):
         """Takes a list of dictionary objects (returned by `nla_process()`) and
         builds a nicely-formatted message that can be sent back to the user.
+
+        Post-processing is driven per-result by each result's
+        `message_postprocess` value:
+
+          * `REWORD` results are reworded individually via a single
+            `nla_reword_message()` call, using only that result's own
+            `message_context`.
+          * `RAW` results are kept verbatim, with no LLM rewording.
+
+        The results are processed in a single ordered loop, so the original
+        order of `nla_results` is preserved in the composed message regardless
+        of each result's post-processing. Entries are separated by a blank line
+        (`"\\n\\n"`). If no result produced a non-empty message, `None` is
+        returned.
         """
-        raw_combined_msg = ""
-        raw_combined_msg_ctx = ""
-        nla_results_len = len(nla_results)
-        for (i, result_info) in enumerate(nla_results):
+        entries = []
+
+        for result_info in nla_results:
             # skip if there is no message
             result = result_info["result"]
             if result.message is None:
@@ -577,45 +627,23 @@ class SpeakerService(Service):
             if len(msg) == 0:
                 continue
 
-            # otherwise, append the result's message into a combined message
-            raw_combined_msg += msg
-            if i < nla_results_len - 1:
-                raw_combined_msg += "\n\n"
+            # determine how this result's message should be post-processed;
+            # treat a missing value as the default (RAW)
+            postprocess = getattr(result, "message_postprocess", None)
+            if postprocess == NLAResultMessagePostprocess.REWORD:
+                # reword this single message using only its own context
+                entries.append(self.nla_reword_message(msg, result.message_context))
+            else:
+                # keep the message verbatim
+                entries.append(msg)
 
-            # if message context was provided, append it to the combined
-            # context string. This information will be presented to the LLM
-            # when we ask it to reword things
-            if result.message_context is not None:
-                ctx = result.message_context.strip()
-                if len(ctx) > 0:
-                    raw_combined_msg_ctx += "%s\n\n" % ctx
-
-        # if the combined message is empty (meaning no NLA endpoints returned a
-        # message string), return None
-        if len(raw_combined_msg) == 0:
+        # if no result produced any text, return None
+        if len(entries) == 0:
             return None
 
-        # create a prompt to tell the LLM how to reword the message
-        reword_context = "This message contains a list of actions performed, or information retrieved, " \
-                         "by a home assistant.\n" \
-                         "Reword the message such that the sentences and information flow together naturally.\n"
-        if len(raw_combined_msg_ctx) > 0:
-            reword_context += "The following additional context is provided; " \
-                              "please consider this when rewording the message:\n\n%s" % \
-                              raw_combined_msg_ctx
-
-        # next, invoke the again to reword the message into something more well
-        # formatted and human-like
-        if len(raw_combined_msg) > 0:
-            try:
-                reworded_msg = self.dialogue.reword(raw_combined_msg,
-                                                    extra_context=reword_context)
-                return reworded_msg
-            except Exception as e:
-                self.log.write("Failed to reword NLA response message: %s" % e)
-                return raw_combined_msg
-
-        return raw_combined_msg
+        # merge all entries into the final message, preserving input order and
+        # separating entries with a blank line
+        return "\n\n".join(entries)
 
 
 # ============================== Service Oracle ============================== #

@@ -241,6 +241,39 @@ class TestUniserdesYamlEnum(unittest.TestCase):
         obj = EnumObject.from_yaml(yaml_str)
         self.assertEqual(obj.color, Color.GREEN)
 
+    def test_enum_from_yaml_string_mixed_case(self):
+        """An enum string in mixed/lower case should parse case-insensitively."""
+        obj = EnumObject.from_yaml("name: green_thing\ncolor: green\n")
+        self.assertEqual(obj.color, Color.GREEN)
+        obj = EnumObject.from_yaml("name: red_thing\ncolor: Red\n")
+        self.assertEqual(obj.color, Color.RED)
+
+    def test_enum_from_yaml_string_surrounding_whitespace(self):
+        """Enum strings with leading/trailing whitespace should be stripped
+        before the enum name lookup (forgiving parsing)."""
+        # quoted so YAML preserves the surrounding whitespace
+        obj = EnumObject.from_yaml('name: blue_thing\ncolor: "  BLUE  "\n')
+        self.assertEqual(obj.color, Color.BLUE)
+
+    def test_enum_from_yaml_string_whitespace_and_mixed_case(self):
+        """Whitespace and case should both be normalized before lookup."""
+        obj = EnumObject.from_yaml('name: red_thing\ncolor: " Red"\n')
+        self.assertEqual(obj.color, Color.RED)
+        obj = EnumObject.from_yaml('name: green_thing\ncolor: "green "\n')
+        self.assertEqual(obj.color, Color.GREEN)
+
+    def test_enum_from_json_string_forgiving(self):
+        """from_json() should apply the same strip+upper enum normalization."""
+        obj = EnumObject.from_json({"name": "blue_thing", "color": "  blue  "})
+        self.assertEqual(obj.color, Color.BLUE)
+
+    def test_enum_invalid_string_still_fails(self):
+        """An unknown enum name (after strip/upper) should still raise."""
+        with self.assertRaises(Exception):
+            EnumObject.from_json({"name": "x", "color": "  bogus  "})
+        with self.assertRaises(Exception):
+            EnumObject.from_yaml("name: x\ncolor: PURPLE\n")
+
     def test_enum_to_yaml_as_integer(self):
         """to_yaml() should serialize enums as their integer value."""
         obj = EnumObject.from_json({"name": "blue_thing", "color": 3})
