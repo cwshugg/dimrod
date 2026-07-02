@@ -253,36 +253,40 @@ class LumenService(Service):
         self.check(light, "unknown light specified: \"%s\"" % lid)
 
         # acquire the light's lock, in case another thread is trying to access
-        # the same light
+        # the same light. Everything after this point runs under try/finally so
+        # the lock is always released, even if a validation check or a transport
+        # (LIFX power sets are now acknowledged/verified and propagate errors)
+        # raises.
         light.lock()
-
-        # make sure color is supported by this light, if color was given
-        if color is not None:
-            self.check(light.has_color, "\"%s\" does not support color" % light.lid)
-            self.check(type(color) == list, "'color' must be a list of 3 RGB ints")
-            self.check(len(color) == 3, "'color' must have exactly 3 ints")
-            light.set_color(color)
-
-        # do the same for brightness
-        if brightness is not None:
-            self.check(light.has_brightness, "\"%s\" does not support brightness" % light.lid)
-            self.check(type(brightness) == float, "'brightness' must be a float between [0.0, 1.0]")
-            brightness = max(min(brightness, 1.0), 0.0)
-            light.set_brightness(brightness)
-
-        # choose a way to toggle the light
         r = None
-        if light.match_tags("wyze"):
-            r = self.toggle_wyze(light, "on", color=color, brightness=brightness)
-        elif light.match_tags("lifx"):
-            r = self.toggle_lifx(light, "on", color=color, brightness=brightness)
-        elif light.match_tags("govee") and self.govee is not None:
-            r = self.toggle_govee(light, "on", color=color, brightness=brightness)
-        else:
-            self.log.write("No available transport for light \"%s\"; skipping." % light.lid)
-            r = None
-        light.set_power(True)
-        light.unlock() # release the light's lock
+        try:
+            # make sure color is supported by this light, if color was given
+            if color is not None:
+                self.check(light.has_color, "\"%s\" does not support color" % light.lid)
+                self.check(type(color) == list, "'color' must be a list of 3 RGB ints")
+                self.check(len(color) == 3, "'color' must have exactly 3 ints")
+                light.set_color(color)
+
+            # do the same for brightness
+            if brightness is not None:
+                self.check(light.has_brightness, "\"%s\" does not support brightness" % light.lid)
+                self.check(type(brightness) == float, "'brightness' must be a float between [0.0, 1.0]")
+                brightness = max(min(brightness, 1.0), 0.0)
+                light.set_brightness(brightness)
+
+            # choose a way to toggle the light
+            if light.match_tags("wyze"):
+                r = self.toggle_wyze(light, "on", color=color, brightness=brightness)
+            elif light.match_tags("lifx"):
+                r = self.toggle_lifx(light, "on", color=color, brightness=brightness)
+            elif light.match_tags("govee") and self.govee is not None:
+                r = self.toggle_govee(light, "on", color=color, brightness=brightness)
+            else:
+                self.log.write("No available transport for light \"%s\"; skipping." % light.lid)
+                r = None
+            light.set_power(True)
+        finally:
+            light.unlock() # release the light's lock
         return r
 
     def queue_power_on(self, lid, color=None, brightness=None):
@@ -300,18 +304,23 @@ class LumenService(Service):
         # the same light
         light.lock()
 
-        # build a JSON object and send the request
+        # build a JSON object and send the request. Use try/finally so the
+        # light's lock is always released even if a transport now raises on
+        # failure (LIFX power sets are acknowledged/verified and propagate
+        # errors).
         r = None
-        if light.match_tags("wyze"):
-            r = self.toggle_wyze(light, "off")
-        elif light.match_tags("lifx"):
-            r = self.toggle_lifx(light, "off")
-        elif light.match_tags("govee") and self.govee is not None:
-            r = self.toggle_govee(light, "off")
-        else:
-            self.log.write("No available transport for light \"%s\"; skipping." % light.lid)
-            r = None
-        light.unlock() # release the light's lock
+        try:
+            if light.match_tags("wyze"):
+                r = self.toggle_wyze(light, "off")
+            elif light.match_tags("lifx"):
+                r = self.toggle_lifx(light, "off")
+            elif light.match_tags("govee") and self.govee is not None:
+                r = self.toggle_govee(light, "off")
+            else:
+                self.log.write("No available transport for light \"%s\"; skipping." % light.lid)
+                r = None
+        finally:
+            light.unlock() # release the light's lock
         light.set_power(False)
         return r
 
@@ -352,9 +361,18 @@ class LumenService(Service):
             self.log.write("LIFX device \"%s\" not found." % light.lid)
             return
 
-        # toggle the light
-        self.log.write("Toggling LIFX device \"%s\" to \"%s\"." % (light.lid, action))
-        self.lifx.set_light_power(l, action)
+        # toggle the light. `set_light_power` now uses an acknowledged send and
+        # verifies the resulting power state, so it raises if the bulb could not
+        # be confirmed on/off after its retries. Log real success/failure (with
+        # the device name) rather than unconditionally reporting success.
+        self.log.write("Attempting to toggle LIFX device \"%s\" to \"%s\"." % (light.lid, action))
+        try:
+            self.lifx.set_light_power(l, action)
+        except Exception as e:
+            self.log.write("Failed to turn LIFX device \"%s\" %s after retries: %s"
+                           % (light.lid, action, e))
+            raise
+        self.log.write("Turned LIFX device \"%s\" %s (verified)." % (light.lid, action))
 
         # if color and brightness was specified, apply it
         if color is not None:

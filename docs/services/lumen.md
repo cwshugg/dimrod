@@ -64,6 +64,24 @@ The `toggle_device` NLA endpoint uses the LLM to resolve natural-language reques
 | `action_threads` | `int` | Number of action worker threads |
 | `nla_toggle_dialogue_retries` | `int` | LLM retries for NLA device matching |
 
+### LIFX reliability settings
+
+The `lifx_config` (`LIFXConfig`) controls LIFX LAN reliability behavior:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `refresh_delay` | `int` | `7200` | Seconds before the discovery cache is stale |
+| `retry_attempts` | `int` | `4` | Retry attempts for discovery and power commands |
+| `retry_delay` | `int`/`float` | `0.1` | Seconds slept between retries |
+| `command_delay` | `int`/`float` | `0.05` | Seconds to space successive LAN commands across all bulbs so a burst of per-bulb toggles is not sent at once (`0` disables the stagger) |
+
+LIFX power commands are **acknowledged and verified** (not fire-and-forget): a
+lost command is retried, the resulting power state is read back and confirmed,
+and a bulb that cannot be confirmed on/off after its retries raises an error so
+Lumen logs a real failure (with the device name) instead of a false "turned on".
+A cache miss in `get_light_by_name` triggers exactly one fresh re-discovery
+before giving up. See the [library docs](../library.md) (`lifx.py`) for details.
+
 ### Light Configuration
 
 Each light is defined with:
@@ -92,6 +110,7 @@ The toggle backend for each light is determined by its tags:
 ## Notable Details
 
 * Tag-based device matching allows grouping lights (e.g., all "bedroom" lights)
-* Per-light locks ensure thread-safe concurrent control
+* Per-light locks ensure thread-safe concurrent control (always released, even when a backend command fails)
 * The LIFX backend uses LAN discovery with configurable retry attempts and delays
+* LIFX power commands are acknowledged, retried, and verified (read-back); simultaneous multi-bulb bursts are staggered by `lifx_config.command_delay`, and real success/failure is logged per device
 * Gatekeeper's motion-detection subscribers call Lumen to turn on outdoor lights

@@ -6,6 +6,7 @@ import os
 import sys
 from datetime import datetime
 import time
+import threading
 import colorsys
 
 # Enable import from the parent directory
@@ -20,6 +21,20 @@ import lib.dtu as dtu
 # LIFX imports
 from lifxlan import LifxLAN, Light
 
+# Default seconds to wait between successive LIFX LAN commands (across all
+# bulbs) so that a burst of per-bulb power commands from multiple worker
+# threads is not sent in the same instant, reducing Wi-Fi/UDP contention on
+# clustered bulbs. Mirrors the Govee `command_delay` precedent. Kept small so
+# toggles still feel responsive; set to 0 to disable staggering.
+LIFX_DEFAULT_COMMAND_DELAY = 0.05
+
+
+class LIFXError(Exception):
+    """Raised when a LIFX command cannot be verified as successful (e.g. a
+    power-state read-back does not match the requested state)."""
+    pass
+
+
 class LIFXConfig(Config):
     """An object used to configure the LIFX object."""
     def __init__(self):
@@ -27,7 +42,12 @@ class LIFXConfig(Config):
         self.fields = [
             ConfigField("refresh_delay",    [int],  required=False, default=7200),
             ConfigField("retry_attempts",   [int],  required=False, default=4),
-            ConfigField("retry_delay",      [int, float],  required=False, default=0.1)
+            ConfigField("retry_delay",      [int, float],  required=False, default=0.1),
+            # Seconds to wait between successive LIFX LAN commands (across all
+            # bulbs) so 5+ bulbs are not commanded in the same instant. A value
+            # of 0 disables the stagger. See `_apply_command_delay`.
+            ConfigField("command_delay",    [int, float],  required=False,
+                        default=LIFX_DEFAULT_COMMAND_DELAY)
         ]
 
 class LIFX:
@@ -39,6 +59,12 @@ class LIFX:
 
         self.lights = None
         self.last_refresh = None
+
+        # Tracks the monotonic time of the last LIFX LAN command sent, plus a
+        # lock guarding it, so `_apply_command_delay` can gently serialize/
+        # stagger commands issued concurrently by multiple worker threads.
+        self._command_lock = threading.Lock()
+        self._last_command = None
 
     def refresh(self):
         self.lifx = LifxLAN()
@@ -96,17 +122,17 @@ class LIFX:
 
         return self.lights
 
-    def get_light_by_name(self, name: str):
-        """Attempts to retrieve and find a light by its name. Returns the matching
-        object, or None.
+    def _find_light_by_name(self, query: str, refresh: bool = False):
+        """Looks up a light by its (already-stripped) label. When `refresh` is
+        True, forces a fresh LAN discovery before scanning; otherwise uses the
+        cache-first path. Returns the matching light or None. Discovery errors
+        are handled (and re-raised) via `handle_error`.
         """
-        query = name.strip()
-
         err = None
         try:
             # retrieve the list of lights, then iterate through them and
             # search for a light with a matching name
-            lights = self.get_lights()
+            lights = self.get_lights(refresh=refresh)
             for l in lights:
                 if l.get_label().strip() == query:
                     return l
@@ -118,6 +144,27 @@ class LIFX:
 
         # if we reached here, handle the error
         self.handle_error(err)
+
+    def get_light_by_name(self, name: str):
+        """Attempts to retrieve and find a light by its name. Returns the matching
+        object, or None.
+
+        On a cache miss, forces exactly one fresh LAN discovery and re-checks
+        before giving up. This makes the lookup self-healing when a bulb was
+        missed during an earlier (flaky) discovery pass and is still absent
+        from the stale cache, without risking an infinite re-discovery loop.
+        """
+        query = name.strip()
+
+        # first, try the normal cache-first path (honors the 2h refresh_delay)
+        match = self._find_light_by_name(query, refresh=False)
+        if match is not None:
+            return match
+
+        # cache miss: force ONE fresh discovery and re-check. Because we only
+        # force a refresh a single time (not in a loop), a truly-absent bulb
+        # still returns None cleanly after this second attempt.
+        return self._find_light_by_name(query, refresh=True)
 
     def get_light_by_address(self, macaddr: str, ipaddr: str):
         """Attempts to retrieve and find a light by its MAC and IP addresses.
@@ -136,16 +183,77 @@ class LIFX:
                 self.refresh()
         self.handle_error(err)
 
+    def _apply_command_delay(self):
+        """Gently staggers/serializes successive LIFX LAN commands.
+
+        If a previous command was sent less than `config.command_delay` seconds
+        ago, sleeps for the remaining time so that a burst of per-bulb commands
+        (e.g. the 5 kitchen bulbs commanded by concurrent worker threads) is
+        spread out instead of hitting the air simultaneously. The lock is held
+        across the sleep so concurrent callers are spaced relative to each
+        other. A `command_delay` of 0 (or less) disables the stagger.
+        """
+        delay = self.config.command_delay
+        if not delay or delay <= 0:
+            return
+
+        with self._command_lock:
+            now = time.monotonic()
+            if self._last_command is not None:
+                remaining = delay - (now - self._last_command)
+                if remaining > 0:
+                    time.sleep(remaining)
+            self._last_command = time.monotonic()
+
+    @staticmethod
+    def _power_matches(actual, action: str) -> bool:
+        """Returns True if a `get_power()` read-back (`actual`) matches the
+        requested `action` ("on"/"off"). LIFX reports power as a level in
+        [0, 65535]; any non-zero level is considered "on".
+        """
+        if actual is None:
+            return False
+        try:
+            level = int(actual)
+        except (TypeError, ValueError):
+            return False
+        if action == "on":
+            return level > 0
+        return level == 0
+
     def set_light_power(self, light: Light, action: str):
-        """Toggles a light with the given fields."""
+        """Toggles a light on or off, using an *acknowledged* send and verifying
+        the resulting power state.
+
+        Unlike a fire-and-forget (`rapid=True`) send, this requests an
+        acknowledgement (`rapid=False`), so a lost/timed-out command raises and
+        the retry loop actually engages. After each attempt the power state is
+        read back and compared to the requested state; a mismatch (or a failed
+        read-back) is treated as a retryable failure. If all `retry_attempts`
+        are exhausted, the last error is raised via `handle_error`.
+        """
         action = action.strip().lower()
         assert action in ["on", "off"]
 
         err = None
         for i in range(self.config.retry_attempts):
             try:
-                # turn the light on or off, depending on the provided action
-                light.set_power(action, rapid=True)
+                # stagger this command relative to other LIFX commands so a
+                # burst of per-bulb toggles is not sent all at once
+                self._apply_command_delay()
+
+                # turn the light on or off with an acknowledged send: rapid=False
+                # makes lifxlan request an ack and raise on timeout/loss
+                light.set_power(action, rapid=False)
+
+                # verify the change actually took effect by reading the power
+                # state back; a get failure raises and is treated as retryable
+                actual = light.get_power()
+                if not self._power_matches(actual, action):
+                    raise LIFXError(
+                        "power state verification failed after setting to \"%s\" "
+                        "(read back %r)" % (action, actual)
+                    )
                 return
             except Exception as e:
                 err = e

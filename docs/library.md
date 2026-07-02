@@ -266,11 +266,42 @@ Controls LIFX bulbs over the local network using the LAN protocol.
 | Method | Description |
 |--------|-------------|
 | `get_lights(refresh)` | Discover all LIFX bulbs on the network |
-| `get_light_by_name(name)` | Find a bulb by label |
-| `set_light_power(light, action)` | Turn a light on or off |
+| `get_light_by_name(name)` | Find a bulb by label (forces one re-discovery on a cache miss) |
+| `set_light_power(light, action)` | Turn a light on or off (acknowledged + verified) |
 | `set_light_color(light, color)` | Set a light's color |
 | `set_light_brightness(light, brightness)` | Set brightness level |
 | `refresh()` | Re-scan the network for bulbs |
+
+**Reliability behavior.** Power commands are **acknowledged and verified** rather
+than fire-and-forget:
+
+- `set_light_power` sends the LAN `SetPower` with an acknowledgement requested
+  (`rapid=False`), so a lost/timed-out command raises and the existing
+  `retry_attempts`/`retry_delay` retry loop actually engages (previously, a
+  fire-and-forget `rapid=True` send never raised, leaving the retry loop inert).
+- After each send, the bulb's power state is **read back** with `get_power()` and
+  compared to the requested state. A mismatch — or a failed read-back — is treated
+  as a retryable failure. If all `retry_attempts` are exhausted, the last error is
+  raised (a `LIFXError` for an unverifiable state), so callers can log a real
+  failure instead of a false success.
+- `get_light_by_name` is **self-healing**: on a cache miss it forces exactly one
+  fresh discovery and re-checks before giving up (returning `None` only if the
+  bulb is still absent), so a bulb missed during an earlier flaky discovery pass
+  is not un-commandable for the full 2-hour cache window. There is no re-discovery
+  loop.
+- Successive LAN commands are gently **staggered** by `command_delay` seconds
+  (see config below) so a burst of per-bulb toggles from multiple worker threads
+  (e.g. 5 kitchen bulbs) is not sent in the same instant, reducing Wi-Fi/UDP
+  contention and packet loss. Mirrors the Govee `command_delay` precedent.
+
+**`LIFXConfig` fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `refresh_delay` | int | `7200` | Seconds before the discovery cache is considered stale |
+| `retry_attempts` | int | `4` | Attempts for discovery and (now-effective) power commands |
+| `retry_delay` | int/float | `0.1` | Seconds slept between retry attempts |
+| `command_delay` | int/float | `0.05` | Seconds to space successive LAN commands across all bulbs (0 disables the stagger) |
 
 Configurable retry attempts and delays for network reliability.
 
