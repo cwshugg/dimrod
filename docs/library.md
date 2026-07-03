@@ -292,8 +292,30 @@ than fire-and-forget:
   loop.
 - Successive LAN commands are gently **staggered** by `command_delay` seconds
   (see config below) so a burst of per-bulb toggles from multiple worker threads
-  (e.g. 5 kitchen bulbs) is not sent in the same instant, reducing Wi-Fi/UDP
-  contention and packet loss. Mirrors the Govee `command_delay` precedent.
+  (e.g. 5 kitchen bulbs) is not sent in the same instant. Mirrors the Govee
+  `command_delay` precedent. This is now a minor spacing knob — the real
+  concurrency guarantee comes from serialization (below).
+
+**Thread safety (serialized LAN access).** A single instance of `LIFX` is shared
+by all of Lumen's action worker threads, and `lifxlan`'s `Device` manages its
+UDP sockets through a process-global, **un-locked** socket table. Concurrent
+socket open/close across threads — or one thread rebuilding the shared `LifxLAN`
+via `refresh()` while another was mid-command — tore sockets down under in-flight
+commands and produced intermittent `[Errno 9] Bad file descriptor` failures
+(only some bulbs in a group turning on). To fix this:
+
+- Every public operation that touches `lifxlan` (`get_lights`, `get_light_by_name`,
+  `get_light_by_address`, `set_light_power` incl. its verify read-back,
+  `set_light_color`, `set_light_brightness`, `refresh`, `handle_error`) holds a
+  single **reentrant lock** (`threading.RLock`) for its full body, so LAN access
+  is serialized and no two threads ever race on the shared sockets. The lock is
+  reentrant so nested internal calls do not deadlock.
+- The shared `LifxLAN` is **no longer rebuilt on a transient command retry**: a
+  lost ack or a failed read-back is retried on the *same* object. `refresh()`
+  (which tears down sockets) runs only under the lock and only for genuine
+  discovery problems. This supersedes the pure-stagger approach as the actual
+  fix. Because LAN calls are fast, serializing a handful of bulbs is
+  imperceptible.
 
 **`LIFXConfig` fields:**
 

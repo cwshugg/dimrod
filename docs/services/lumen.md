@@ -82,6 +82,29 @@ Lumen logs a real failure (with the device name) instead of a false "turned on".
 A cache miss in `get_light_by_name` triggers exactly one fresh re-discovery
 before giving up. See the [library docs](../library.md) (`lifx.py`) for details.
 
+#### Thread-safe LIFX LAN access (serialized)
+
+Lumen runs several action worker threads (`action_threads`, default `8`) that
+all share **one** `LIFX` wrapper and its cached `Light`/`Device` objects. The
+underlying `lifxlan` library manages its UDP sockets through a process-global,
+**un-locked** socket table, so when multiple threads opened/closed those sockets
+concurrently — or one thread rebuilt the shared `LifxLAN` mid-flight — sockets
+were torn down out from under in-flight commands, producing intermittent
+`[Errno 9] Bad file descriptor` failures (e.g. only 1 of 5 kitchen bulbs turning
+on). The earlier per-command `command_delay` stagger only spaced command *starts*
+and did not prevent overlap, so it could not fix this.
+
+All LIFX LAN operations are now **serialized** by a single reentrant lock inside
+the `LIFX` wrapper: discovery, lookups, and each power/color/brightness command
+(including its acknowledged send + read-back verification) hold the lock for
+their full duration, so no two threads ever touch `lifxlan` sockets at the same
+time. The shared `LifxLAN` is **no longer rebuilt on a transient command retry**
+(a lost ack is retried on the same object); it is only refreshed for genuine
+discovery problems, always under the lock. Because LAN calls are fast,
+serializing a handful of bulbs is imperceptible to the user. This supersedes the
+pure-stagger approach as the real fix; `command_delay` is retained as a small,
+optional spacing knob. See the [library docs](../library.md) (`lifx.py`).
+
 ### Light Configuration
 
 Each light is defined with:
@@ -112,5 +135,5 @@ The toggle backend for each light is determined by its tags:
 * Tag-based device matching allows grouping lights (e.g., all "bedroom" lights)
 * Per-light locks ensure thread-safe concurrent control (always released, even when a backend command fails)
 * The LIFX backend uses LAN discovery with configurable retry attempts and delays
-* LIFX power commands are acknowledged, retried, and verified (read-back); simultaneous multi-bulb bursts are staggered by `lifx_config.command_delay`, and real success/failure is logged per device
-* Gatekeeper's motion-detection subscribers call Lumen to turn on outdoor lights
+* LIFX power commands are acknowledged, retried, and verified (read-back); real success/failure is logged per device
+* All LIFX LAN access is serialized by a reentrant lock in the shared `LIFX` wrapper, so concurrent worker threads cannot race on `lifxlan`'s un-locked sockets (fixes intermittent `[Errno 9] Bad file descriptor`); the shared `LifxLAN` is never rebuilt on a transient command retry
