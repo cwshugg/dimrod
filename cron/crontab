@@ -8,10 +8,6 @@
 # --------------------------------- Backups ---------------------------------- #
 # Back up all my config files every month, on the 5th day around 4:30am.
 20    4   5   *   * /home/provolone/chs/cron/backup.sh
-25    4   5   *   * /home/provolone/chs/cron/backup.sh
-30    4   5   *   * /home/provolone/chs/cron/backup.sh
-35    4   5   *   * /home/provolone/chs/cron/backup.sh
-40    4   5   *   * /home/provolone/chs/cron/backup.sh
 
 # ------------------------------- LetsEncrypt -------------------------------- #
 # Renew my LetsEncrypt certificate periodically, on the 2nd day of every other
@@ -37,4 +33,10 @@
 0     23  *   *   5 /home/provolone/chs/scripts/restart-service.sh chef
 # GEARHEAD: Thursday evenings at 11:00pm
 0     23  *   *   4 /home/provolone/chs/scripts/restart-service.sh gearhead
+# TREASURER: Wednesday mornings at 3:00am
+0     3   *   *   3 /home/provolone/chs/scripts/restart-service.sh treasurer
+# MUNCHBOOK: Thursday mornings at 2:30am
+30    2   *   *   4 /home/provolone/chs/scripts/restart-service.sh munchbook
+# MAILMAN: Sunday evenings at 1:45am
+45    1   *   *   0 /home/provolone/chs/scripts/restart-service.sh mailman
 
