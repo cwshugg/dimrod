@@ -58,7 +58,7 @@ from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle, OracleSession, OracleSessionConfig
 from lib.cli import ServiceCLI
-from lib.email_client import EmailClient, EmailClientConfig, EmailClientError
+from lib.email_client import EmailClient, EmailClientConfig, EmailClientError, EmailConnectionError
 
 # Local (service) imports. `conversation_map` sits beside this module; the
 # services/ dir is already on sys.path (above) but the service dir may not be
@@ -306,6 +306,11 @@ class MailmanService(Service):
         # Timestamp of the last conversation-map prune sweep (set in run()).
         self.last_sweep_time = None
 
+        # Monotonic timestamp of the last successful WORKER connect, used to
+        # proactively refresh the worker connection before the server drops it
+        # (mirrors the listener's IDLE refresh). None until first connected.
+        self._worker_connect_time = None
+
     # ------------------------------- Helpers -------------------------------- #
     def check(self, condition, msg):
         """Custom assertion helper (mirrors lumen's)."""
@@ -390,13 +395,16 @@ class MailmanService(Service):
 
     def _connect_with_backoff(self, client: EmailClient, label: str):
         """Connects a client, retrying with capped exponential backoff. Used at
-        startup so a transient outage doesn't crash the service.
+        startup so a transient outage doesn't crash the service (and reused to
+        re-establish the worker connection after a mid-command drop).
         """
         backoff = self.config.reconnect_delay
         while True:
             try:
                 client.connect()
                 self.log.write("Connected %s email client." % label)
+                if label == "worker":
+                    self._worker_connect_time = time.monotonic()
                 return
             except EmailClientError as e:
                 self.log.write("Failed to connect %s client: %s" % (label, e))
@@ -404,6 +412,78 @@ class MailmanService(Service):
                             (label, backoff))
                 time.sleep(backoff)
                 backoff = min(backoff * 2, self.config.reconnect_delay_max)
+
+    def _reconnect_worker(self):
+        """Tears down and re-establishes the shared worker IMAP/SMTP connection
+        via the capped-backoff connect helper, so a dropped worker socket heals
+        instead of getting stuck forever.
+
+        MUST be called with `worker_client_lock` held.
+        """
+        try:
+            self.worker_client.disconnect()
+        except Exception:
+            # disconnect() is best-effort and already swallows its own errors;
+            # guard anyway so a teardown hiccup never blocks the reconnect.
+            pass
+        self._connect_with_backoff(self.worker_client, "worker")
+
+    def _maybe_refresh_worker(self):
+        """Proactively reconnects the worker connection if it has been open
+        longer than the configured refresh interval (reusing the transport's
+        `idle_refresh_interval`, ~29 min), mirroring the listener's IDLE
+        refresh. This makes a mid-command server-side drop rare; the reactive
+        reconnect in `_worker_fetch` remains the primary safety net.
+
+        MUST be called with `worker_client_lock` held.
+        """
+        interval = self.config.email.idle_refresh_interval
+        if not interval or interval <= 0:
+            return
+        if self._worker_connect_time is None:
+            # Not yet tracked (e.g. injected in a unit test) -- nothing to do.
+            return
+        if time.monotonic() - self._worker_connect_time >= interval:
+            self.log.write("Proactively refreshing stale worker IMAP connection.")
+            self._reconnect_worker()
+
+    def _worker_fetch(self, uid):
+        """REFRESHES the worker's mailbox view and FETCHES a message under the
+        worker lock, with a self-healing reconnect.
+
+        The worker client is a long-lived connection opened once at startup, so
+        (1) its mailbox view is stale for UIDs that arrived after connect -- the
+        NOOP refresh flushes pending EXISTS updates so they become fetchable --
+        and (2) an idle connection can be silently dropped by the server (Gmail
+        closes idle IMAP sockets after ~30 min), which surfaces as an
+        `EmailConnectionError` on the next `refresh()`/`fetch()`.
+
+        Recovery: on a CONNECTION-LEVEL drop (`EmailConnectionError`) we
+        reconnect the worker ONCE and retry the fetch on the fresh connection,
+        all still under the lock. A NON-connection `EmailClientError` (e.g. a
+        genuine fetch miss -- the message truly could not be read) is NOT
+        retried and is surfaced unchanged, so we never enter a tight reconnect
+        loop for a message that simply is not there.
+
+        Returns the fetched `ParsedEmail`. Propagates `EmailClientError` /
+        `EmailConnectionError` to the caller, which leaves the message UNSEEN
+        for a later retry (no-loss).
+        """
+        with self.worker_client_lock:
+            # Proactive refresh so we rarely hit a server-side idle drop.
+            self._maybe_refresh_worker()
+            try:
+                self.worker_client.refresh()
+                return self.worker_client.fetch(uid)
+            except EmailConnectionError as e:
+                self.log.write("Worker IMAP connection dropped during fetch of "
+                               "uid=%s (%s); reconnecting and retrying once." %
+                               (uid, e))
+            # Reconnect + retry ONCE on the fresh connection (still under the
+            # lock). A second failure propagates to the caller.
+            self._reconnect_worker()
+            self.worker_client.refresh()
+            return self.worker_client.fetch(uid)
 
     def _scan_and_enqueue(self):
         """Searches for UNSEEN messages on the listener connection and enqueues
@@ -445,21 +525,26 @@ class MailmanService(Service):
 
         # 1. REFRESH then FETCH the full message WITHOUT marking it \Seen.
         #
-        #    The worker client is a long-lived connection opened once at startup,
-        #    so its mailbox view is stale: a UID that arrived AFTER connect is not
-        #    in its known message set and a raw UID FETCH returns OK with no data.
-        #    We NOOP first (under the same lock) to force the server to deliver
-        #    pending EXISTS updates so newly-arrived UIDs become fetchable.
+        #    `_worker_fetch` NOOP-refreshes the worker's mailbox view (so a UID
+        #    that arrived AFTER connect becomes visible) and is self-healing: if
+        #    the long-lived worker connection was dropped by the server (Gmail
+        #    closes idle IMAP sockets after ~30 min), the raw socket/SSL error
+        #    is normalized to `EmailConnectionError`, the worker reconnects, and
+        #    the fetch is retried ONCE on the fresh connection.
         #
-        #    A fetch miss that survives the refresh means the message truly could
-        #    not be read (genuinely vanished, or a transient error). We DO NOT
-        #    delete it: it stays UNSEEN in the inbox, and the worker loop releases
-        #    the de-dup guard after we return, so a later listener scan / reconnect
-        #    can re-enqueue and retry it. Nothing is permanently lost.
+        #    A fetch failure that survives that (a genuine miss, or a drop that
+        #    persists across the reconnect+retry) means the message could not be
+        #    read right now. We DO NOT delete it: it stays UNSEEN in the inbox,
+        #    and the worker loop releases the de-dup guard after we return, so a
+        #    later listener scan / reconnect can re-enqueue and retry it. Nothing
+        #    is permanently lost.
         try:
-            with self.worker_client_lock:
-                self.worker_client.refresh()
-                parsed = self.worker_client.fetch(uid)
+            parsed = self._worker_fetch(uid)
+        except EmailConnectionError as e:
+            self.log.write("FETCH uid=%s failed even after worker reconnect+retry "
+                           "(leaving message in inbox for a later retry): %s" %
+                           (uid, e))
+            return
         except EmailClientError as e:
             self.log.write("FETCH uid=%s failed after IMAP refresh (leaving "
                            "message in inbox for a later retry): %s" % (uid, e))

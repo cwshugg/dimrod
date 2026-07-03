@@ -508,6 +508,18 @@ so nothing extra is installed into any service venv.
       re-`SELECT` of the source mailbox is surfaced as `EmailClientError` so the
       caller forces a reconnect instead of continuing on a bad connection.
 * `EmailClientError` — Raised on connection/auth/send/IMAP failures.
+* `EmailConnectionError` — A subclass of `EmailClientError` raised when a **live**
+  IMAP/SMTP connection is dropped or errors at the transport level *mid-command*
+  (socket EOF — e.g. Gmail closing an idle connection after ~30 min — a reset, an
+  SSL error, or an `imaplib` abort). The worker-path methods (`refresh`, `fetch`,
+  `search_unseen`, `mark_seen`, `delete`, `send`) **normalize** the raw
+  `imaplib.IMAP4.abort`/`imaplib.IMAP4.error`/`OSError`/`ssl.SSLError` into this
+  single type (never exposing the password) so callers can catch one exception
+  hierarchy and distinguish a **reconnect-worthy connection drop**
+  (`EmailConnectionError`) from a *logical* failure such as a non-OK response or a
+  genuinely-unfetchable message (plain `EmailClientError`). Mailman's worker uses
+  this to reconnect-and-retry a dropped connection instead of re-enqueuing the
+  message forever.
 
 **Important:** this file is named `email_client.py` (not `email.py`) so it can
 never shadow the standard-library `email` package it depends on.

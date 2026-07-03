@@ -29,10 +29,12 @@
 # Imports
 import os
 import sys
+import ssl
 import time
 import select
 import imaplib
 import smtplib
+import contextlib
 import email
 import email.policy
 import email.utils
@@ -77,6 +79,39 @@ class EmailClientError(Exception):
     app password / secret) into an `EmailClientError` message or any log line.
     """
     pass
+
+
+class EmailConnectionError(EmailClientError):
+    """A specialization of `EmailClientError` raised when a live IMAP/SMTP
+    connection is dropped or misbehaves at the transport level MID-COMMAND --
+    e.g. the socket returns EOF (Gmail closing an idle connection after ~30
+    min), a connection reset, an SSL error, or an `imaplib` abort.
+
+    This is distinct from a *logical* protocol failure (a non-OK IMAP response)
+    or a genuinely-unfetchable message: those keep raising the plain
+    `EmailClientError`. Callers (e.g. mailman's worker) catch this narrower type
+    to decide that the correct recovery is to RECONNECT and retry, rather than
+    to give up on / re-enqueue the message forever.
+
+    As with `EmailClientError`, the account password is never placed into the
+    message.
+    """
+    pass
+
+
+# Transport-level exceptions raised by the underlying imaplib/socket/ssl layer
+# when a live IMAP connection is dropped or misbehaves mid-command. Mirrors the
+# set already handled by `idle_wait` (plus `ssl.SSLError`). These are normalized
+# into `EmailConnectionError` so callers can catch one type and reconnect.
+IMAP_CONNECTION_ERRORS = (
+    OSError, ssl.SSLError, imaplib.IMAP4.abort, imaplib.IMAP4.error,
+)
+
+# The analogous transport-level exceptions for the SMTP send path.
+SMTP_CONNECTION_ERRORS = (
+    OSError, ssl.SSLError,
+    smtplib.SMTPServerDisconnected, smtplib.SMTPConnectError,
+)
 
 
 # =============================== Config Class ============================== #
@@ -360,6 +395,31 @@ class EmailClient:
             raise EmailClientError("SMTP is not connected; call connect() first")
         return self._smtp
 
+    @contextlib.contextmanager
+    def _imap_op(self, description):
+        """Context manager that normalizes RAW transport-level IMAP/socket/SSL
+        exceptions raised inside it into `EmailConnectionError`, while letting
+        an already-`EmailClientError` (e.g. a non-OK response, or a genuinely-
+        unfetchable message) propagate unchanged.
+
+        This gives callers a single, catchable error hierarchy: an
+        `EmailConnectionError` means "the connection died mid-command; reconnect
+        and retry", whereas a plain `EmailClientError` means "the command ran
+        but the result was not OK". The account password is never part of these
+        commands, so `str(e)` is safe to include (it is only ever a socket/SSL
+        message such as "EOF occurred in violation of protocol").
+        """
+        try:
+            yield
+        except EmailClientError:
+            # Already normalized (non-OK response, missing payload, etc.).
+            raise
+        except IMAP_CONNECTION_ERRORS as e:
+            raise EmailConnectionError(
+                "%s: IMAP connection error (%s: %s)" %
+                (description, type(e).__name__, e)
+            )
+
     # --------------------------- Mailbox refresh --------------------------- #
     def refresh(self):
         """Refreshes this connection's view of the selected mailbox so that
@@ -381,9 +441,10 @@ class EmailClient:
         Raises `EmailClientError` on a non-OK response.
         """
         imap = self._require_imap()
-        typ, _ = imap.noop()
-        if typ != "OK":
-            raise EmailClientError("IMAP NOOP (refresh) failed: %s" % typ)
+        with self._imap_op("IMAP NOOP (refresh)"):
+            typ, _ = imap.noop()
+            if typ != "OK":
+                raise EmailClientError("IMAP NOOP (refresh) failed: %s" % typ)
 
     # ------------------------------ Searching ------------------------------ #
     def search_unseen(self):
@@ -391,16 +452,17 @@ class EmailClient:
         mailbox. Raises `EmailClientError` on a non-OK IMAP response.
         """
         imap = self._require_imap()
-        typ, data = imap.uid("SEARCH", None, "UNSEEN")
-        if typ != "OK":
-            raise EmailClientError("UID SEARCH UNSEEN failed: %s" % typ)
-        # data is like [b"1 2 3"] (or [b""] / [None] when empty).
-        raw = data[0] if data else None
-        if not raw:
-            return []
-        if isinstance(raw, bytes):
-            raw = raw.decode("ascii", errors="replace")
-        return raw.split()
+        with self._imap_op("UID SEARCH UNSEEN"):
+            typ, data = imap.uid("SEARCH", None, "UNSEEN")
+            if typ != "OK":
+                raise EmailClientError("UID SEARCH UNSEEN failed: %s" % typ)
+            # data is like [b"1 2 3"] (or [b""] / [None] when empty).
+            raw = data[0] if data else None
+            if not raw:
+                return []
+            if isinstance(raw, bytes):
+                raw = raw.decode("ascii", errors="replace")
+            return raw.split()
 
     # ------------------------------- Fetching ------------------------------ #
     def fetch(self, uid):
@@ -413,27 +475,29 @@ class EmailClient:
         """
         imap = self._require_imap()
         uid = str(uid)
-        typ, data = imap.uid("FETCH", uid, "(BODY.PEEK[])")
-        if typ != "OK":
-            raise EmailClientError("UID FETCH %s failed: %s" % (uid, typ))
+        with self._imap_op("UID FETCH %s" % uid):
+            typ, data = imap.uid("FETCH", uid, "(BODY.PEEK[])")
+            if typ != "OK":
+                raise EmailClientError("UID FETCH %s failed: %s" % (uid, typ))
 
-        raw = _extract_fetch_payload(data)
-        if raw is None:
-            raise EmailClientError("UID FETCH %s returned no message data" % uid)
+            raw = _extract_fetch_payload(data)
+            if raw is None:
+                raise EmailClientError("UID FETCH %s returned no message data" % uid)
 
-        # Parse into a modern EmailMessage using the default (RFC-compliant)
-        # policy so header decoding and `.get_body()` behave sensibly.
-        message = email.message_from_bytes(raw, policy=email.policy.default)
-        return ParsedEmail(uid, message)
+            # Parse into a modern EmailMessage using the default (RFC-compliant)
+            # policy so header decoding and `.get_body()` behave sensibly.
+            message = email.message_from_bytes(raw, policy=email.policy.default)
+            return ParsedEmail(uid, message)
 
     def mark_seen(self, uid):
         """Explicitly marks the message with the given UID as `\\Seen`. Raises
         `EmailClientError` on a non-OK response.
         """
         imap = self._require_imap()
-        typ, _ = imap.uid("STORE", str(uid), "+FLAGS", "(\\Seen)")
-        if typ != "OK":
-            raise EmailClientError("UID STORE +\\Seen for %s failed: %s" % (uid, typ))
+        with self._imap_op("UID STORE +\\Seen for %s" % uid):
+            typ, _ = imap.uid("STORE", str(uid), "+FLAGS", "(\\Seen)")
+            if typ != "OK":
+                raise EmailClientError("UID STORE +\\Seen for %s failed: %s" % (uid, typ))
 
     # --------------------------- Reply building ---------------------------- #
     def build_reply(self, original, body_text: str) -> EmailMessage:
@@ -509,6 +573,11 @@ class EmailClient:
             message["From"] = self._reply_from()
         try:
             smtp.send_message(message)
+        except SMTP_CONNECTION_ERRORS as e:
+            # Transport-level SMTP failure (dropped/reset socket, SSL error):
+            # surface as the reconnect-worthy subtype. `send_message` errors do
+            # not carry the password, so `e` is safe to include.
+            raise EmailConnectionError("SMTP send failed (connection): %s" % e)
         except Exception as e:
             raise EmailClientError("SMTP send failed: %s" % e)
         self._log_write("Sent message to %s (subject=%r)." %
@@ -541,10 +610,11 @@ class EmailClient:
         imap = self._require_imap()
         uid = str(uid)
 
-        if self.config.delete_mode == EMAIL_DELETE_MODE_EXPUNGE:
-            self._delete_expunge(imap, uid)
-        else:
-            self._delete_gmail_trash(imap, uid, message_id)
+        with self._imap_op("delete uid=%s" % uid):
+            if self.config.delete_mode == EMAIL_DELETE_MODE_EXPUNGE:
+                self._delete_expunge(imap, uid)
+            else:
+                self._delete_gmail_trash(imap, uid, message_id)
 
     def _delete_expunge(self, imap, uid):
         """RFC-standard permanent delete: mark `\\Deleted` and EXPUNGE."""
