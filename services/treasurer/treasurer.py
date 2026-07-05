@@ -126,8 +126,9 @@ class TreasurerConfig(ServiceConfig):
         fields = [
             ConfigField("ynab",      [YNABConfig],              required=True),
             ConfigField("budgets",   [TreasurerBudgetConfig],   required=True),
-            ConfigField("sync_hour",    [int],                     required=False, default=3),
-            ConfigField("summary_day", [int],                     required=False, default=5),
+            ConfigField("sync_hour",    [int],                  required=False, default=3),
+            ConfigField("summary_day",  [int],                  required=False, default=5),
+            ConfigField("debug_summary", [bool],                required=False, default=False),
         ]
         self.fields += fields
 
@@ -374,7 +375,11 @@ class TreasurerService(Service):
             try:
                 ctx.db.upsert_transactions_batch(txn_list)
                 for txn_id in deleted_ids:
-                    ctx.db.delete_transaction(txn_id)
+                    # Remove the transaction AND any stored subtransaction
+                    # children. YNAB may report a deleted split parent without
+                    # re-listing its subtransactions, so deleting by parent id
+                    # is required to avoid orphaning the child rows.
+                    ctx.db.delete_transaction_and_children(txn_id)
             except Exception as e:
                 self.log.write("Error applying transactions for '%s': %s" %
                               (ctx.name, str(e)))
@@ -435,16 +440,24 @@ class TreasurerService(Service):
         income_transactions = []
         transaction_count = 0
 
+        if self.config.debug_summary:
+            self.log.write("Generating summary for \"%s\" (%s to %s)..." %
+                          (ctx.name, start_str, end_str))
+
         for row in rows:
-            category_name = row.category_name or "Uncategorized"
+            category_name = row.category_name or "(Uncategorized)"
             group_name = row.category_group_name
             payee_name = row.payee_name
             amount = row.amount
 
-            # DEBUGGING: uncomment if you want to see every transaction.
-            print("%s, category='%s', category_group='%s', entity='%s'" % (row, category_name, group_name, payee_name))
+            # Build a debug string to print for each transaction
+            transaction_debug_str = "date=\"%s\", amount=%.2f, entity=\"%s\", category=\"%s\", category_group=\"%s\", description=\"%s\"" % \
+                                    (row.date, amount, payee_name, category_name, group_name, row.memo)
 
             if row.is_transfer():
+                transaction_debug_str = "(SKIP; Transfer) %s" % transaction_debug_str
+                if self.config.debug_summary:
+                    self.log.write(transaction_debug_str)
                 continue
 
             # Apply the appropriate exclusion list based on direction
@@ -452,14 +465,30 @@ class TreasurerService(Service):
                 if ctx.expense_exclusions:
                     if any(exc.matches(category_name, group_name, payee_name)
                            for exc in ctx.expense_exclusions):
+                        # Log a debug string and skip
+                        transaction_debug_str = "(SKIP; Expense exclusion) %s" % transaction_debug_str
+                        if self.config.debug_summary:
+                            self.log.write(transaction_debug_str)
                         continue
             elif amount == 0:
+                # Log a debug string and skip
+                transaction_debug_str = "(SKIP; Zero-cost transaction) %s" % transaction_debug_str
+                if self.config.debug_summary:
+                    self.log.write(transaction_debug_str)
                 continue
             else:
                 if ctx.income_exclusions:
                     if any(exc.matches(category_name, group_name, payee_name)
                            for exc in ctx.income_exclusions):
+                        # Log a debug string and skip
+                        transaction_debug_str = "(SKIP; Income exclusion) %s" % transaction_debug_str
+                        if self.config.debug_summary:
+                            self.log.write(transaction_debug_str)
                         continue
+
+            # Log the transaction, if debug is enabled:
+            if self.config.debug_summary:
+                self.log.write(transaction_debug_str)
 
             transaction_count += 1
 

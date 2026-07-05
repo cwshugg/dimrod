@@ -141,6 +141,19 @@ class YNABTransactionInfo(Uniserdes):
             UniserdesField("cleared",        [str],   required=False, default=None),
             UniserdesField("transfer_account_id", [str], required=False, default=None),
             UniserdesField("synced_at",      [str],   required=False, default=None),
+            # `deleted` mirrors the YNAB API `deleted` flag (stored as 0/1). YNAB
+            # only reports deleted entities in delta responses; treasurer uses
+            # this to remove them locally and to defensively skip any deleted row
+            # that lingers in the DB at summary time.
+            UniserdesField("deleted",        [int],   required=False, default=0),
+            # For a split transaction's subtransaction, `parent_transaction_id`
+            # holds the parent transaction's YNAB id so that deleting a parent
+            # (which YNAB may report WITHOUT re-listing its subtransactions) can
+            # also remove every stored child row. It is None for a normal,
+            # non-split transaction. `type(None)` is included in the allowed
+            # types because this is a visible SQLite column that is legitimately
+            # NULL for non-split rows (and for rows migrated from an older DB).
+            UniserdesField("parent_transaction_id", [str, type(None)], required=False, default=None),
         ]
         self.init_defaults()
 
@@ -161,6 +174,9 @@ class YNABTransactionInfo(Uniserdes):
         obj.approved = 1 if transaction.approved else 0
         obj.cleared = str(transaction.cleared) if transaction.cleared is not None else None
         obj.transfer_account_id = str(transaction.transfer_account_id) if transaction.transfer_account_id is not None else None
+        obj.deleted = 1 if getattr(transaction, "deleted", False) else 0
+        # A normal (non-split) transaction has no parent.
+        obj.parent_transaction_id = None
         return obj
 
     @classmethod
@@ -181,6 +197,13 @@ class YNABTransactionInfo(Uniserdes):
         obj.approved = 1 if parent_transaction.approved else 0
         obj.cleared = str(parent_transaction.cleared) if parent_transaction.cleared is not None else None
         obj.transfer_account_id = str(subtransaction.transfer_account_id) if subtransaction.transfer_account_id is not None else None
+        # A subtransaction is considered deleted if either it or its parent is
+        # marked deleted on YNAB.
+        obj.deleted = 1 if (getattr(subtransaction, "deleted", False) or
+                            getattr(parent_transaction, "deleted", False)) else 0
+        # Record the parent transaction id so a deleted parent can remove all of
+        # its stored children even when YNAB does not re-list them.
+        obj.parent_transaction_id = parent_transaction.id
         return obj
 
     def is_transfer(self):

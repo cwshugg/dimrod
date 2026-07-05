@@ -20,8 +20,14 @@ from lib.config import Config, ConfigField
 from lib.db import DatabaseConfig, Database
 from lib.ynab import YNABTransactionInfo
 
-# Visible fields for Uniserdes SQLite serialization of transactions.
-TRANSACTION_VISIBLE_FIELDS = ["id", "date", "amount", "category_name"]
+# Visible fields for Uniserdes SQLite serialization of transactions. The order
+# here defines the column order in the transactions table (after the leading
+# `encoded_obj` column). `deleted` and `parent_transaction_id` are appended last
+# so that the ALTER TABLE migration in `init_tables` can add them to the end of
+# pre-existing tables in the same order.
+TRANSACTION_VISIBLE_FIELDS = [
+    "id", "date", "amount", "category_name", "deleted", "parent_transaction_id"
+]
 
 
 class TransactionDatabaseConfig(DatabaseConfig):
@@ -82,6 +88,13 @@ class TransactionDatabase:
         )
         cursor.execute(create_stmt)
 
+        # Migrate pre-existing transactions tables that were created before the
+        # `deleted` / `parent_transaction_id` columns existed. `CREATE TABLE IF
+        # NOT EXISTS` above is a no-op for those DBs, so new columns must be
+        # added explicitly or positional INSERTs would fail. Adding a column is
+        # idempotent here because we only add columns that are missing.
+        self._migrate_transactions_columns(cursor)
+
         # Create indexes on the transactions table
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_transactions_date
@@ -115,6 +128,43 @@ class TransactionDatabase:
         """)
 
         conn.commit()
+
+    def _migrate_transactions_columns(self, cursor) -> None:
+        """Adds any transactions columns introduced after the table was first
+        created, so databases created by an older Treasurer version keep working.
+
+        The base table is created via `CREATE TABLE IF NOT EXISTS`, which never
+        adds columns to an existing table. When new visible fields are added to
+        `YNABTransactionInfo` / `TRANSACTION_VISIBLE_FIELDS`, an existing DB will
+        be missing those columns and positional `INSERT OR REPLACE ... VALUES`
+        statements would fail. This method inspects the live schema and appends
+        only the columns that are missing.
+
+        Args:
+            cursor: An open SQLite cursor on the transactions database.
+        """
+        # Columns that may be absent on older databases, with their SQLite type
+        # and default. Defaults keep existing rows sensible: not deleted, and no
+        # parent (i.e. a normal transaction).
+        migrations = [
+            ("deleted", "INTEGER DEFAULT 0"),
+            ("parent_transaction_id", "TEXT"),
+        ]
+
+        existing = {
+            row[1]
+            for row in cursor.execute(
+                "PRAGMA table_info(%s)" % self.table_transactions
+            ).fetchall()
+        }
+
+        for column_name, column_def in migrations:
+            if column_name in existing:
+                continue
+            cursor.execute(
+                "ALTER TABLE %s ADD COLUMN %s %s" %
+                (self.table_transactions, column_name, column_def)
+            )
 
     def upsert_transaction(self, txn: YNABTransactionInfo) -> None:
         """Inserts or replaces a single transaction row."""
@@ -237,6 +287,32 @@ class TransactionDatabase:
         cursor.execute(
             "DELETE FROM transactions WHERE id = ?",
             (txn_id,)
+        )
+        conn.commit()
+
+    def delete_transaction_and_children(self, txn_id: str) -> None:
+        """Removes a transaction and all of its stored subtransaction children.
+
+        Deletes the row whose primary key `id` equals `txn_id` AND every row
+        whose `parent_transaction_id` equals `txn_id`. This is used when YNAB
+        reports a transaction as `deleted: true` during delta sync: for a split
+        transaction, YNAB frequently reports the deleted parent WITHOUT
+        re-listing its subtransactions, so removing by parent id is required to
+        avoid orphaning the previously-stored child rows (which are keyed by the
+        subtransaction id and would otherwise linger in summaries forever).
+
+        The operation is idempotent and retry-safe: deleting ids that are not
+        present is a harmless no-op, so a failed sync can safely re-apply the
+        same delta.
+
+        Args:
+            txn_id: The YNAB transaction id to remove (parent or standalone).
+        """
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM transactions WHERE id = ? OR parent_transaction_id = ?",
+            (txn_id, txn_id)
         )
         conn.commit()
 

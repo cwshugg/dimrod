@@ -139,11 +139,17 @@ Each budget has its own SQLite database file containing two tables.
 | `memo` | `TEXT` | | Transaction memo/description |
 | `approved` | `INTEGER` | | Whether the transaction is approved (0/1) |
 | `cleared` | `TEXT` | | Cleared status (cleared/uncleared/reconciled) |
+| `deleted` | `INTEGER` | | Whether the transaction is marked deleted on YNAB (0/1). Normally deleted rows are removed during sync; this flag lets `generate_summary` defensively skip any deleted row that lingers. Defaults to 0. |
+| `parent_transaction_id` | `TEXT` | | For a split transaction's subtransaction, the YNAB id of the parent transaction. `NULL` for a normal (non-split) transaction. Enables removing every stored child when a split parent is deleted. |
 | `synced_at` | `TEXT` | `NOT NULL` | ISO 8601 timestamp of when this record was last synced |
 
 **Indexes:**
 - `idx_transactions_date` on `date` — for efficient date-range queries
 - `idx_transactions_category` on `category_name` — for efficient category breakdowns
+
+**Storage note:** transactions are persisted via the `Uniserdes` SQLite encoding — the full object is stored in a leading `encoded_obj` blob column, and a subset of fields (`id`, `date`, `amount`, `category_name`, `deleted`, `parent_transaction_id`) are also written as *visible* columns so they can be queried directly (e.g. date-range selects and parent-based deletes). The columns above that are not in that visible set live inside `encoded_obj`.
+
+**Schema migration:** the table is created with `CREATE TABLE IF NOT EXISTS`, which never adds columns to an existing database. When new visible columns are introduced (`deleted`, `parent_transaction_id`), `TransactionDatabase.init_tables` runs a lightweight, idempotent migration (`_migrate_transactions_columns`) that inspects `PRAGMA table_info(transactions)` and issues `ALTER TABLE ... ADD COLUMN` only for columns that are missing. Existing databases therefore upgrade in place without breaking: pre-existing rows get `deleted = 0` and `parent_transaction_id = NULL`.
 
 ### `summaries` Table
 
@@ -181,6 +187,7 @@ Treasurer syncs transactions using YNAB's **delta (server-knowledge) mechanism**
 * Each budget stores a `server_knowledge` integer per budget in `sync_state`.
 * On each sync, Treasurer sends the stored value as `last_knowledge_of_server`. YNAB returns **only the entities that were created, modified, or deleted since that value — regardless of transaction date** — plus a new top-level `server_knowledge` to persist for next time.
 * Created/modified transactions are upserted (`INSERT OR REPLACE`, primary key = YNAB transaction id). Transactions returned with `deleted: true` are removed from the local `transactions` table so they drop out of summaries. Split transactions are expanded into their subtransactions (and a deleted subtransaction is removed).
+    * **Deleted split parents remove their children.** A split transaction is stored only as its subtransaction rows (keyed by each subtransaction id); the parent id is never stored on its own. When YNAB later reports the parent as `deleted: true`, it frequently does **not** re-list the subtransactions (the `subtransactions` array is empty on a deleted parent — deleted entities only appear in delta responses). To avoid orphaning the previously-stored child rows, each stored subtransaction persists a `parent_transaction_id`, and deletion during sync removes **both** the row whose `id` matches the deleted transaction **and** every row whose `parent_transaction_id` matches it (`TransactionDatabase.delete_transaction_and_children`). This is idempotent and retry-safe (removing an absent id is a harmless no-op), and it runs before `server_knowledge` is advanced, preserving the retry invariant.
 * The new `server_knowledge` is persisted **only after** the transactions are durably applied. If the fetch fails, or the DB apply fails, the stored `server_knowledge` is **not advanced and not lost** — so the next run retries the exact same delta instead of skipping data.
 * **First sync / no stored knowledge:** when there is no `server_knowledge` yet, the request is made with `last_knowledge_of_server=None`, which returns the **full** transaction set. This is also the natural **backfill** path (see below).
 
