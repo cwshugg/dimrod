@@ -27,20 +27,20 @@ class TaskJob_Household_Trash(TaskJob_Household):
             "title": "Take out the Trash",
             "content": os.path.join(fdir, content_fname)
         })
-        
+
         # don't proceed if the last update was the same week
         last_success = self.get_last_success_datetime()
         now = datetime.now()
         if last_success is not None and dtu.diff_in_days(now, last_success) < 3:
             return False
-    
+
         # make this appear every week
         if dtu.get_weekday(now) not in [dtu.Weekday.MONDAY]:
             return False
-        
+
         # retrieve the task (if it exists) and select an appropriate due date
         task = todoist.get_task_by_title(t.title, project_id=proj.id, section_id=sect.id)
-        due = dtu.add_days(now, 1).replace(hour=8, minute=0, second=0, microsecond=0)
+        due = dtu.add_days(now, 0).replace(hour=18, minute=5, second=0, microsecond=0)
 
         # if the task doesn't exist, create it
         if task is None:
