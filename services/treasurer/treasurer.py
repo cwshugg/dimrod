@@ -226,6 +226,9 @@ class TreasurerService(Service):
         last_sync_day = None
         last_trigger_month = None
 
+        # TODO FIXME
+        self.sync_all_budgets(force_full=True)
+
         while True:
             now = datetime.now()
 
@@ -235,7 +238,9 @@ class TreasurerService(Service):
                 last_sync_day = now.date()
 
             # Monthly trigger check (configurable day of month)
-            if now.day == self.config.summary_day and last_trigger_month != (now.year, now.month):
+            #if now.day == self.config.summary_day and last_trigger_month != (now.year, now.month):
+            # TODO FIXME
+            if True:
                 self.trigger_monthly_summaries()
                 last_trigger_month = (now.year, now.month)
 
@@ -306,7 +311,7 @@ class TreasurerService(Service):
 
         return upserts, deleted_ids, server_knowledge
 
-    def sync_budget(self, ctx: BudgetContext) -> int:
+    def sync_budget(self, ctx: BudgetContext, force_full: bool = False) -> int:
         """Sync transactions from YNAB for a single budget via delta sync.
 
         Uses YNAB's `server_knowledge` delta mechanism instead of a moving
@@ -322,15 +327,31 @@ class TreasurerService(Service):
         request has no knowledge value and YNAB returns the FULL transaction
         set, naturally backfilling any transactions the old cursor skipped.
 
+        When `force_full` is True, the stored server_knowledge is ignored and a
+        full fetch (`last_knowledge_of_server=None`) is performed. This is a
+        safe, idempotent one-time backfill: it re-upserts EVERY transaction with
+        the current field set (populating columns added after the rows were
+        first synced, e.g. matched_transaction_id / import_id), then advances
+        server_knowledge to the response value exactly like a normal sync. The
+        stored server_knowledge is NOT cleared as the mechanism, so a crash
+        mid-sync leaves the previous cursor intact and simply retries.
+
         Args:
             ctx: The BudgetContext to sync.
+            force_full: When True, ignore the stored server_knowledge and fetch
+                the full transaction set to backfill/refresh all local rows.
 
         Returns:
             The number of transactions upserted.
         """
-        # Read the stored server_knowledge under lock (None => full fetch).
+        # Read the stored server_knowledge under lock. A forced full re-sync
+        # ignores the stored value (None => full fetch) so YNAB returns the
+        # entire transaction set and every local row is re-upserted with the
+        # current field set. The stored value is left untouched until a durable
+        # apply advances it, preserving retry-safety.
         with ctx.lock:
-            last_knowledge = ctx.db.get_server_knowledge(ctx.budget_id)
+            stored_knowledge = ctx.db.get_server_knowledge(ctx.budget_id)
+        last_knowledge = None if force_full else stored_knowledge
 
         # Fetch the delta from YNAB (network I/O — no lock needed). On ANY fetch
         # error, do NOT advance server_knowledge; return so the same delta is
@@ -395,17 +416,104 @@ class TreasurerService(Service):
 
         return len(txn_list)
 
-    def sync_all_budgets(self):
-        """Calls sync_budget() for each budget context, logging results."""
-        self.log.write("Starting daily sync for all budgets...")
+    def sync_all_budgets(self, force_full: bool = False):
+        """Calls sync_budget() for each budget context, logging results.
+
+        Args:
+            force_full: When True, each budget is synced with a full re-fetch
+                (see sync_budget) rather than an incremental delta.
+        """
+        self.log.write("Starting %s sync for all budgets..." %
+                       ("full re-" if force_full else "daily"))
         for ctx in self.budgets:
             try:
-                count = self.sync_budget(ctx)
+                count = self.sync_budget(ctx, force_full=force_full)
                 self.log.write("Synced %d transactions for '%s'." %
                               (count, ctx.name))
             except Exception as e:
                 self.log.write("Error syncing budget '%s': %s" %
                               (ctx.name, str(e)))
+
+    @staticmethod
+    def _find_matched_duplicate_ids(rows: list) -> set:
+        """Identify YNAB matched-transaction duplicates to drop from a summary.
+
+        When a manually-entered transaction and a later bank-imported
+        transaction are MATCHED by YNAB, the delta returns BOTH objects
+        cross-referencing each other via `matched_transaction_id`. Treasurer
+        stores both, so counting both double-counts the single real charge.
+        This returns the set of row ids to DROP so each matched pair collapses
+        to exactly one counted transaction.
+
+        Selection rules (deterministic and idempotent):
+          * Only a row whose `matched_transaction_id` is non-null AND whose
+            partner id is also present forms a collapsible pair. If only one
+            half is present (e.g. the other was deleted), nothing is dropped and
+            the present half is kept unchanged.
+          * The KEPT half is chosen by the following priority:
+              1. CATEGORIZED over uncategorized. A row is "categorized" when its
+                 `category_name` is truthy AND not equal (case-insensitive,
+                 stripped) to "Uncategorized" AND its `category_group_name` is
+                 not None/empty. If exactly one half is categorized, that half
+                 is kept (the imported half is frequently "Uncategorized" and
+                 would distort the category breakdown and exclusion matching).
+              2. If both halves tie on rule 1 (both categorized or both
+                 uncategorized), prefer the MANUAL half (`import_id` is None):
+                 keep manual, drop imported.
+              3. If still tied (same import status), the row with the
+                 lexicographically greater id is dropped as a stable tie-break.
+
+        De-dup is based ONLY on YNAB's explicit match linkage -- never on equal
+        date/amount/payee -- so intentionally duplicated but UNLINKED
+        transactions (two identical real payments) are both preserved.
+
+        Args:
+            rows: The `YNABTransactionInfo` rows under consideration.
+
+        Returns:
+            A set of row ids to drop from the summary.
+        """
+        rows_by_id = {row.id: row for row in rows}
+        dropped = set()
+
+        def _is_categorized(r) -> bool:
+            """A row is categorized when it has a real (non-Uncategorized)
+            category name AND a non-empty category group name."""
+            name = getattr(r, "category_name", None)
+            if not name or name.strip().lower() == "uncategorized":
+                return False
+            group = getattr(r, "category_group_name", None)
+            return bool(group)
+
+        for row in rows:
+            mid = getattr(row, "matched_transaction_id", None)
+            if mid is None:
+                continue
+            partner = rows_by_id.get(mid)
+            if partner is None:
+                # Only one half of the pair is present -> keep it, drop nothing.
+                continue
+            # Both halves present: choose which to KEEP by priority.
+            # Rule 1: categorized over uncategorized.
+            row_cat = _is_categorized(row)
+            partner_cat = _is_categorized(partner)
+            if row_cat and not partner_cat:
+                dropped.add(partner.id)
+                continue
+            if partner_cat and not row_cat:
+                dropped.add(row.id)
+                continue
+            # Rule 2: tie on categorization -> prefer the manual half.
+            row_manual = getattr(row, "import_id", None) is None
+            partner_manual = getattr(partner, "import_id", None) is None
+            if row_manual and not partner_manual:
+                dropped.add(partner.id)
+            elif partner_manual and not row_manual:
+                dropped.add(row.id)
+            else:
+                # Rule 3: same import status -> drop the greater id (stable).
+                dropped.add(max(row.id, partner.id))
+        return dropped
 
     def generate_summary(self, ctx: BudgetContext, start_date: datetime,
                          end_date: datetime) -> dict:
@@ -440,6 +548,12 @@ class TreasurerService(Service):
         income_transactions = []
         transaction_count = 0
 
+        # Identify YNAB matched-transaction duplicates so each matched pair is
+        # counted only once. This is linkage-based (see
+        # `_find_matched_duplicate_ids`), so intentionally duplicated but
+        # unlinked transactions are unaffected.
+        matched_duplicate_ids = self._find_matched_duplicate_ids(rows)
+
         if self.config.debug_summary:
             self.log.write("Generating summary for \"%s\" (%s to %s)..." %
                           (ctx.name, start_str, end_str))
@@ -453,6 +567,25 @@ class TreasurerService(Service):
             # Build a debug string to print for each transaction
             transaction_debug_str = "date=\"%s\", amount=%.2f, entity=\"%s\", category=\"%s\", category_group=\"%s\", description=\"%s\"" % \
                                     (row.date, amount, payee_name, category_name, group_name, row.memo)
+
+            # Defensively skip any row still flagged `deleted` that lingers in
+            # the DB. Deleted rows are normally removed at sync time, but this
+            # belt-and-suspenders guard ensures they never reach a summary.
+            if getattr(row, "deleted", 0):
+                transaction_debug_str = "(SKIP; Deleted) %s" % transaction_debug_str
+                if self.config.debug_summary:
+                    self.log.write(transaction_debug_str)
+                continue
+
+            # Collapse YNAB matched-transaction pairs: skip the dropped half so
+            # the single real charge is only counted once. The kept half is the
+            # categorized (else manual) transaction (see
+            # `_find_matched_duplicate_ids`).
+            if row.id in matched_duplicate_ids:
+                transaction_debug_str = "(SKIP; Matched duplicate) %s" % transaction_debug_str
+                if self.config.debug_summary:
+                    self.log.write(transaction_debug_str)
+                continue
 
             if row.is_transfer():
                 transaction_debug_str = "(SKIP; Transfer) %s" % transaction_debug_str
@@ -688,9 +821,14 @@ class TreasurerService(Service):
         return result
 
     def find_budget_by_name(self, name: str) -> BudgetContext:
-        """Finds a budget context by name. Tries exact match first,
-        then falls back to case-sensitive substring match if exactly
-        one budget name contains the search term.
+        """Finds a budget context by name. Tries an exact (case-insensitive)
+        match first, then falls back to a case-insensitive substring match if
+        exactly one budget name contains the search term.
+
+        Matching is case-insensitive (via `casefold`) so any casing of the
+        budget name resolves the budget -- e.g. the telegram command
+        `/b summary master` resolves "Master Budget". The incoming name is
+        stripped of surrounding whitespace before comparison.
 
         Args:
             name: The budget name (or partial name) to search for.
@@ -699,15 +837,26 @@ class TreasurerService(Service):
             The matching BudgetContext, or None if not found or
             ambiguous.
         """
-        # Try exact match first (case-sensitive)
+        # Normalize the incoming name: strip surrounding whitespace and
+        # casefold for case-insensitive comparison. A None/blank name matches
+        # nothing.
+        if name is None:
+            return None
+        normalized = name.strip().casefold()
+        if len(normalized) == 0:
+            return None
+
+        # Try an exact (case-insensitive) match first.
         for ctx in self.budgets:
-            if ctx.name == name:
+            if ctx.name.casefold() == normalized:
                 return ctx
 
-        # Fall back to case-sensitive substring match
+        # Fall back to a case-insensitive substring match, returning a result
+        # ONLY when exactly one budget contains the term (ambiguity guard: if
+        # 2+ budgets contain it, the intent is undefined -> return None).
         partial_matches = [
             ctx for ctx in self.budgets
-            if name in ctx.name
+            if normalized in ctx.name.casefold()
         ]
         if len(partial_matches) == 1:
             return partial_matches[0]
@@ -858,6 +1007,10 @@ class TreasurerOracle(Oracle):
             jdata = flask.g.jdata or {}
             budget_name = jdata.get("budget_name", None)
             budget_id = jdata.get("budget_id", None)
+            # Optional one-time full re-sync flag. Accept either "full" or
+            # "force_full" for convenience; both default to False (delta sync).
+            force_full = bool(jdata.get("full", jdata.get("force_full", False)))
+            full_note = " (full re-sync)" if force_full else ""
 
             if budget_name is not None or budget_id is not None:
                 # Sync a specific budget
@@ -869,21 +1022,22 @@ class TreasurerOracle(Oracle):
                         msg="Budget not found.",
                         success=False, rstatus=404)
                 try:
-                    count = self.service.sync_budget(ctx)
+                    count = self.service.sync_budget(
+                        ctx, force_full=force_full)
                     return self.make_response(
                         success=True,
-                        msg="Synced %d transactions for '%s'." %
-                            (count, ctx.name))
+                        msg="Synced %d transactions for '%s'%s." %
+                            (count, ctx.name, full_note))
                 except Exception as e:
                     return self.make_response(msg=str(e),
                                               success=False, rstatus=400)
             else:
                 # Sync all budgets
                 try:
-                    self.service.sync_all_budgets()
+                    self.service.sync_all_budgets(force_full=force_full)
                     return self.make_response(
                         success=True,
-                        msg="Synced all budgets.")
+                        msg="Synced all budgets%s." % full_note)
                 except Exception as e:
                     return self.make_response(msg=str(e),
                                               success=False, rstatus=400)

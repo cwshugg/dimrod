@@ -22,11 +22,13 @@ from lib.ynab import YNABTransactionInfo
 
 # Visible fields for Uniserdes SQLite serialization of transactions. The order
 # here defines the column order in the transactions table (after the leading
-# `encoded_obj` column). `deleted` and `parent_transaction_id` are appended last
-# so that the ALTER TABLE migration in `init_tables` can add them to the end of
-# pre-existing tables in the same order.
+# `encoded_obj` column). `deleted`, `parent_transaction_id`,
+# `matched_transaction_id` and `import_id` are appended last so that the ALTER
+# TABLE migration in `init_tables` can add them to the end of pre-existing
+# tables in the same order.
 TRANSACTION_VISIBLE_FIELDS = [
-    "id", "date", "amount", "category_name", "deleted", "parent_transaction_id"
+    "id", "date", "amount", "category_name", "deleted", "parent_transaction_id",
+    "matched_transaction_id", "import_id"
 ]
 
 
@@ -144,11 +146,13 @@ class TransactionDatabase:
             cursor: An open SQLite cursor on the transactions database.
         """
         # Columns that may be absent on older databases, with their SQLite type
-        # and default. Defaults keep existing rows sensible: not deleted, and no
-        # parent (i.e. a normal transaction).
+        # and default. Defaults keep existing rows sensible: not deleted, no
+        # parent (a normal transaction), and no YNAB match linkage (unmatched).
         migrations = [
             ("deleted", "INTEGER DEFAULT 0"),
             ("parent_transaction_id", "TEXT"),
+            ("matched_transaction_id", "TEXT"),
+            ("import_id", "TEXT"),
         ]
 
         existing = {

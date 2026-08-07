@@ -141,15 +141,17 @@ Each budget has its own SQLite database file containing two tables.
 | `cleared` | `TEXT` | | Cleared status (cleared/uncleared/reconciled) |
 | `deleted` | `INTEGER` | | Whether the transaction is marked deleted on YNAB (0/1). Normally deleted rows are removed during sync; this flag lets `generate_summary` defensively skip any deleted row that lingers. Defaults to 0. |
 | `parent_transaction_id` | `TEXT` | | For a split transaction's subtransaction, the YNAB id of the parent transaction. `NULL` for a normal (non-split) transaction. Enables removing every stored child when a split parent is deleted. |
+| `matched_transaction_id` | `TEXT` | | YNAB's `matched_transaction_id`: when a manual entry and its later bank import are **matched** by YNAB, each object references the other via this id. `NULL` when the transaction is not matched. Used to collapse a matched pair to a single counted transaction at summary time (see *Matched-transaction de-duplication* below). |
+| `import_id` | `TEXT` | | YNAB's `import_id`: set **only on imported** transactions (`NULL` for a manually-entered one). Used as a tie-breaker to decide which half of a matched pair to keep when both halves share the same categorization status (the manual half, whose `import_id` is `NULL`, is preferred). |
 | `synced_at` | `TEXT` | `NOT NULL` | ISO 8601 timestamp of when this record was last synced |
 
 **Indexes:**
 - `idx_transactions_date` on `date` — for efficient date-range queries
 - `idx_transactions_category` on `category_name` — for efficient category breakdowns
 
-**Storage note:** transactions are persisted via the `Uniserdes` SQLite encoding — the full object is stored in a leading `encoded_obj` blob column, and a subset of fields (`id`, `date`, `amount`, `category_name`, `deleted`, `parent_transaction_id`) are also written as *visible* columns so they can be queried directly (e.g. date-range selects and parent-based deletes). The columns above that are not in that visible set live inside `encoded_obj`.
+**Storage note:** transactions are persisted via the `Uniserdes` SQLite encoding — the full object is stored in a leading `encoded_obj` blob column, and a subset of fields (`id`, `date`, `amount`, `category_name`, `deleted`, `parent_transaction_id`, `matched_transaction_id`, `import_id`) are also written as *visible* columns so they can be queried directly (e.g. date-range selects and parent-based deletes). The columns above that are not in that visible set live inside `encoded_obj`.
 
-**Schema migration:** the table is created with `CREATE TABLE IF NOT EXISTS`, which never adds columns to an existing database. When new visible columns are introduced (`deleted`, `parent_transaction_id`), `TransactionDatabase.init_tables` runs a lightweight, idempotent migration (`_migrate_transactions_columns`) that inspects `PRAGMA table_info(transactions)` and issues `ALTER TABLE ... ADD COLUMN` only for columns that are missing. Existing databases therefore upgrade in place without breaking: pre-existing rows get `deleted = 0` and `parent_transaction_id = NULL`.
+**Schema migration:** the table is created with `CREATE TABLE IF NOT EXISTS`, which never adds columns to an existing database. When new visible columns are introduced (`deleted`, `parent_transaction_id`, `matched_transaction_id`, `import_id`), `TransactionDatabase.init_tables` runs a lightweight, idempotent migration (`_migrate_transactions_columns`) that inspects `PRAGMA table_info(transactions)` and issues `ALTER TABLE ... ADD COLUMN` only for columns that are missing. Existing databases therefore upgrade in place without breaking: pre-existing rows get `deleted = 0`, `parent_transaction_id = NULL`, and `matched_transaction_id = NULL` / `import_id = NULL` (i.e. treated as unmatched, which is safe).
 
 ### `summaries` Table
 
@@ -193,19 +195,48 @@ Treasurer syncs transactions using YNAB's **delta (server-knowledge) mechanism**
 
 > Implementation note: delta sync calls the YNAB SDK's transactions API directly (via `self.ynab.api_transactions().get_transactions(..., last_knowledge_of_server=...)`) rather than the `YNAB.get_transactions()` helper, because the helper does not surface the response's `server_knowledge` and silently drops `deleted` transactions — both of which delta sync needs.
 
+## Matched-transaction de-duplication (imported + manual)
+
+**Problem.** When the user manually logs a transaction in YNAB and the bank's Direct Import later brings in the *real* one, YNAB **matches** the two into a single reconciled charge. In the delta response, YNAB returns **both** transaction objects, cross-referencing each other via `matched_transaction_id`. Treasurer stores both rows, so a naive summary would **count the same real charge twice** and pollute the category breakdown — the imported half is frequently `Uncategorized`, while the manual half carries the user's real category.
+
+**Fix (at summary time).** `generate_summary` collapses each matched pair to exactly one counted transaction via `TreasurerService._find_matched_duplicate_ids`. This runs in the same place as the defensive `deleted` filter, keeping all counting decisions in one pass over the rows. The dropped half is logged as a `(SKIP; Matched duplicate)` debug line (consistent with the existing `(SKIP; ...)` logging).
+
+Selection rules (deterministic and idempotent):
+
+* A row is only collapsible if its `matched_transaction_id` is non-`NULL` **and** the referenced partner row is also present in the same range. If only one half is present (e.g. the partner was deleted/expunged), that half is kept unchanged.
+* The **kept** half is chosen by the following priority:
+  1. **Categorized over uncategorized.** A row is treated as *categorized* when its `category_name` is truthy **and** not equal (case-insensitive, stripped) to `Uncategorized` **and** its `category_group_name` is not `None`/empty. If **exactly one** half is categorized, that half is kept and the other dropped. The imported half is frequently `Uncategorized`, so preferring the categorized half keeps the charge in the user's real category (rather than distorting the breakdown by landing it in `Uncategorized`).
+  2. **Manual over imported.** If both halves tie on rule 1 (both categorized, or both uncategorized), the **manual** half (`import_id` is `NULL`) is kept and the imported one dropped.
+  3. **Stable id tie-break.** If still tied (same import status), the row with the lexicographically greater `id` is dropped.
+
+**De-dup is based ONLY on YNAB's explicit match linkage — never on equal date/amount/payee.** This is deliberate: two *value-identical but unlinked* transactions (both `matched_transaction_id = NULL`) represent two genuinely separate real payments (e.g. two identical rent payments in one month) and **must both remain counted**. A value-based de-dup would incorrectly erase one of them, so it is intentionally not used.
+
+Because the fix lives in `generate_summary` and reads the persisted `matched_transaction_id` / `import_id` fields, it does not touch sync/store logic, and it preserves the delta `server_knowledge` retry-safety invariant.
+
 ### One-time full re-sync after deploying (backfill)
 
-Because the old moving-date cursor already skipped past some transactions, those rows are missing from the local DB and will **not** come back through a normal incremental delta (they did not "change" recently). To recover them, run **one full re-sync** after deploying this change:
+Because the old moving-date cursor already skipped past some transactions, those rows are missing from the local DB and will **not** come back through a normal incremental delta (they did not "change" recently). The same gap appears whenever a schema change adds new transaction columns (e.g. the matched-transaction linkage `matched_transaction_id` / `import_id`): the migration adds the columns but does **not** backfill them, and an incremental delta only re-fetches rows that changed on the server, so historical rows keep the new columns `NULL`. To recover them, run **one full re-sync** after deploying such a change.
 
-* The first sync after upgrade automatically does a full fetch, because no `server_knowledge` value exists yet in `sync_state`. This repopulates historical / back-dated transactions.
-* If a `server_knowledge` value somehow already exists (e.g. a partial deploy) and you still need to backfill, clear it for the affected budget so the next sync does a full fetch:
+**Preferred: the `full` sync flag.** Trigger a full re-sync via the existing endpoint — no DB surgery, no downtime, and no cursor-loss window:
 
-  ```sql
-  -- Run against the budget's .treasurer_*.db (service stopped):
-  DELETE FROM sync_state WHERE key LIKE 'server_knowledge:%';
-  ```
+```jsonc
+// POST /sync  — all budgets
+{ "full": true }
 
-  The next sync then performs a full fetch and re-persists a fresh `server_knowledge`. This is safe and idempotent because upserts are keyed by the unique YNAB transaction id.
+// POST /sync  — a single budget
+{ "budget_name": "Master Budget", "full": true }
+```
+
+This ignores the stored `server_knowledge`, fetches the **full** transaction set (`last_knowledge_of_server=None`), re-upserts every row **with the new fields populated**, and then advances `server_knowledge` to the fresh response value. It is safe and idempotent (upserts are keyed by the unique YNAB transaction id) and preserves the retry invariant (`server_knowledge` only advances after a durable apply). Run it **once**; subsequent syncs return to incremental delta automatically. In code this is `sync_budget(ctx, force_full=True)` / `sync_all_budgets(force_full=True)`.
+
+**Automatic on first run.** The first sync after a fresh deploy already does a full fetch, because no `server_knowledge` value exists yet in `sync_state`. This repopulates historical / back-dated transactions with no action required.
+
+**Last resort (not recommended).** Clearing `server_knowledge` also forces the next sync to do a full fetch, but it leaves a window where a crash before the next sync loses the cursor entirely. Prefer the `full` flag above. If you must:
+
+```sql
+-- Run against the budget's .treasurer_*.db (service stopped):
+DELETE FROM sync_state WHERE key LIKE 'server_knowledge:%';
+```
 
 ## Service Loop Logic
 
@@ -282,7 +313,7 @@ Returns a spending summary for a budget over a date range.
 
 | Field | Required | Type | Description |
 |-------|----------|------|-------------|
-| `budget_name` | Yes* | `str` | Human-readable budget name (case-insensitive match) |
+| `budget_name` | Yes* | `str` | Human-readable budget name. Resolved case-insensitively by `find_budget_by_name`: an exact (case-insensitive, whitespace-stripped) match wins first; otherwise a case-insensitive substring match resolves the budget **only if exactly one** budget name contains the term (2+ matches is ambiguous → not found). |
 | `budget_id` | Yes* | `str` | YNAB budget UUID |
 | `start_date` | Yes | `str` | Start of range (YYYY-MM-DD, inclusive) |
 | `end_date` | Yes | `str` | End of range (YYYY-MM-DD, inclusive) |
@@ -347,8 +378,24 @@ Manually triggers a transaction sync for one or all budgets.
 |-------|----------|------|-------------|
 | `budget_name` | No | `str` | Sync a specific budget (by name) |
 | `budget_id` | No | `str` | Sync a specific budget (by ID) |
+| `full` | No | `bool` | When `true`, perform a **full re-sync** (backfill) instead of an incremental delta. Defaults to `false`. `force_full` is accepted as an alias. |
 
-If neither field is provided, all budgets are synced.
+If neither `budget_name` nor `budget_id` is provided, all budgets are synced. The
+`full` flag is honored for both the per-budget and all-budgets cases.
+
+**Full re-sync (`{"full": true}`)** ignores the stored `server_knowledge` and asks
+YNAB for the **entire** transaction set (`last_knowledge_of_server=None`), then
+re-upserts every row and advances `server_knowledge` to the fresh response value —
+exactly like a normal sync. Use it as a **one-time backfill** after a schema change
+adds new transaction fields (e.g. the matched-transaction linkage
+`matched_transaction_id` / `import_id`), because incremental deltas only return rows
+that *changed* on the server and therefore never re-fetch unchanged historical rows
+to populate the new columns. It is **safe and idempotent**: upserts are keyed by the
+unique YNAB transaction id, and — like any sync — `server_knowledge` only advances
+after a durable apply, so a crash mid-sync leaves the previous cursor intact and
+simply retries. The flag does **not** clear/delete `server_knowledge`; a full fetch
+re-populates and re-advances it, which is safer than clearing (no window where a
+crash loses the cursor).
 
 * **Response (200):**
 
@@ -358,6 +405,10 @@ If neither field is provided, all budgets are synced.
   "message": "Synced 142 transactions for 'Personal Budget'."
 }
 ```
+
+When a full re-sync is requested, the message notes it, e.g.
+`"Synced 142 transactions for 'Personal Budget' (full re-sync)."` or
+`"Synced all budgets (full re-sync)."`.
 
 #### `GET /summaries`
 
@@ -495,10 +546,12 @@ class TreasurerService(Service):
     def sync_budget(self, ctx: BudgetContext) -> int: ...          # Delta sync; returns count of upserted txns
     def sync_all_budgets(self) -> None: ...
     def generate_summary(self, ctx: BudgetContext, start_date: str, end_date: str) -> dict: ...
+    @staticmethod
+    def _find_matched_duplicate_ids(rows: list) -> set: ...        # ids to drop so a YNAB matched pair counts once
     def trigger_monthly_summaries(self) -> None: ...
 
     # Budget lookup
-    def find_budget_by_name(self, name: str) -> BudgetContext | None: ...
+    def find_budget_by_name(self, name: str) -> BudgetContext | None: ...   # case-insensitive: exact match, else single substring; ambiguous -> None
     def find_budget_by_id(self, budget_id: str) -> BudgetContext | None: ...
     def resolve_budget(self, budget_name: str = None, budget_id: str = None) -> BudgetContext | None: ...
 

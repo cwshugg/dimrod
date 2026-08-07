@@ -154,6 +154,22 @@ class YNABTransactionInfo(Uniserdes):
             # types because this is a visible SQLite column that is legitimately
             # NULL for non-split rows (and for rows migrated from an older DB).
             UniserdesField("parent_transaction_id", [str, type(None)], required=False, default=None),
+            # `matched_transaction_id` mirrors YNAB's field of the same name.
+            # When the user manually logs a transaction and the bank's Direct
+            # Import later brings in the real one, YNAB MATCHES the two, and the
+            # delta returns BOTH objects cross-referencing each other via this
+            # id. Treasurer uses it to collapse a matched pair to a single
+            # counted transaction at summary time (see `generate_summary`),
+            # preventing double-counting. None when the transaction is not
+            # matched. `type(None)` is allowed because this is a visible SQLite
+            # column that is legitimately NULL for unmatched / legacy rows.
+            UniserdesField("matched_transaction_id", [str, type(None)], required=False, default=None),
+            # `import_id` is set by YNAB only on IMPORTED transactions (None for
+            # a manually-entered one). Treasurer uses it to decide which half of
+            # a matched pair to keep: the manual/categorized half (import_id is
+            # None) is preferred, because the imported half is frequently
+            # "Uncategorized" and would distort the category breakdown.
+            UniserdesField("import_id", [str, type(None)], required=False, default=None),
         ]
         self.init_defaults()
 
@@ -177,6 +193,11 @@ class YNABTransactionInfo(Uniserdes):
         obj.deleted = 1 if getattr(transaction, "deleted", False) else 0
         # A normal (non-split) transaction has no parent.
         obj.parent_transaction_id = None
+        # Carry YNAB's match linkage so treasurer can de-duplicate matched
+        # imported/manual pairs at summary time. Both default to None on
+        # objects that don't expose them.
+        obj.matched_transaction_id = getattr(transaction, "matched_transaction_id", None)
+        obj.import_id = getattr(transaction, "import_id", None)
         return obj
 
     @classmethod
@@ -204,6 +225,11 @@ class YNABTransactionInfo(Uniserdes):
         # Record the parent transaction id so a deleted parent can remove all of
         # its stored children even when YNAB does not re-list them.
         obj.parent_transaction_id = parent_transaction.id
+        # Subtransactions belong to a manual split and are never independently
+        # matched to a bank import, so match-linkage fields are always None for
+        # a child row (matching applies at the whole-transaction level).
+        obj.matched_transaction_id = None
+        obj.import_id = None
         return obj
 
     def is_transfer(self):
