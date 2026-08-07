@@ -226,9 +226,6 @@ class TreasurerService(Service):
         last_sync_day = None
         last_trigger_month = None
 
-        # TODO FIXME
-        self.sync_all_budgets(force_full=True)
-
         while True:
             now = datetime.now()
 
@@ -238,9 +235,7 @@ class TreasurerService(Service):
                 last_sync_day = now.date()
 
             # Monthly trigger check (configurable day of month)
-            #if now.day == self.config.summary_day and last_trigger_month != (now.year, now.month):
-            # TODO FIXME
-            if True:
+            if now.day == self.config.summary_day and last_trigger_month != (now.year, now.month):
                 self.trigger_monthly_summaries()
                 last_trigger_month = (now.year, now.month)
 
