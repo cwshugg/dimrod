@@ -7,6 +7,7 @@
 import os
 import sys
 import json
+import html
 import flask
 import time
 import re
@@ -376,9 +377,12 @@ def _match_recipe_by_substring(user_text, recipes):
 
 
 def _format_ingredient(ingredient, quantity_multiplier=1):
-    """Formats a single Ingredient object for plain-text display.
+    """Formats a single Ingredient object for Telegram HTML display.
 
-    Returns a string like '(1x) Ground beef' or '(2x) Elbow macaroni'.
+    Returns a string like '(<i>1x</i>) Ground beef' or
+    '(<i>2x</i>) Elbow macaroni', mirroring the /recipes command's style.
+    The dynamic title is HTML-escaped so recipe data containing '&', '<',
+    or '>' cannot break Telegram's HTML parser.
     """
     quantity = ingredient.quantity * quantity_multiplier
 
@@ -390,7 +394,11 @@ def _format_ingredient(ingredient, quantity_multiplier=1):
 
     title = ingredient.title if ingredient.title else ingredient.id
     optional_marker = " (optional)" if ingredient.is_optional else ""
-    return "(%sx) %s%s" % (quantity_str, title, optional_marker)
+    return "(<i>%sx</i>) %s%s" % (
+        html.escape(quantity_str),
+        html.escape(title),
+        optional_marker,
+    )
 
 
 # =============================== NLA Handlers =============================== #
@@ -409,12 +417,15 @@ def nla_list_recipes(oracle, jdata):
     recipe_strs = []
     for r_id, recipe in sorted(recipes.items()):
         title = recipe.title if recipe.title else "(Untitled)"
-        desc = "· %s [%s]" % (title, r_id)
+        desc = "· <b>%s</b> (<code>%s</code>)\n" % (
+            html.escape(title),
+            html.escape(r_id),
+        )
         if recipe.description:
-            desc += " - %s" % recipe.description
+            desc += "<i>%s</i>\n" % html.escape(recipe.description)
         recipe_strs.append(desc)
 
-    msg = "Available recipes:\n" + "\n".join(recipe_strs)
+    msg = "<b>Available recipes:</b>\n\n" + "".join(recipe_strs)
     return NLAResult.from_json({
         "success": True,
         "message": msg,
@@ -461,51 +472,56 @@ def nla_get_recipe(oracle, jdata):
             pass
 
     if recipe is None:
-        names = ["· %s [%s]" % (r.title if r.title else r.id, r_id)
+        names = ["· <b>%s</b> (<code>%s</code>)\n" %
+                 (html.escape(r.title if r.title else r.id), html.escape(r_id))
                  for r_id, r in sorted(recipes.items())]
         return NLAResult.from_json({
             "success": False,
             "message": "I could not find a matching recipe. "
-                       "Available recipes:\n" + "\n".join(names),
+                       "<b>Available recipes:</b>\n\n" + "".join(names),
             "message_postprocess": "RAW",
         })
 
-    # Build formatted output.
+    # Build formatted output (Telegram HTML), mirroring the /recipes command's
+    # detail view. All dynamic values are HTML-escaped so recipe data
+    # containing '&', '<', or '>' cannot break Telegram's parser.
     title = recipe.title if recipe.title else recipe.id
-    msg = "%s [%s]\n" % (title, recipe.id)
+    msg = "<b>%s</b> [<code>%s</code>]\n" % (
+        html.escape(title),
+        html.escape(recipe.id),
+    )
 
     if recipe.description:
-        msg += "%s\n" % recipe.description
+        msg += "<i>%s</i>\n" % html.escape(recipe.description)
 
     if recipe.servings is not None:
         total_servings = recipe.servings * quantity
         if quantity > 1:
-            msg += "Servings: %d (%dx recipe, %d servings each)\n" % (
-                total_servings, quantity, recipe.servings
-            )
+            msg += "\nMakes <b>%d serving(s)</b> (%dx recipe, " \
+                   "%d servings each)\n" % (
+                       total_servings, quantity, recipe.servings
+                   )
         else:
-            msg += "Servings: %d\n" % total_servings
+            msg += "\nMakes <b>%d serving(s)</b>\n" % total_servings
 
     # Ingredients section.
     if recipe.ingredients and len(recipe.ingredients) > 0:
-        msg += "\nIngredients:\n"
+        msg += "\n<b>Ingredients:</b>\n"
         for ing in recipe.ingredients:
             msg += "· %s\n" % _format_ingredient(ing, quantity)
 
     # Steps section (numbered).
     if recipe.steps and len(recipe.steps) > 0:
-        msg += "\nSteps:\n"
+        msg += "\n<b>Steps:</b>\n"
         for i, step in enumerate(recipe.steps, start=1):
             step_text = step.description if step.description else \
                         (step.title if step.title else step.id)
-            msg += "%d. %s\n" % (i, step_text)
+            msg += "%d. %s\n" % (i, html.escape(step_text))
 
     return NLAResult.from_json({
         "success": True,
         "message": msg,
-        "message_context": "This is a recipe with ingredients and steps. "
-                           "Present it clearly to the user. "
-                           "Do not add or remove any ingredients or steps."
+        "message_postprocess": "RAW",
     })
 
 
