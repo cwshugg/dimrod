@@ -299,6 +299,7 @@ class ChefOracle(Oracle):
                 result[r_id] = {
                     "id": recipe.id,
                     "title": recipe.title,
+                    "icon": recipe.icon,
                     "description": recipe.description,
                     "links": recipe.links,
                 }
@@ -417,13 +418,12 @@ def nla_list_recipes(oracle, jdata):
     recipe_strs = []
     for r_id, recipe in sorted(recipes.items()):
         title = recipe.title if recipe.title else "(Untitled)"
-        desc = "· <b>%s</b> (<code>%s</code>)\n" % (
+        icon_prefix = "" if recipe.icon is None else "%s " % recipe.icon
+        recipe_strs.append("· %s<b>%s</b> (<code>%s</code>)\n" % (
+            icon_prefix,
             html.escape(title),
             html.escape(r_id),
-        )
-        if recipe.description:
-            desc += "<i>%s</i>\n" % html.escape(recipe.description)
-        recipe_strs.append(desc)
+        ))
 
     msg = "<b>Available recipes:</b>\n\n" + "".join(recipe_strs)
     return NLAResult.from_json({
@@ -472,8 +472,10 @@ def nla_get_recipe(oracle, jdata):
             pass
 
     if recipe is None:
-        names = ["· <b>%s</b> (<code>%s</code>)\n" %
-                 (html.escape(r.title if r.title else r.id), html.escape(r_id))
+        names = ["· %s<b>%s</b> (<code>%s</code>)\n" %
+                 ("" if r.icon is None else "%s " % r.icon,
+                  html.escape(r.title if r.title else r.id),
+                  html.escape(r_id))
                  for r_id, r in sorted(recipes.items())]
         return NLAResult.from_json({
             "success": False,
