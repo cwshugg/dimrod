@@ -402,7 +402,8 @@ def nla_list_recipes(oracle, jdata):
     if len(recipes) == 0:
         return NLAResult.from_json({
             "success": True,
-            "message": "No recipes are currently available."
+            "message": "No recipes are currently available.",
+            "message_postprocess": "RAW",
         })
 
     recipe_strs = []
@@ -416,7 +417,8 @@ def nla_list_recipes(oracle, jdata):
     msg = "Available recipes:\n" + "\n".join(recipe_strs)
     return NLAResult.from_json({
         "success": True,
-        "message": msg
+        "message": msg,
+        "message_postprocess": "RAW",
     })
 
 
@@ -437,7 +439,8 @@ def nla_get_recipe(oracle, jdata):
     if len(recipes) == 0:
         return NLAResult.from_json({
             "success": False,
-            "message": "No recipes are currently available."
+            "message": "No recipes are currently available.",
+            "message_postprocess": "RAW",
         })
 
     # Tier 1: substring matching against recipe IDs and titles.
@@ -463,7 +466,8 @@ def nla_get_recipe(oracle, jdata):
         return NLAResult.from_json({
             "success": False,
             "message": "I could not find a matching recipe. "
-                       "Available recipes:\n" + "\n".join(names)
+                       "Available recipes:\n" + "\n".join(names),
+            "message_postprocess": "RAW",
         })
 
     # Build formatted output.
