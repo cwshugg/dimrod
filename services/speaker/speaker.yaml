@@ -28,3 +28,9 @@ nla_services:
     port: 999
     auth_username: YOUR_USERNAME
     auth_password: YOUR_PASSWORD
+- name: Membank
+  oracle:
+    addr: 0.0.0.0
+    port: 2380
+    auth_username: __speaker
+    auth_password: YOUR_PASSWORD
