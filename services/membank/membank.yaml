@@ -26,28 +26,27 @@ oracle:
     password: YOUR_PASSWORD_HERE
     privilege: 1
 
-# Base directory that every bank's db_path must resolve WITHIN (path-safety
-# anchor). Bank db_paths that escape this directory (via `..`, symlinks, or an
-# absolute path outside it) are rejected and the service refuses to start.
-db_dir: /var/lib/dimrod/membank/db
+# Worker-thread pool settings. `worker_count` is the number of worker threads
+# dispatching DB jobs; `max_queue_size` bounds the number of jobs allowed to
+# wait for a free worker (see the fail-secure note below). Omit this block to
+# use the defaults (4 workers / queue of 128).
+worker_pool:
+  worker_count: 4
+  # max_queue_size: maximum number of DB jobs allowed to wait for a free worker
+  # thread. When the pool is saturated, further requests are rejected
+  # immediately with a retryable HTTP 503 instead of being queued without bound
+  # (so one bank cannot exhaust capacity for others). Set to 0 for an unbounded
+  # queue (the historical behavior). Default: 128.
+  max_queue_size: 128
 
-# Number of worker threads dispatching DB jobs.
-worker_count: 4
-
-# --- Fail-secure availability knobs (security finding F1) ------------------
-# lock_timeout: maximum time (seconds) a request will wait to acquire a bank's
-# in-process read/write lock before failing secure with a retryable HTTP 503
-# ("service busy"). This prevents a slow or hot bank from stalling the shared
-# worker pool (and thus unrelated banks) indefinitely. Set to null or 0 for an
-# unbounded wait (the historical behavior). Default: 10.
+# --- Fail-secure availability knob (security finding F1) -------------------
+# lock_timeout: SERVICE-LEVEL default maximum time (seconds) a request will wait
+# to acquire a bank's in-process read/write lock before failing secure with a
+# retryable HTTP 503 ("service busy"). This prevents a slow or hot bank from
+# stalling the shared worker pool (and thus unrelated banks) indefinitely. Each
+# bank inherits this default unless it sets its own `lock_timeout`. Set to null
+# or 0 for an unbounded wait (the historical behavior). Default: 10.
 lock_timeout: 10
-#
-# max_queue_size: maximum number of DB jobs allowed to wait for a free worker
-# thread. When the pool is saturated, further requests are rejected immediately
-# with a retryable HTTP 503 instead of being queued without bound (so one bank
-# cannot exhaust capacity for others). Set to 0 for an unbounded queue (the
-# historical behavior). Default: 128.
-max_queue_size: 128
 
 # LLM (dialogue) config used ONLY by the NLA layer to extract structured
 # store/query parameters from natural language. The core HTTP API does not use
@@ -57,7 +56,8 @@ dialogue:
   openai_chat_model: gpt-4o-mini
 
 # All configured memory banks. Each bank has a UNIQUE id (client-facing handle,
-# matching ^[A-Za-z0-9_-]+$), a human name, a db_path (within db_dir), and its
+# matching ^[A-Za-z0-9_-]+$), a human name, a fully-qualified db_path (its own
+# authoritative SQLite file; its parent directory is auto-created), and its
 # read/write ACL user lists (drawn from oracle.auth_users). Duplicate ids or
 # duplicate resolved db_paths are a fatal config error.
 banks:

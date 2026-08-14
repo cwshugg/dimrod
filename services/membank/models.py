@@ -12,7 +12,7 @@
 #                            CRUD, tag-table sync, filtering, rebuild) lives here
 #                            and is guarded by that lock.
 #   * `MemoryBankRegistry` — builds and owns all banks from config, enforcing
-#                            id/db_path uniqueness and path-safety.
+#                            id/db_path uniqueness.
 #
 # Concurrency contract (see the architecture report, §6): every public
 # `MemoryBank` method acquires the bank's `ReadWriteLock` exactly once at the
@@ -39,6 +39,7 @@ if pdir not in sys.path:
 # Local imports
 from lib.uniserdes import Uniserdes, UniserdesField
 from lib.lock import ReadWriteLock
+from lib.config import Config, ConfigField
 
 
 # =============================== Input Limits =============================== #
@@ -268,55 +269,75 @@ class Memory(Uniserdes):
         return mem
 
 
+# ============================ MemoryBankConfig ============================= #
+class MemoryBankConfig(Config):
+    """Configuration for a single memory bank: a unique id, a human name, a
+    SQLite file path, the read/write ACL user lists, and an (optional) effective
+    lock timeout.
+
+    `lock_timeout` is the bounded wait (seconds) for acquiring this bank's
+    per-bank `ReadWriteLock`. It is optional at the per-bank level: when unset
+    (`None`), `MemoryBankRegistry.build` populates it from the service-level
+    default (`MembankConfig.lock_timeout`). A value of `None`/0 means an
+    unbounded wait (the historical behavior).
+    """
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            ConfigField("id",           [str],  required=True),
+            ConfigField("name",         [str],  required=True),
+            ConfigField("db_path",      [str],  required=True),
+            ConfigField("read_users",   [list], required=True),
+            ConfigField("write_users",  [list], required=True),
+            ConfigField("lock_timeout", [float, int], required=False,
+                        default=None),
+        ]
+
+
 # =============================== MemoryBank ================================ #
 class MemoryBank:
     """A single memory bank: one SQLite database file with a unique id, a human
     name, a read/write ACL, and its own in-process `ReadWriteLock`.
 
-    All DB access opens a short-lived connection nested inside the lock's
-    critical section; no connection is cached or shared across threads.
+    A `MemoryBank` is fully described by its `MemoryBankConfig` (id, name,
+    db_path, read/write ACL user lists, and effective lock timeout). All DB
+    access opens a short-lived connection nested inside the lock's critical
+    section; no connection is cached or shared across threads.
     """
-    def __init__(self, bank_id: str, name: str, db_path: str,
-                 read_users: list, write_users: list, lock_timeout=None):
-        self.id = bank_id
-        self.name = name
-        self.db_path = db_path
-        self.read_users = list(read_users)
-        self.write_users = list(write_users)
+    def __init__(self, config: "MemoryBankConfig"):
+        # The bank is config-driven: every per-bank attribute is referenced
+        # through `self.config` (id/name/db_path/read_users/write_users and the
+        # effective `lock_timeout`) so there is a single source of truth.
+        self.config = config
         self.lock = ReadWriteLock()
-        # Bounded wait (seconds) for acquiring this bank's lock on a request. A
-        # value of None means an unbounded wait (the historical behavior). When
-        # set, a timed-out acquisition raises `MembankLockTimeout` -> HTTP 503
-        # instead of blocking forever, so one slow/hot bank cannot stall others.
-        self.lock_timeout = lock_timeout
 
     # -------------------------- lock acquisition --------------------------- #
     def _acquire_read(self):
-        """Acquires this bank's read lock, honoring `lock_timeout`. Raises
+        """Acquires this bank's read lock, honoring `config.lock_timeout`. Raises
         `MembankLockTimeout` (mapped to 503) if the timeout elapses; in that case
         no lock is held and the caller must NOT release it.
         """
-        if not self.lock.acquire_read(timeout=self.lock_timeout):
+        if not self.lock.acquire_read(timeout=self.config.lock_timeout):
             raise MembankLockTimeout(
-                "bank \"%s\" is busy; try again shortly." % self.id)
+                "bank \"%s\" is busy; try again shortly." % self.config.id)
 
     def _acquire_write(self):
-        """Acquires this bank's write lock, honoring `lock_timeout`. Raises
+        """Acquires this bank's write lock, honoring `config.lock_timeout`. Raises
         `MembankLockTimeout` (mapped to 503) if the timeout elapses; in that case
         no lock is held, no DB work runs, and no partial write occurs.
         """
-        if not self.lock.acquire_write(timeout=self.lock_timeout):
+        if not self.lock.acquire_write(timeout=self.config.lock_timeout):
             raise MembankLockTimeout(
-                "bank \"%s\" is busy; try again shortly." % self.id)
+                "bank \"%s\" is busy; try again shortly." % self.config.id)
 
     # ------------------------------- ACL ----------------------------------- #
     def can_read(self, username: str) -> bool:
         """Returns True if the given user may read/list/query this bank."""
-        return username in self.read_users
+        return username in self.config.read_users
 
     def can_write(self, username: str) -> bool:
         """Returns True if the given user may create/update/delete in this bank."""
-        return username in self.write_users
+        return username in self.config.write_users
 
     # --------------------------- connections ------------------------------- #
     def _connect(self) -> sqlite3.Connection:
@@ -324,7 +345,7 @@ class MemoryBank:
         journaling enabled. Callers MUST already hold this bank's lock and MUST
         close the connection when done.
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.config.db_path)
         # WAL improves read/write concurrency within the process (§Q-8).
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
@@ -833,31 +854,38 @@ class MemoryBank:
 # =========================== MemoryBankRegistry ============================ #
 class MemoryBankRegistry:
     """Builds and owns all `MemoryBank`s from config, enforcing id/db_path
-    uniqueness and path-safety. Banks are resolved by id only; the client never
-    supplies a path.
+    uniqueness. Banks are resolved by id only; the client never supplies a path.
     """
     def __init__(self):
         self._banks = {}    # id -> MemoryBank
 
     @classmethod
-    def build(cls, bank_configs: list, db_dir: str, lock_timeout=None):
+    def build(cls, bank_configs: list, lock_timeout=None):
         """Constructs a registry from a list of `MemoryBankConfig` objects,
         validating each bank's id and db_path. Raises `MembankConfigError` on any
-        duplicate id, duplicate resolved db_path, invalid id, or path-safety
-        violation (path outside ``db_dir``).
+        duplicate id, duplicate resolved db_path, or invalid id.
 
-        ``lock_timeout`` (seconds, or None for unbounded) is applied to every
-        bank's `ReadWriteLock` acquisition so a slow/hot bank fails secure with
-        an HTTP 503 instead of stalling the shared worker pool indefinitely.
+        Each bank's `db_path` is authoritative (it comes from TRUSTED admin
+        config, not user input). The retained safeguards are: `realpath`-
+        normalize every `db_path` and reject two banks that resolve to the SAME
+        file (duplicate = fatal), enforce unique bank ids, and never build a
+        filesystem path from a bank id. The parent directory of each `db_path`
+        is auto-created (`os.makedirs(..., exist_ok=True)`) so the SQLite file
+        can be created in the configured location.
+
+        ``lock_timeout`` (seconds, or None for unbounded) is the service-level
+        default applied to every bank whose own `MemoryBankConfig.lock_timeout`
+        is unset (None), so a slow/hot bank fails secure with an HTTP 503
+        instead of stalling the shared worker pool indefinitely.
         """
         registry = cls()
-        anchor = os.path.realpath(db_dir)
         seen_paths = {}     # realpath -> bank id
 
         for bank_cfg in bank_configs:
             bank_id = bank_cfg.id
 
-            # 1. id syntax / path-safety
+            # 1. id syntax / path-safety (a bank id is never used to build a
+            #    filesystem path, but is validated defensively regardless).
             if not isinstance(bank_id, str) or BANK_ID_RE.match(bank_id) is None:
                 raise MembankConfigError(
                     "Invalid bank id \"%s\": bank ids must match %s." %
@@ -869,28 +897,28 @@ class MemoryBankRegistry:
                     "Duplicate bank id \"%s\": bank ids must be unique." %
                     bank_id)
 
-            # 3. db_path safety — resolve and ensure it lives within db_dir
+            # 3. db_path uniqueness (after realpath). Two banks must never share
+            #    the same underlying file.
             resolved = os.path.realpath(bank_cfg.db_path)
-            if resolved != anchor and not resolved.startswith(anchor + os.sep):
-                raise MembankConfigError(
-                    "Unsafe db_path for bank \"%s\": resolved path escapes the "
-                    "configured db_dir." % bank_id)
-
-            # 4. db_path uniqueness (after realpath)
             if resolved in seen_paths:
                 raise MembankConfigError(
                     "Duplicate db_path for bank \"%s\": already used by bank "
                     "\"%s\"." % (bank_id, seen_paths[resolved]))
             seen_paths[resolved] = bank_id
 
-            registry._banks[bank_id] = MemoryBank(
-                bank_id=bank_id,
-                name=bank_cfg.name,
-                db_path=bank_cfg.db_path,
-                read_users=bank_cfg.read_users,
-                write_users=bank_cfg.write_users,
-                lock_timeout=lock_timeout,
-            )
+            # 4. Effective lock timeout: fall back to the service-level default
+            #    when this bank did not specify its own.
+            if bank_cfg.lock_timeout is None:
+                bank_cfg.lock_timeout = lock_timeout
+
+            # 5. Auto-create the parent directory of the configured db_path so
+            #    the SQLite file can be created there. Only the parent of the
+            #    configured path is created.
+            parent = os.path.dirname(resolved)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+
+            registry._banks[bank_id] = MemoryBank(bank_cfg)
 
         return registry
 
@@ -909,6 +937,6 @@ class MemoryBankRegistry:
     def init_all_schemas(self):
         """Initializes the schema of every bank (creating DB files as needed)."""
         for bank in self._banks.values():
-            os.makedirs(os.path.dirname(os.path.realpath(bank.db_path)),
+            os.makedirs(os.path.dirname(os.path.realpath(bank.config.db_path)),
                         exist_ok=True)
             bank.init_schema()

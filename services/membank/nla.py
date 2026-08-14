@@ -366,7 +366,7 @@ def nla_remember(oracle, jdata) -> NLAResult:
         })
     except Exception as e:
         oracle.log.write("nla_remember add failed (bank=%s): %s" %
-                         (bank.id, str(e)))
+                         (bank.config.id, str(e)))
         return NLAResult.from_json({
             "success": False,
             "message": "Something went wrong while saving that memory.",
@@ -375,12 +375,12 @@ def nla_remember(oracle, jdata) -> NLAResult:
 
     # Plain-text confirmation (no HTML): safe to REWORD into DImROD's voice.
     message = "Saved to the \"%s\" memory bank as \"%s\"." % (
-        bank.name, fields["name"])
+        bank.config.name, fields["name"])
     return NLAResult.from_json({
         "success": True,
         "message": message,
         "message_postprocess": POSTPROCESS_REWORD,
-        "payload": {"id": memory.id, "bank": bank.id},
+        "payload": {"id": memory.id, "bank": bank.config.id},
     })
 
 
@@ -443,7 +443,7 @@ def nla_recall(oracle, jdata) -> NLAResult:
         })
     except Exception as e:
         oracle.log.write("nla_recall list failed (bank=%s): %s" %
-                         (bank.id, str(e)))
+                         (bank.config.id, str(e)))
         return NLAResult.from_json({
             "success": False,
             "message": "Something went wrong while searching that bank.",
@@ -476,7 +476,7 @@ def _format_recall(bank, memories: list, total: int) -> str:
     header = "<b>Found %d matching memor%s in \"%s\":</b>\n" % (
         total,
         "y" if total == 1 else "ies",
-        html.escape(bank.name),
+        html.escape(bank.config.name),
     )
     if total > shown:
         header += "<i>(showing the %d most recent)</i>\n" % shown

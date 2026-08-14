@@ -27,7 +27,7 @@ if sdir not in sys.path:
     sys.path.append(sdir)
 
 # Local library imports
-from lib.config import ConfigField, Config
+from lib.config import ConfigField
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
 from lib.cli import ServiceCLI
@@ -36,10 +36,11 @@ from lib.dialogue import DialogueConfig, DialogueInterface
 # Local service imports
 from models import (
     MemoryBankRegistry,
+    MemoryBankConfig,
     MembankInputError,
     MembankLockTimeout,
 )
-from threads import WorkerPool, WorkerPoolSaturated
+from threads import WorkerPool, WorkerPoolConfig, WorkerPoolSaturated
 from nla import (
     extract_store_fields,
     extract_query_filters,
@@ -54,40 +55,26 @@ from lib.nla import NLAEndpoint
 
 
 # ================================== Config ================================= #
-class MemoryBankConfig(Config):
-    """Configuration for a single memory bank: a unique id, a human name, a
-    SQLite file path, and the read/write ACL user lists.
-    """
-    def __init__(self):
-        super().__init__()
-        self.fields = [
-            ConfigField("id",           [str],  required=True),
-            ConfigField("name",         [str],  required=True),
-            ConfigField("db_path",      [str],  required=True),
-            ConfigField("read_users",   [list], required=True),
-            ConfigField("write_users",  [list], required=True),
-        ]
-
-
 class MembankConfig(ServiceConfig):
     """Configuration for the membank service (extends `ServiceConfig`)."""
     def __init__(self):
         super().__init__()
         self.fields += [
             ConfigField("banks",        [MemoryBankConfig], required=True),
-            ConfigField("db_dir",       [str],  required=True),
-            ConfigField("worker_count", [int],  required=False, default=4),
-            # `lock_timeout`: bounded wait (seconds) for a bank's per-bank
-            # ReadWriteLock. On timeout the request fails secure with HTTP 503
-            # instead of blocking a worker indefinitely. `null`/0 = unbounded
-            # (the historical behavior).
+            # Worker-thread pool settings (thread count + bounded queue) nested
+            # under a single `worker_pool` block. Optional: when omitted, the
+            # service uses the `WorkerPoolConfig` defaults (4 workers / queue of
+            # 128).
+            ConfigField("worker_pool",  [WorkerPoolConfig], required=False,
+                        default=None),
+            # `lock_timeout`: the SERVICE-LEVEL default bounded wait (seconds)
+            # for a bank's per-bank ReadWriteLock. On timeout the request fails
+            # secure with HTTP 503 instead of blocking a worker indefinitely.
+            # `null`/0 = unbounded (the historical behavior). Each bank whose own
+            # `lock_timeout` is unset inherits this default (see
+            # `MemoryBankRegistry.build`).
             ConfigField("lock_timeout", [float, int], required=False,
                         default=10.0),
-            # `max_queue_size`: bound on jobs waiting for a free worker. When
-            # the pool is saturated, requests are rejected with a retryable
-            # HTTP 503 rather than queued without limit (so one hot bank can't
-            # exhaust shared capacity). 0 = unbounded (historical behavior).
-            ConfigField("max_queue_size", [int],  required=False, default=128),
             # The dialogue (LLM) config used ONLY by the NLA layer to extract
             # structured store/query parameters from natural-language input.
             # Optional so the core service can run without an LLM; the NLA
@@ -115,20 +102,26 @@ class MembankService(Service):
         # db_path / unsafe path is a fatal config error — the service refuses to
         # start (the exception propagates out of the constructor).
         #
-        # `lock_timeout` bounds each per-bank lock acquisition (fail-secure 503
-        # on timeout). A null/0 value means unbounded (historical behavior).
+        # `lock_timeout` is the SERVICE-LEVEL default that bounds each per-bank
+        # lock acquisition (fail-secure 503 on timeout). A null/0 value means
+        # unbounded (historical behavior). Each bank whose own config does not
+        # set `lock_timeout` inherits this default in `build`.
         lock_timeout = self.config.lock_timeout
         if not lock_timeout or lock_timeout <= 0:
             lock_timeout = None
         self.registry = MemoryBankRegistry.build(self.config.banks,
-                                                  self.config.db_dir,
                                                   lock_timeout=lock_timeout)
 
         # Fixed worker-thread pool (started in run()). The queue is bounded by
-        # `max_queue_size` so a saturated pool sheds load with a retryable 503
-        # instead of queueing without limit (0 = unbounded / historical).
-        self.pool = WorkerPool(self.config.worker_count, log=self.log,
-                               max_queue_size=self.config.max_queue_size)
+        # `worker_pool.max_queue_size` so a saturated pool sheds load with a
+        # retryable 503 instead of queueing without limit (0 = unbounded /
+        # historical). When no `worker_pool` block is configured, fall back to
+        # the `WorkerPoolConfig` defaults.
+        worker_pool = self.config.worker_pool
+        if worker_pool is None:
+            worker_pool = WorkerPoolConfig()
+            worker_pool.init_defaults()
+        self.pool = WorkerPool(worker_pool, log=self.log)
 
         # Lazily-constructed dialogue interface for the NLA layer (see
         # get_dialogue()). Only built on first NLA use.
@@ -272,8 +265,8 @@ class MembankOracle(Oracle):
                 for bank in self.service.registry.readable_by(username):
                     count = self.service.dispatch(bank.count_memories)
                     banks.append({
-                        "id": bank.id,
-                        "name": bank.name,
+                        "id": bank.config.id,
+                        "name": bank.config.name,
                         "can_write": bank.can_write(username),
                         "memory_count": count,
                     })
@@ -307,7 +300,7 @@ class MembankOracle(Oracle):
                     bank.list_memories, filters=filters, limit=limit,
                     offset=offset, order=order)
                 payload = {
-                    "bank": bank.id,
+                    "bank": bank.config.id,
                     "count": len(memories),
                     "total": total,
                     "memories": [m.to_api_dict() for m in memories],
@@ -320,7 +313,7 @@ class MembankOracle(Oracle):
                 return self._busy_response("/memory/list", e)
             except Exception as e:
                 self.log.write("Error in /memory/list (bank=%s): %s" %
-                               (bank.id, str(e)))
+                               (bank.config.id, str(e)))
                 return self.make_response(msg="Failed to list memories.",
                                           success=False, rstatus=500)
 
@@ -349,7 +342,7 @@ class MembankOracle(Oracle):
                 return self._busy_response("/memory/get", e)
             except Exception as e:
                 self.log.write("Error in /memory/get (bank=%s): %s" %
-                               (bank.id, str(e)))
+                               (bank.config.id, str(e)))
                 return self.make_response(msg="Failed to get memory.",
                                           success=False, rstatus=500)
 
@@ -375,7 +368,7 @@ class MembankOracle(Oracle):
                     bank.add_memory, name=name, content=content, tags=tags,
                     timestamp=timestamp)
                 return self.make_response(payload={"id": memory.id,
-                                                   "bank": bank.id})
+                                                   "bank": bank.config.id})
             except MembankInputError as e:
                 return self.make_response(msg=e.message, success=False,
                                           rstatus=400)
@@ -383,7 +376,7 @@ class MembankOracle(Oracle):
                 return self._busy_response("/memory/add", e)
             except Exception as e:
                 self.log.write("Error in /memory/add (bank=%s): %s" %
-                               (bank.id, str(e)))
+                               (bank.config.id, str(e)))
                 return self.make_response(msg="Failed to add memory.",
                                           success=False, rstatus=500)
 
@@ -421,7 +414,7 @@ class MembankOracle(Oracle):
                 return self._busy_response("/memory/update", e)
             except Exception as e:
                 self.log.write("Error in /memory/update (bank=%s): %s" %
-                               (bank.id, str(e)))
+                               (bank.config.id, str(e)))
                 return self.make_response(msg="Failed to update memory.",
                                           success=False, rstatus=500)
 
@@ -451,7 +444,7 @@ class MembankOracle(Oracle):
                 return self._busy_response("/memory/delete", e)
             except Exception as e:
                 self.log.write("Error in /memory/delete (bank=%s): %s" %
-                               (bank.id, str(e)))
+                               (bank.config.id, str(e)))
                 return self.make_response(msg="Failed to delete memory.",
                                           success=False, rstatus=500)
 
@@ -469,12 +462,12 @@ class MembankOracle(Oracle):
 
             try:
                 tags = self.service.dispatch(bank.list_tags)
-                return self.make_response(payload={"bank": bank.id, "tags": tags})
+                return self.make_response(payload={"bank": bank.config.id, "tags": tags})
             except self._BUSY_ERRORS as e:
                 return self._busy_response("/tag/list", e)
             except Exception as e:
                 self.log.write("Error in /tag/list (bank=%s): %s" %
-                               (bank.id, str(e)))
+                               (bank.config.id, str(e)))
                 return self.make_response(msg="Failed to list tags.",
                                           success=False, rstatus=500)
 
@@ -495,13 +488,13 @@ class MembankOracle(Oracle):
 
             try:
                 self.service.dispatch(bank.rebuild_tags)
-                return self.make_response(payload={"bank": bank.id,
+                return self.make_response(payload={"bank": bank.config.id,
                                                    "rebuilt": True})
             except self._BUSY_ERRORS as e:
                 return self._busy_response("/bank/rebuild_tags", e)
             except Exception as e:
                 self.log.write("Error in /bank/rebuild_tags (bank=%s): %s" %
-                               (bank.id, str(e)))
+                               (bank.config.id, str(e)))
                 return self.make_response(msg="Failed to rebuild tags.",
                                           success=False, rstatus=500)
 

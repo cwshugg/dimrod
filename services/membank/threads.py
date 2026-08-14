@@ -25,6 +25,27 @@ pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 if pdir not in sys.path:
     sys.path.append(pdir)
 
+# Local library imports
+from lib.config import Config, ConfigField
+
+
+# ============================= WorkerPoolConfig ============================= #
+class WorkerPoolConfig(Config):
+    """Configuration for the membank worker-thread pool.
+
+    * `worker_count`   — number of daemon worker threads dispatching DB jobs.
+    * `max_queue_size` — bound on jobs waiting for a free worker. When the pool
+      is saturated, requests are rejected with a retryable HTTP 503 rather than
+      queued without limit (so one hot bank can't exhaust shared capacity).
+      0 = unbounded (the historical behavior).
+    """
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            ConfigField("worker_count",   [int], required=False, default=4),
+            ConfigField("max_queue_size", [int], required=False, default=128),
+        ]
+
 
 # ============================ WorkerPoolSaturated =========================== #
 class WorkerPoolSaturated(Exception):
@@ -99,13 +120,14 @@ class WorkerPool:
     """A fixed pool of daemon worker threads dispatching DB jobs off a shared,
     thread-safe queue.
     """
-    def __init__(self, worker_count: int, log=None, max_queue_size=0):
-        self.worker_count = max(1, int(worker_count))
+    def __init__(self, config: "WorkerPoolConfig", log=None):
+        self.config = config
+        self.worker_count = max(1, int(config.worker_count))
         # A bounded queue sheds load (fail-secure 503) instead of queueing
         # without limit. `max_queue_size <= 0` means unbounded (historical
         # behavior); a positive value caps the number of jobs that may wait for a
         # free worker before `submit` rejects with `WorkerPoolSaturated`.
-        self.max_queue_size = int(max_queue_size)
+        self.max_queue_size = int(config.max_queue_size)
         maxsize = self.max_queue_size if self.max_queue_size > 0 else 0
         self.queue = queue.Queue(maxsize=maxsize)
         self.log = log

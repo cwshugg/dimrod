@@ -38,9 +38,9 @@ bank is resolved only by its configured `id` (clients never supply a file path).
 |-----------|------|----------------|
 | `MembankService` | `membank.py` | Config, bank registry, worker pool, NLA extraction helpers |
 | `MembankOracle` | `membank.py` | HTTP endpoints, auth, per-bank ACL enforcement |
-| `MemoryBank` / `MemoryBankRegistry` | `models.py` | Per-bank SQLite operations, tag index, path-safety |
+| `MemoryBank` / `MemoryBankRegistry` | `models.py` | Per-bank SQLite operations, tag index, id/path uniqueness |
 | `Memory` | `models.py` | The note data model (persisted via `Uniserdes`) |
-| `WorkerPool` / `WorkerThread` / `Job` | `threads.py` | Bounded thread pool that serializes DB work |
+| `WorkerPool` / `WorkerThread` / `Job` / `WorkerPoolConfig` | `threads.py` | Bounded thread pool that serializes DB work (+ its config) |
 | NLA layer | `nla.py` | The **only** place LLM logic lives (store/recall extraction) |
 
 ## Concepts
@@ -50,18 +50,29 @@ bank is resolved only by its configured `id` (clients never supply a file path).
 A **memory bank** (`MemoryBank`) is one SQLite database file with:
 
 * A unique `id` — the client-facing handle used to select the bank. Must match
-  `^[A-Za-z0-9_-]+$` (this doubles as a path-safety constraint).
+  `^[A-Za-z0-9_-]+$` (this doubles as a path-safety constraint). A bank `id` is
+  **never** used to build a filesystem path.
 * A human-readable `name` (display only; need not be unique).
-* A `db_path` — the SQLite file, which must resolve **within** the configured
-  `db_dir` anchor.
+* A `db_path` — the SQLite file. This value is **authoritative**: it comes from
+  trusted admin config, so there is no `db_dir` containment anchor. Each bank is
+  defined solely by its own `db_path`. The **parent directory of `db_path` is
+  auto-created** at startup (`os.makedirs(dirname, exist_ok=True)`) so the SQLite
+  file can be created in the configured location.
 * Two ACL user lists: `read_users` and `write_users`, drawn from the Oracle's
   `auth_users`.
 * Its own in-process [`ReadWriteLock`](#concurrency--locking).
 
+A `MemoryBank` is **config-driven**: it is constructed from a single
+`MemoryBankConfig` (defined in `models.py`) and references every per-bank
+attribute through `self.config` (`config.id`, `config.name`, `config.db_path`,
+`config.read_users`, `config.write_users`, `config.lock_timeout`) — a single
+source of truth.
+
 Bank `id` and resolved `db_path` uniqueness are enforced when the
-`MemoryBankRegistry` is built at startup. A duplicate `id`, a duplicate
-`db_path`, an invalid `id`, or a `db_path` that escapes `db_dir` is a **fatal
-config error** — the service refuses to start.
+`MemoryBankRegistry` is built at startup. Each `db_path` is `realpath`-normalized
+and no two banks may resolve to the same file. A duplicate `id`, a duplicate
+resolved `db_path`, or an invalid `id` is a **fatal config error** — the service
+refuses to start.
 
 ### Memory
 
@@ -127,11 +138,16 @@ extends `ServiceConfig` (which requires `service_name`, `msghub_name`, and an
 | Field | Type | Required | Default | Description |
 |-------|------|:--------:|---------|-------------|
 | `banks` | `list[MemoryBankConfig]` | ✓ | — | All configured memory banks and their ACLs |
-| `db_dir` | `str` | ✓ | — | Base directory every bank `db_path` must resolve **within** (the path-safety anchor) |
-| `worker_count` | `int` | ✗ | `4` | Number of DB worker threads in the pool |
-| `lock_timeout` | `float`/`int` | ✗ | `10.0` | Per-bank `ReadWriteLock` acquire timeout, in seconds. On timeout the request fails secure with a retryable `503`. `null` or `0` means an unbounded wait (the historical behavior) |
-| `max_queue_size` | `int` | ✗ | `128` | Upper bound on DB jobs waiting for a free worker. When the queue is full, `submit()` rejects the request with a retryable `503` instead of queueing without limit. `0` means an unbounded queue (the historical behavior) |
+| `worker_pool` | `WorkerPoolConfig` | ✗ | defaults | Nested worker-pool settings (`worker_count`, `max_queue_size`); omit to use the defaults below |
+| `lock_timeout` | `float`/`int` | ✗ | `10.0` | **Service-level default** per-bank `ReadWriteLock` acquire timeout, in seconds. On timeout the request fails secure with a retryable `503`. `null` or `0` means an unbounded wait (the historical behavior). Each bank inherits this default unless it sets its own `lock_timeout` |
 | `dialogue` | `DialogueConfig` | ✗ | `None` | LLM settings used **only** by the NLA layer; omit to run the core API without NLA |
+
+### Worker-pool fields (`worker_pool` → `WorkerPoolConfig`)
+
+| Field | Type | Required | Default | Description |
+|-------|------|:--------:|---------|-------------|
+| `worker_count` | `int` | ✗ | `4` | Number of DB worker threads in the pool |
+| `max_queue_size` | `int` | ✗ | `128` | Upper bound on DB jobs waiting for a free worker. When the queue is full, `submit()` rejects the request with a retryable `503` instead of queueing without limit. `0` means an unbounded queue (the historical behavior) |
 
 ### Per-bank fields (`MemoryBankConfig`)
 
@@ -139,35 +155,39 @@ extends `ServiceConfig` (which requires `service_name`, `msghub_name`, and an
 |-------|------|:--------:|-------------|
 | `id` | `str` | ✓ | Unique bank handle; must match `^[A-Za-z0-9_-]+$` |
 | `name` | `str` | ✓ | Human-readable title (display only) |
-| `db_path` | `str` | ✓ | SQLite file path; must resolve within `db_dir` |
+| `db_path` | `str` | ✓ | Authoritative SQLite file path; its parent directory is auto-created at startup |
 | `read_users` | `list[str]` | ✓ | Oracle usernames allowed to read/list/query the bank |
 | `write_users` | `list[str]` | ✓ | Oracle usernames allowed to add/update/delete in the bank |
+| `lock_timeout` | `float`/`int` | ✗ | Optional per-bank override of the service-level `lock_timeout`; when unset, inherits the service default |
 
 The Oracle listens on port **2380** by default.
 
-### Path safety
+### Path handling
 
-`db_dir` is the anchor for every bank. When the registry is built, each bank's
-`db_path` is resolved with `realpath` and must equal `db_dir` or live beneath it.
-A path that escapes the anchor (via `..`, a symlink, or an absolute path outside
-it) is rejected and the service refuses to start.
+Bank `db_path`s come from **trusted admin config**, so there is no `db_dir`
+containment anchor — each `db_path` is authoritative. The retained safeguards
+are: each `db_path` is `realpath`-normalized and no two banks may resolve to the
+same file (a duplicate resolved `db_path` is a **fatal config error**); bank
+`id`s must be unique and are **never** used to construct filesystem paths. The
+parent directory of each `db_path` is auto-created at startup
+(`os.makedirs(dirname, exist_ok=True)`).
 
 ### Concurrency knobs
 
 Three knobs tune the shared [worker pool](#concurrency--locking) and per-bank
 locking:
 
-* `worker_count` (default `4`) sizes the pool of DB worker threads.
+* `worker_pool.worker_count` (default `4`) sizes the pool of DB worker threads.
 * `lock_timeout` (default `10.0`, seconds) bounds how long a request waits to
   acquire a bank's per-bank `ReadWriteLock`. If the lock cannot be acquired in
   time, the request fails secure with a retryable `503` rather than blocking a
   worker indefinitely. Set it to `null` or `0` for an unbounded wait (the
   historical behavior).
-* `max_queue_size` (default `128`) bounds how many DB jobs may wait for a free
-  worker. When the pool is saturated the request is rejected immediately with a
-  retryable `503` instead of being queued without limit, so one hot bank cannot
-  exhaust shared capacity. Set it to `0` for an unbounded queue (the historical
-  behavior).
+* `worker_pool.max_queue_size` (default `128`) bounds how many DB jobs may wait
+  for a free worker. When the pool is saturated the request is rejected
+  immediately with a retryable `503` instead of being queued without limit, so
+  one hot bank cannot exhaust shared capacity. Set it to `0` for an unbounded
+  queue (the historical behavior).
 
 Both `503` paths are fail-secure: see [Concurrency & Locking](#concurrency--locking)
 for details, including the guarantee that a timed-out mutation applies **no**
@@ -192,18 +212,18 @@ oracle:
     - { username: __telegram, password: YOUR_PASSWORD_HERE, privilege: 1 }
     - { username: __speaker,  password: YOUR_PASSWORD_HERE, privilege: 1 }
 
-# Path-safety anchor: every bank's db_path must resolve within this directory.
-db_dir: /var/lib/dimrod/membank/db
+# Worker-thread pool settings (nested). worker_count sizes the DB worker pool;
+# max_queue_size bounds the queue (shedding load with a retryable 503 when full).
+# Omit this block to use the defaults (4 workers / queue of 128).
+worker_pool:
+  worker_count: 4
+  max_queue_size: 128
 
-# Number of DB worker threads.
-worker_count: 4
-
-# Fail-secure availability knobs. lock_timeout (seconds) caps how long a request
-# waits for a bank's read/write lock; max_queue_size bounds the worker-pool
-# queue. Both shed load with a retryable 503. Use null/0 for the unbounded
-# (historical) behavior.
+# Fail-secure availability knob. lock_timeout (seconds) is the SERVICE-LEVEL
+# default that caps how long a request waits for a bank's read/write lock before
+# shedding load with a retryable 503. Each bank inherits it unless it sets its
+# own lock_timeout. Use null/0 for the unbounded (historical) behavior.
 lock_timeout: 10
-max_queue_size: 128
 
 # LLM config used ONLY by the NLA layer. Omit to run without NLA endpoints.
 dialogue:
@@ -244,11 +264,16 @@ bot_chats:
     memory_bank: worldbuilding
 ```
 
-When a chat sends `/memory`, the Telegram service resolves that chat's
-`memory_bank` (via `get_chat_memory_bank`) and attaches it as the *default*
-bank. A bank explicitly named in the message text overrides this default. If a
-chat has no `memory_bank` and none is named in the text, the NLA layer asks the
-user which bank to use.
+When a chat runs `/memory`, the Telegram service resolves that chat's
+`memory_bank` (via `get_chat_memory_bank`) and uses it as the **default** bank
+whenever a subcommand's bank field is left empty or `-`. A bank named explicitly
+as the first field of a subcommand overrides this default. If a chat has no
+`memory_bank` and no bank is named, the command replies with a clear error
+asking the user to specify a bank or configure a default.
+
+For the natural-language (non-slash, conversational) path, the resolved default
+bank is instead attached to the Speaker's NLA request; see
+[Natural-Language Actions](#natural-language-actions-nla).
 
 ## Oracle Endpoints
 
@@ -483,7 +508,8 @@ Recalling:
 
 Membank protects SQLite with two coordinated mechanisms:
 
-* **A fixed worker pool** (`WorkerPool`, `worker_count` threads, default 4). Every
+* **A fixed worker pool** (`WorkerPool`, `worker_pool.worker_count` threads,
+  default 4). Every
   Oracle handler builds a `Job` (a callable plus its arguments and a completion
   event), submits it to a shared, thread-safe queue, and **blocks on the
   result**. A worker pops the job, runs the DB operation, and signals completion.
@@ -507,8 +533,9 @@ retryable `503` instead of stalling indefinitely:
   connection is opened and any SQL runs, a timed-out mutation applies **no
   partial write** — the request simply never touched the database. Set
   `lock_timeout` to `null` or `0` to restore the historical unbounded wait.
-* **Bounded work queue.** The `WorkerPool` queue holds at most `max_queue_size`
-  jobs (default `128`). When the queue is full, `WorkerPool.submit()` rejects the
+* **Bounded work queue.** The `WorkerPool` queue holds at most
+  `worker_pool.max_queue_size` jobs (default `128`). When the queue is full,
+  `WorkerPool.submit()` rejects the
   job immediately with `WorkerPoolSaturated` (also mapped to a `503`) rather than
   queueing without bound, so a burst against one hot bank cannot exhaust shared
   capacity for unrelated banks. Set `max_queue_size` to `0` for an unbounded
@@ -530,8 +557,11 @@ critical findings) rests on:
   `404` to hide a bank's existence.
 * **Parameterized SQL.** All queries — including tag `IN (...)` clauses — use
   bound parameters; user input is never string-formatted into SQL.
-* **Path safety.** Bank `db_path`s are `realpath`-resolved and required to stay
-  within `db_dir`; unsafe paths abort startup.
+* **Trusted db_path handling.** Bank `db_path`s come from trusted admin config
+  and are authoritative (no `db_dir` containment). They are `realpath`-normalized
+  and must be unique — two banks may never resolve to the same file (a duplicate
+  aborts startup). Bank `id`s are unique and never used to build filesystem
+  paths; each `db_path`'s parent directory is auto-created at startup.
 * **Input validation & limits.** `name` (≤ 256), `content` (≤ 64 KiB), tag
   format/length, tag count (≤ 32), and page size (≤ 500) are all bounded to
   reject abusive input.
