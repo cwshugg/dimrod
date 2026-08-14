@@ -51,6 +51,7 @@ from commands.recipes import command_recipes
 from commands.groceries import command_groceries
 from commands.vehicles import command_vehicles
 from commands.foodlog import command_foodlog
+from commands.memory import command_memory
 from commands.s_reset import command_s_reset
 from commands.s_menu import command_s_menu
 
@@ -77,6 +78,7 @@ class TelegramConfig(ServiceConfig):
             ConfigField("munchbook", [OracleSessionConfig],     required=False, default=None),
             ConfigField("treasurer", [OracleSessionConfig],    required=False, default=None),
             ConfigField("grocer",   [OracleSessionConfig],      required=False, default=None),
+            ConfigField("membank",  [OracleSessionConfig],      required=False, default=None),
             ConfigField("google_calendar_config",   [GoogleCalendarConfig], required=True),
             ConfigField("google_calendar_id",       [str],      required=True),
             ConfigField("google_calendar_timezone", [str],      required=False, default="America/New_York"),
@@ -132,6 +134,9 @@ class TelegramService(Service):
             TelegramCommand(["groceries", "grocery", "grocer", "groc", "g"],
                             "Manage the grocery list",
                             command_groceries),
+            TelegramCommand(["memory", "m"],
+                            "Store and recall memories/notes",
+                            command_memory),
             TelegramCommand(["_reset"],
                             "Resets the current chat conversation.",
                             command_s_reset,
@@ -279,6 +284,15 @@ class TelegramService(Service):
         }
         pyld["telegram_message"] = message_info
 
+        # include the chat's configured membank default bank (if any) so the
+        # speaker forwards it into the NLA invocation's `request_data`, letting
+        # the membank remember/recall NLAs resolve the target bank. When the
+        # chat has no configured bank, omit the key (the NLA will ask which
+        # bank to use).
+        memory_bank = self.get_chat_memory_bank(message.chat.id)
+        if memory_bank is not None:
+            pyld["membank"] = {"default_bank": memory_bank}
+
         # ping the /talk endpoint
         r = speaker.post("/talk", payload=pyld)
         if OracleSession.get_response_success(r):
@@ -287,6 +301,20 @@ class TelegramService(Service):
         # if the above didn't work, return nothing
         self.log.write("Failed to get conversation from speaker: %s" %
                        OracleSession.get_response_message(r))
+        return None
+
+    # ------------------------------- Memory --------------------------------- #
+    def get_chat_memory_bank(self, chat_id):
+        """Resolves the configured membank bank id for a telegram chat.
+
+        The per-chat target bank is a telegram-side config concern (membank has
+        no default-bank concept). Returns the bank id string, or None if the
+        chat has no configured target bank.
+        """
+        chat_id = str(chat_id)
+        for chat in self.chats:
+            if chat.id == chat_id:
+                return getattr(chat, "memory_bank", None)
         return None
 
     def dialogue_message_search(self,

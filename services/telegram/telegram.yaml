@@ -8,11 +8,17 @@ oracle:
   auth_secret: YOUR_JWT_SECRET_HERE
   auth_users: []
 bot_api_key: YOUR_TELEGRAM_BOT_API_KEY_HERE
+# Whitelisted chats. Each chat may OPTIONALLY set `memory_bank`: the membank
+# bank id that this chat's `/memory` (`/m`) command targets by default. Membank
+# has no default-bank concept — this per-chat mapping is a telegram-side
+# concern. Omit it to require users to name a bank inline in their message.
 bot_chats:
 - id: CHAT1_ID
   name: CHAT1_NAME
+  memory_bank: personal
 - id: CHAT2_ID
   name: CHAT2_NAME
+  memory_bank: worldbuilding
 bot_users:
 - id: USER1_ID
   name: USER1_NAME
@@ -56,6 +62,11 @@ munchbook:
 grocer:
   addr: 0.0.0.0
   port: 2375
+  auth_username: ABC
+  auth_password: XYZ
+membank:
+  addr: 0.0.0.0
+  port: 2380
   auth_username: ABC
   auth_password: XYZ
 google_calendar_config:
