@@ -97,6 +97,17 @@ class Oracle(threading.Thread):
         # this class field
         self.nla_endpoints = []
 
+    def describe_nla_endpoint(self, nla_ep) -> dict:
+        """Serializes a single NLA endpoint for the `/nla/get` response.
+
+        The default is a plain `NLAEndpoint.to_json()`. Subclasses may override
+        this to inject per-request / dynamic description content (with full
+        `flask.g` request context available). Overriding this hook — rather than
+        re-registering `/nla/get` — avoids a duplicate-route conflict with the
+        base endpoint.
+        """
+        return nla_ep.to_json()
+
     def run(self):
         """Thread main function. Configures the flask server to invoke the class'
         various handler functions, then launches it.
@@ -227,7 +238,7 @@ class Oracle(threading.Thread):
             # build an array of JSON objects to return to the sender
             jdata = []
             for nla_ep in self.nla_endpoints:
-                jdata.append(nla_ep.to_json())
+                jdata.append(self.describe_nla_endpoint(nla_ep))
 
             return self.make_response(payload=jdata)
 

@@ -10,8 +10,16 @@
 # fields, with whitespace trimmed around each field AND around "=" in key=value
 # pairs (so "lore . kw = mithril . limit = 5" parses the same as
 # "lore.kw=mithril.limit=5"). Field 0 is ALWAYS the optional bank: empty or "-"
-# means "use the chat's configured default bank"; anything else is a bank id.
+# means "use the chat's configured default bank"; anything else is fuzzy-matched
+# CLIENT-SIDE against the caller's accessible banks (exact id -> exact name ->
+# unique name substring; ambiguous references list the candidate banks). See
+# `_match_bank`, which mirrors the server's `MemoryBankRegistry.resolve_ref`.
 # Fields 1+ are the parameters for the subcommand.
+#
+# LIMITATION: because "." is the field delimiter and there is no escape
+# mechanism, a field value cannot contain a literal "." — e.g. `/m add` content
+# with a period is split into extra fields (surfacing as tags/timestamp) and can
+# produce a confusing "Bad timestamp" error rather than storing the note.
 #
 # All replies are rendered as Telegram HTML; every piece of dynamic text is
 # escaped here in the command source. We deliberately do NOT touch telegram's
@@ -170,13 +178,116 @@ def _get_membank_session(service, message):
     return session
 
 
-def _resolve_bank(service, message, fields: list):
+def _normalize_ref(ref) -> str:
+    """Normalizes a bank reference for case/whitespace-insensitive matching.
+
+    Mirrors the membank server's `MemoryBankRegistry._normalize_ref`: trims,
+    lowers, and collapses internal whitespace to single spaces. Returns "" for
+    None.
+    """
+    if ref is None:
+        return ""
+    return " ".join(str(ref).strip().lower().split())
+
+
+def _list_accessible_banks(session):
+    """Fetches the caller's accessible banks via the membank ``/bank/list``
+    endpoint (the same call `_cmd_banks` uses).
+
+    Returns ``(banks, None)`` on success (a list of bank dicts, each with
+    ``id``, ``name``, ``can_write``, ...) or ``(None, error)`` with a friendly,
+    HTML-safe message when the lookup could not be performed.
+    """
+    try:
+        r = session.post("/bank/list", payload={})
+    except Exception:
+        return None, ("Sorry, I couldn't reach my memory to look up your "
+                      "banks. It might be offline.")
+    if not session.get_response_success(r):
+        return None, ("Sorry, I couldn't look up your memory banks right now; "
+                      "please try again shortly.")
+    data = session.get_response_json(r)
+    banks = data.get("banks", []) if isinstance(data, dict) else []
+    return banks, None
+
+
+def _match_bank(raw: str, banks: list):
+    """Matches a typed bank reference against the caller's accessible banks.
+
+    Mirrors the server-side `MemoryBankRegistry.resolve_ref` semantics, applied
+    CLIENT-SIDE. All comparisons are case-insensitive with trimmed/collapsed
+    whitespace, in priority order:
+
+      1. exact ``id`` match
+      2. exact ``name`` match
+      3. UNIQUE substring match: exactly one accessible bank whose normalized
+         ``name`` contains, or is contained by, the normalized ref
+         (bidirectional containment against NAMES only — identical to the
+         server's `resolve_ref` step 3)
+
+    Returns ``(bank_id, None)`` on a unique resolution, or ``(None, error)``
+    with a friendly, HTML-escaped message when the reference is ambiguous
+    (>1 substring match) or matches no accessible bank.
+    """
+    norm = _normalize_ref(raw)
+    banks = banks or []
+
+    # 1. Exact id.
+    for bank in banks:
+        if _normalize_ref(bank.get("id")) == norm:
+            return bank.get("id"), None
+
+    # 2. Exact name.
+    for bank in banks:
+        if _normalize_ref(bank.get("name")) == norm:
+            return bank.get("id"), None
+
+    # 3. Unique substring: bidirectional containment against NAMES only, to
+    #    mirror the server's `resolve_ref` step 3 exactly (so `/m` and the
+    #    conversational NLA path resolve any given reference identically).
+    matches = []
+    for bank in banks:
+        norm_name = _normalize_ref(bank.get("name"))
+        if len(norm_name) == 0:
+            continue
+        if norm in norm_name or norm_name in norm:
+            matches.append(bank)
+
+    if len(matches) == 1:
+        return matches[0].get("id"), None
+
+    if len(matches) > 1:
+        lines = ["Bank <code>%s</code> is ambiguous — it matches several "
+                 "banks:" % _esc(raw)]
+        for bank in matches:
+            lines.append("• <code>%s</code> — %s" % (
+                _esc(bank.get("id")),
+                _esc(bank.get("name", bank.get("id"))),
+            ))
+        lines.append("Please use a more specific name or the exact id.")
+        return None, "\n".join(lines)
+
+    return None, ("I couldn't find a memory bank matching <code>%s</code> "
+                  "that you can access. Use <code>/m banks</code> to see the "
+                  "banks available to you." % _esc(raw))
+
+
+def _resolve_bank(service, message, fields: list, session=None):
     """Resolves the target bank id from field 0.
 
-    Field 0 is the optional bank: empty or ``-`` means "use the chat's
-    configured default bank" (via `get_chat_memory_bank`); otherwise it is the
-    bank id. Returns ``(bank_id, None)`` on success or ``(None, error)`` when no
-    bank could be resolved (an error string suitable for the user).
+    Field 0 is the optional bank: empty or ``-`` (`BANK_DEFAULT_SENTINEL`) means
+    "use the chat's configured default bank" (via `get_chat_memory_bank`); that
+    default is already a real id and is used verbatim. Any other value is
+    fuzzy-matched, CLIENT-SIDE, against the banks THIS caller can access (fetched
+    via ``/bank/list``) using `_match_bank`.
+
+    An authenticated membank `session` may be passed in to avoid re-authing; if
+    omitted, one is built via `_get_membank_session` (which reports its own
+    error and returns None on failure).
+
+    Returns ``(bank_id, None)`` on success. On failure returns ``(None, error)``
+    where ``error`` is an HTML-safe user message, or ``(None, None)`` when the
+    failure has already been reported to the user (e.g. auth failed).
     """
     raw = fields[0].strip() if len(fields) > 0 else ""
     if raw == "" or raw == BANK_DEFAULT_SENTINEL:
@@ -187,7 +298,18 @@ def _resolve_bank(service, message, fields: list):
                           "first field, or ask an admin to set this chat's "
                           "<code>memory_bank</code>.")
         return default, None
-    return raw, None
+
+    # Non-empty field 0: fuzzy-resolve against the caller's accessible banks.
+    if session is None:
+        session = _get_membank_session(service, message)
+        if session is None:
+            # _get_membank_session already sent an error message to the user.
+            return None, None
+
+    banks, list_err = _list_accessible_banks(session)
+    if list_err is not None:
+        return None, list_err
+    return _match_bank(raw, banks)
 
 
 def _send_endpoint_error(service, message, session, r, context: str) -> bool:
@@ -209,8 +331,7 @@ def _send_endpoint_error(service, message, session, r, context: str) -> bool:
         msg = ("You don't have permission to %s in that bank "
                "(it may be read-only for you)." % _esc(context))
     elif status == 404:
-        msg = ("I couldn't find that (unknown bank/memory, or you don't have "
-               "access).")
+        msg = ("I couldn't find that (unknown bank/memory, or you don't have access).")
     elif status == 503:
         msg = "My memory is busy right now; please try again shortly."
     else:
@@ -258,8 +379,9 @@ def _cmd_banks(service, message, fields: list) -> bool:
 def _cmd_tags(service, message, fields: list) -> bool:
     """`/m tags [bank]` -> POST /tag/list. Lists tags and their counts."""
     bank_id, err = _resolve_bank(service, message, fields)
-    if err is not None:
-        service.send_message(message.chat.id, err, parse_mode="HTML")
+    if bank_id is None:
+        if err is not None:
+            service.send_message(message.chat.id, err, parse_mode="HTML")
         return False
 
     session = _get_membank_session(service, message)
@@ -289,8 +411,9 @@ def _cmd_tags(service, message, fields: list) -> bool:
 def _cmd_add(service, message, fields: list) -> bool:
     """`/m add [bank].name.content[.tags][.timestamp]` -> POST /memory/add."""
     bank_id, err = _resolve_bank(service, message, fields)
-    if err is not None:
-        service.send_message(message.chat.id, err, parse_mode="HTML")
+    if bank_id is None:
+        if err is not None:
+            service.send_message(message.chat.id, err, parse_mode="HTML")
         return False
 
     params = fields[1:]
@@ -337,8 +460,9 @@ def _cmd_add(service, message, fields: list) -> bool:
 def _cmd_get(service, message, fields: list) -> bool:
     """`/m get [bank].id` -> POST /memory/get. Renders the full memory."""
     bank_id, err = _resolve_bank(service, message, fields)
-    if err is not None:
-        service.send_message(message.chat.id, err, parse_mode="HTML")
+    if bank_id is None:
+        if err is not None:
+            service.send_message(message.chat.id, err, parse_mode="HTML")
         return False
 
     mem_id = fields[1] if len(fields) > 1 else ""
@@ -368,8 +492,9 @@ def _cmd_get(service, message, fields: list) -> bool:
 def _cmd_search(service, message, fields: list) -> bool:
     """`/m search [bank].k=v...` -> POST /memory/list. Compact result list."""
     bank_id, err = _resolve_bank(service, message, fields)
-    if err is not None:
-        service.send_message(message.chat.id, err, parse_mode="HTML")
+    if bank_id is None:
+        if err is not None:
+            service.send_message(message.chat.id, err, parse_mode="HTML")
         return False
 
     payload, perr = _build_search_payload(bank_id, fields[1:])
@@ -396,8 +521,9 @@ def _cmd_search(service, message, fields: list) -> bool:
 def _cmd_edit(service, message, fields: list) -> bool:
     """`/m edit [bank].id.k=v...` -> POST /memory/update. Partial updates."""
     bank_id, err = _resolve_bank(service, message, fields)
-    if err is not None:
-        service.send_message(message.chat.id, err, parse_mode="HTML")
+    if bank_id is None:
+        if err is not None:
+            service.send_message(message.chat.id, err, parse_mode="HTML")
         return False
 
     mem_id = fields[1] if len(fields) > 1 else ""
@@ -448,8 +574,9 @@ def _cmd_edit(service, message, fields: list) -> bool:
 def _cmd_del(service, message, fields: list) -> bool:
     """`/m del [bank].id` -> POST /memory/delete."""
     bank_id, err = _resolve_bank(service, message, fields)
-    if err is not None:
-        service.send_message(message.chat.id, err, parse_mode="HTML")
+    if bank_id is None:
+        if err is not None:
+            service.send_message(message.chat.id, err, parse_mode="HTML")
         return False
 
     mem_id = fields[1] if len(fields) > 1 else ""
@@ -476,8 +603,9 @@ def _cmd_del(service, message, fields: list) -> bool:
 def _cmd_rebuild(service, message, fields: list) -> bool:
     """`/m rebuild [bank]` -> POST /bank/rebuild_tags (admin)."""
     bank_id, err = _resolve_bank(service, message, fields)
-    if err is not None:
-        service.send_message(message.chat.id, err, parse_mode="HTML")
+    if bank_id is None:
+        if err is not None:
+            service.send_message(message.chat.id, err, parse_mode="HTML")
         return False
 
     session = _get_membank_session(service, message)
@@ -537,14 +665,20 @@ def _render_search(data, bank_id: str, payload: dict) -> str:
     for memory in memories:
         tags = memory.get("tags", []) or []
         tag_str = " ".join("#" + _esc(t) for t in tags)
-        line = "• <code>%s</code> <b>%s</b>" % (
-            _esc(memory.get("id")), _esc(memory.get("name", "(untitled)")))
+        title = "<b>%s</b>" % _esc(memory.get("name", "(untitled)"))
+        ts = memory.get("timestamp")
+        if ts is not None:
+            title += " — <i>%s</i>" % _esc(_format_timestamp(ts))
+        line = "• %s\n    • ID: <code>%s</code>" % (
+            title,
+            _esc(memory.get("id"))
+        )
         if len(tag_str) > 0:
-            line += " %s" % tag_str
+            line += "\n    • Tags: %s" % tag_str
         snippet = _memory_snippet(memory.get("content"))
         if len(snippet) > 0:
-            line += "\n    %s" % _esc(snippet)
-        lines.append(line)
+            line += "\n    • Content (snippet): <i>%s</i>" % _esc(snippet)
+        lines.append("\n" + line)
 
     # Note truncation when the returned page is capped by the limit.
     limit = payload.get("limit")
@@ -657,9 +791,16 @@ def _memory_help(service, message) -> None:
         "<b>/memory</b> (alias <b>/m</b>) — structured memory commands.",
         "",
         "The first field is the <b>bank</b>: leave it empty or use "
-        "<code>-</code> for this chat's default bank.",
+        "<code>-</code> for this chat's default bank. Otherwise it is "
+        "fuzzy-matched against the banks you can access: exact id, then exact "
+        "name, then a unique name substring; if a reference matches more than "
+        "one bank the reply lists the candidates so you can be more specific.",
         "Fields are separated by <code>.</code> and whitespace is ignored "
         "(<code>a . b</code> == <code>a.b</code>).",
+        "Because <code>.</code> is the field separator, a field value cannot "
+        "contain a literal <code>.</code> — e.g. an <code>add</code> content "
+        "with a period is split into extra fields and may report a confusing "
+        "\"Bad timestamp\". Omit periods from names/content.",
         "",
         "<b>Subcommands:</b>",
         "• <code>%s</code> — list banks you can access" % _esc(_USAGE["banks"]),

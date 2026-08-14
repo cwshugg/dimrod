@@ -54,6 +54,17 @@ Commands are defined as individual modules under `commands/`, each implementing 
 
 > **Note:** Additional secret/debug commands exist (e.g., `/_reset` for resetting the current chat conversation). These are hidden from the help menu and are intended for development and debugging use.
 
+> **`/memory` (`/m`) field syntax.** Arguments follow the subcommand and are
+> split on `.` into fields (whitespace around `.` and `=` is ignored). **Field 0
+> is the optional bank:** leave it empty or use `-` for the chat's default bank,
+> otherwise it is fuzzy-matched against the banks you can access — exact id, then
+> exact name, then a unique name substring; an ambiguous reference lists the
+> candidate banks. Because `.` is the field delimiter, a field value **cannot
+> contain a literal `.`** (e.g. `/m add` content with a period misparses and may
+> report a confusing `Bad timestamp`). See the
+> [membank `/m` command reference](membank.md#telegram-memory-command) for the full
+> subcommand list and behavior.
+
 ## Oracle Endpoints
 
 These endpoints allow other DImROD services to interact with users through the Telegram bot.

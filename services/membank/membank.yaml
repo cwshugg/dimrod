@@ -55,6 +55,19 @@ dialogue:
   openai_api_key: YOUR_OPENAI_API_KEY_HERE
   openai_chat_model: gpt-4o-mini
 
+# Service-level DEFAULT memory bank id used by the NLA layer when a request does
+# NOT name a bank AND no per-request default (telegram per-chat) was supplied.
+# NLA bank-resolution precedence:
+#   (a) a bank named in the user's message  ->
+#   (b) request_data.membank.default_bank (telegram per-chat)  ->
+#   (c) this service-level default  ->
+#   (d) ask the user which bank to use.
+# Must be one of the `banks[].id` below, AND readable/writable by the invoking
+# NLA service account (__speaker / __telegram) for the action in question.
+# Existence is validated at STARTUP (fatal if it names an unknown bank);
+# accessibility is validated at REQUEST time. Omit/null to disable (c).
+default_bank: personal
+
 # All configured memory banks. Each bank has a UNIQUE id (client-facing handle,
 # matching ^[A-Za-z0-9_-]+$), a human name, a fully-qualified db_path (its own
 # authoritative SQLite file; its parent directory is auto-created), and its

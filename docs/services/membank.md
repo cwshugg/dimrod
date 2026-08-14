@@ -141,6 +141,7 @@ extends `ServiceConfig` (which requires `service_name`, `msghub_name`, and an
 | `banks` | `list[MemoryBankConfig]` | ✓ | — | All configured memory banks and their ACLs |
 | `worker_pool` | `WorkerPoolConfig` | ✗ | defaults | Nested worker-pool settings (`worker_count`, `max_queue_size`); omit to use the defaults below |
 | `lock_timeout` | `float`/`int` | ✗ | `10.0` | **Service-level default** per-bank `ReadWriteLock` acquire timeout, in seconds. On timeout the request fails secure with a retryable `503`. `null` or `0` means an unbounded wait (the historical behavior). Each bank inherits this default unless it sets its own `lock_timeout` |
+| `default_bank` | `str` | ✗ | `None` | **Service-level default** memory bank **id** used by the NLA layer when a request neither names a bank nor supplies a per-request default (see [bank resolution](#bank-resolution-precedence)). Existence is validated at **startup** (an unknown id is fatal); per-user accessibility is validated at **request time**. `null`/omitted disables it |
 | `dialogue` | `DialogueConfig` | ✗ | `None` | LLM settings used **only** by the NLA layer; omit to run the core API without NLA |
 
 ### Worker-pool fields (`worker_pool` → `WorkerPoolConfig`)
@@ -225,6 +226,12 @@ worker_pool:
 # shedding load with a retryable 503. Each bank inherits it unless it sets its
 # own lock_timeout. Use null/0 for the unbounded (historical) behavior.
 lock_timeout: 10
+
+# Service-level DEFAULT memory bank id for the NLA layer, used when a request
+# neither names a bank nor carries a per-request (telegram per-chat) default.
+# Must be one of banks[].id below; existence is validated at startup (fatal if
+# unknown), accessibility per-user at request time. Omit/null to disable.
+default_bank: personal
 
 # LLM config used ONLY by the NLA layer. Omit to run without NLA endpoints.
 dialogue:
@@ -458,9 +465,83 @@ that invoked the NLA endpoint.
 The Speaker's router decides store-vs-query intent by selecting one of these two
 endpoints. Membank never guesses: the LLM extraction happens here, and the
 resulting explicit values flow into the same "dumb" bank operations the HTTP API
-uses. A bank explicitly named in the utterance overrides the telegram-supplied
-default; if neither is available, the handler returns a "which bank?"
-clarification.
+uses.
+
+#### Bank resolution precedence
+
+Both handlers resolve their target bank through one shared resolver
+(`MembankOracle.resolve_nla_bank`), which enforces this precedence:
+
+1. **(a) a bank named in the user's message** — resolved via
+   `MemoryBankRegistry.resolve_ref`, a natural-language matcher that matches
+   (case/whitespace-insensitively) by bank **id**, then human **name**, then a
+   **unique substring** of a name. The candidate pool is ACL-filtered up front
+   (writable banks for `remember`, readable banks for `recall`), so a match is
+   always one the invoking account may use. An ambiguous substring (two or more
+   matches) is treated as unresolved.
+2. **(b) the per-request default** — `request_data.membank.default_bank`, the
+   Telegram per-chat target bank.
+3. **(c) the service-level default** — `MembankConfig.default_bank` (see
+   [config](#configuration)).
+4. **(d) a "which bank?" clarification** — when nothing resolves.
+
+Special rule for **(a)**: if the utterance *named* a bank but it does not
+resolve to an accessible bank, the handler returns a clarification listing the
+accessible banks rather than silently falling through to (b)/(c) — so a
+mistyped or unauthorized bank name never causes a read/write against the wrong
+bank. Fallthrough to (b)/(c)/(d) happens only when the utterance named **no**
+bank at all. Inaccessible per-request/service defaults are skipped (accessibility
+is a per-user, request-time property).
+
+#### Recall miss notice + self-contained LLM fallback
+
+A `recall` produces one of three outcomes, all composed **entirely inside the
+membank `recall` handler** (the Speaker performs no special completion logic):
+
+- **HIT** — a `recall` that matches at least one memory returns `success=True`
+  with the RAW, HTML-escaped findings message. The user receives **only** the
+  memory findings; no LLM completion runs (the memories *are* the answer).
+- **MISS** — a `recall` that matches **no** memories returns `success=True`
+  with a single **RAW** message composed by the handler itself: a **short "no
+  results" notice** (`"I didn't find anything in the memory bank."`) followed by
+  a **general-purpose LLM answer** to the user's original question, joined by a
+  blank line (`"<notice>\n\n<answer>"`). The completion is run **in the handler**
+  via the same membank dialogue used for extraction (`nla_general_answer`). The
+  answer text is HTML-escaped so the composed RAW message is safe for the
+  downstream Telegram HTML renderer. If the completion **fails**, the error is
+  logged and the notice surfaces **on its own** — the NLA never crashes.
+- **Hard errors** — extraction/search failures and clarifications return a clear
+  `REWORD` error message.
+
+`remember` is always a plain confirmation. There is **no** framework-level
+`append_llm_completion` flag; the recall miss fallback is local to membank.
+
+#### Remember: existing-tag suggestions
+
+To keep tags consistent, `nla_remember` surfaces the target bank's **existing
+tags** to the extraction LLM as reuse suggestions so it prefers an existing tag
+over inventing a near-duplicate. Before extraction, the handler resolves the
+**default** target bank (per-request default → service default, via
+`resolve_nla_bank` with **no** named ref, since the utterance-named bank is not
+known until *after* extraction — this keeps a **single** extraction call) and
+reads its tags through the same in-process `list_tags` path that backs
+[`/tag/list`](#post-taglist) and `/m tags`. The tags are injected into the
+prompt as `"Existing tags in this bank (PREFER reusing an existing tag when it
+fits; only create a new tag if none apply): ..."`, bounded to
+`STORE_TAG_SUGGESTION_CAP` (100, most-common first). The section is omitted
+when the bank has no tags. ACLs are respected (suggestions only come from a bank
+the caller may use), and if no default bank resolves — or the tag lookup fails —
+suggestions are simply omitted and the store is **never** blocked. This changes
+neither what is stored nor how tags are sanitized server-side.
+
+#### Dynamic descriptions
+
+`MembankOracle.describe_nla_endpoint` appends a compact, per-request,
+ACL-filtered **catalog** of accessible banks to the `remember`/`recall`
+descriptions served by `/nla/get` (`remember` lists writable banks, `recall`
+lists readable ones), giving the Speaker's router live context on which banks
+exist. The catalog is bounded (`NLA_DESC_BANK_CAP`, default 12) with a
+`(+K more)` suffix so the router prompt stays small.
 
 ## Telegram `/memory` Command
 
@@ -484,10 +565,24 @@ these parse identically:
 
 **Field 0 is always the optional bank.** Leave it empty or use `-` to target the
 chat's configured default bank (see
-[per-chat bank mapping](#telegram-per-chat-bank-mapping)); otherwise it is an
-explicit bank id. Fields 1+ are the subcommand's parameters. If the bank field
-is empty/`-` and the chat has no default bank, the command returns a clear
-error.
+[per-chat bank mapping](#telegram-per-chat-bank-mapping)); otherwise it is
+**fuzzy-matched client-side** against the banks the caller can access, mirroring
+the server's `MemoryBankRegistry.resolve_ref` (see
+[bank resolution precedence](#bank-resolution-precedence)): exact `id`, then
+exact `name`, then a **unique substring** — one accessible bank whose name
+contains, or is contained by, the reference (bidirectional containment against
+**names only**). If the reference matches **more than one** bank, the reply
+lists the candidate banks so you can be more specific; if it matches **none**,
+you get a "no matching bank" error. Fields 1+ are the subcommand's parameters.
+If the bank field is empty/`-` and the chat has no default bank, the command
+returns a clear error.
+
+> **Field-delimiter limitation.** Because `.` separates fields and there is no
+> escape mechanism, a field value **cannot contain a literal `.`**. For example,
+> `/m add` content that includes a period is split into extra fields — the text
+> after the first `.` is consumed as `tags` and then `timestamp`, which
+> typically surfaces as a confusing `Bad timestamp` error instead of storing the
+> intended note. Omit periods from `name`/`content` (and other field values).
 
 ### Subcommands
 

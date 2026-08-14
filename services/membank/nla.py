@@ -26,6 +26,7 @@ import sys
 import json
 import html
 import time
+import flask
 from datetime import datetime
 
 # Enable import from the parent directory
@@ -63,15 +64,16 @@ NLA_REMEMBER_DESC = (
 NLA_RECALL_NAME = "recall"
 NLA_RECALL_DESC = (
     "Recall previously stored memories, notes, or ideas. "
-    "Use for questions like: "
+    "Use this when the user is asking ANY question involving \"what\", \"where\", \"when\", \"who\", \"how\", \"why\"."
+    "Examples: "
     "\"what did I tell you last month about ...?\", "
-    "\"what did I save about...?\", "
-    "\"what was the number for ...?\", "
+    "\"where is...?\", "
+    "\"what was ...?\", "
     "\"what did I ask you to remember about ...?\", "
-    "\"recall my note on the parking spot\", "
+    "\"what did I say my parking spot was?\", "
     "\"what do you remember about ...?\", "
-    "(or really *any* question that starts with \"what\", \"when\", \"where\", \"who\", \"how\", or \"why\"). "
-    "The message asks to retrieve something previously stored."
+    "\"can you search the logs for ...?\", "
+    "\"do I have anything saved about ...?\". "
 )
 
 # Key (inside the speaker's `request_data`) carrying telegram-resolved context.
@@ -87,9 +89,18 @@ RECALL_RENDER_LIMIT = 10
 # How many characters of a memory's content to show in a recall answer.
 RECALL_CONTENT_SNIPPET = 400
 
+# Upper bound on how many banks are enumerated in a dynamic NLA description or a
+# clarification's bank list, so the router prompt / clarification stays bounded.
+NLA_DESC_BANK_CAP = 12
+
 # Postprocess modes (string values understood by the speaker).
 POSTPROCESS_RAW = "RAW"
 POSTPROCESS_REWORD = "REWORD"
+
+# Upper bound on how many of a bank's existing tags are surfaced to the store
+# extraction LLM as reuse suggestions, so the prompt stays bounded. `list_tags`
+# returns tags sorted by refcount desc, so the most common tags are kept.
+STORE_TAG_SUGGESTION_CAP = 100
 
 
 # ============================= LLM Extraction ============================== #
@@ -127,7 +138,35 @@ def _clean_bank(value) -> str:
     return value if len(value) > 0 else None
 
 
-def extract_store_fields(dialogue, text: str) -> dict:
+def _format_tag_suggestions(existing_tags, cap: int = STORE_TAG_SUGGESTION_CAP):
+    """Builds the "existing tags" suggestion block appended to the STORE
+    extraction prompt, or an empty string when there is nothing to suggest.
+
+    De-duplicates while preserving order and caps the list at `cap` so the
+    prompt stays bounded (input is expected sorted by refcount desc, so the most
+    common tags are kept). Returns a plain-text sentence (no trailing newline).
+    """
+    if not existing_tags:
+        return ""
+    seen = []
+    for tag in existing_tags:
+        if not isinstance(tag, str):
+            tag = str(tag)
+        tag = tag.strip()
+        if len(tag) == 0 or tag in seen:
+            continue
+        seen.append(tag)
+        if len(seen) >= cap:
+            break
+    if len(seen) == 0:
+        return ""
+    return (
+        "Existing tags in this bank (PREFER reusing an existing tag when it "
+        "fits; only create a new tag if none apply): %s" % ", ".join(seen)
+    )
+
+
+def extract_store_fields(dialogue, text: str, existing_tags: list = None) -> dict:
     """Uses the LLM to extract explicit STORE fields from a natural-language
     "remember this" message.
 
@@ -135,6 +174,12 @@ def extract_store_fields(dialogue, text: str) -> dict:
     "bank": str|None}``. The service will sanitize tags again on write; this
     just produces reasonable candidate values. Raises ``MembankInputError`` on
     unrecoverable failure.
+
+    `existing_tags` (if provided) is a list of the target bank's current tags;
+    they are surfaced to the LLM as reuse suggestions so it prefers existing
+    tags over inventing near-duplicates. The section is omitted when the list is
+    empty and never changes what is ultimately stored or how tags are
+    sanitized.
     """
     output_format = {
         "name": "<a short (a few words) human label for this memory>",
@@ -158,6 +203,11 @@ def extract_store_fields(dialogue, text: str) -> dict:
         "Return only the JSON object."
         % json.dumps(output_format, indent=4)
     )
+
+    # Surface the bank's existing tags as reuse suggestions (omitted when none).
+    suggestions = _format_tag_suggestions(existing_tags)
+    if suggestions:
+        intro += "\n\n" + suggestions
 
     response = dialogue.oneshot(intro, text)
     obj = _first_json_object(response)
@@ -281,6 +331,25 @@ def _coerce_epoch(value):
         return None
 
 
+def general_answer(dialogue, text: str) -> str:
+    """Runs a single, general-purpose LLM completion that answers the user's
+    question concisely.
+
+    This is used by `nla_recall` on a MISS (no stored memories matched): rather
+    than deferring to the speaker, the recall handler answers the user's
+    ORIGINAL question directly with a short completion using the SAME membank
+    dialogue that drives the extraction oneshots. The returned string is the raw
+    LLM text (the caller is responsible for any HTML-escaping). Raises on an
+    unrecoverable LLM failure so the caller can fall back gracefully.
+    """
+    intro = (
+        "You are a concise, helpful assistant. Answer the user's question "
+        "directly and briefly in plain text. Do not add markup, headings, or "
+        "preamble; just answer."
+    )
+    return dialogue.oneshot(intro, text)
+
+
 # ============================== NLA Helpers =============================== #
 def _resolve_default_bank(params: NLAEndpointInvokeParameters):
     """Extracts the telegram-supplied per-chat default bank id (if any) from the
@@ -305,14 +374,50 @@ def _user_text(params: NLAEndpointInvokeParameters) -> str:
     return params.message
 
 
-def _need_bank_result(action: str) -> NLAResult:
-    """Builds the "which bank?" clarification result (REWORD)."""
+def _need_bank_result(action: str, banks: list = None) -> NLAResult:
+    """Builds the "which bank?" clarification result (REWORD).
+
+    When `banks` is provided, the accessible banks are enumerated (bounded by
+    `NLA_DESC_BANK_CAP`) so the user can pick one. This is used both for the
+    no-bank case and for the named-but-unresolved case (where the utterance
+    named a bank that did not resolve to an accessible one — we clarify rather
+    than silently falling through to a default).
+    """
+    msg = "I'm not sure which memory bank to %s. " % action
+    if banks:
+        msg += "You have access to these memory banks: %s. " % \
+               _bank_names_phrase(banks)
+    msg += "Please tell me which bank to use."
     return NLAResult.from_json({
         "success": False,
-        "message": "I'm not sure which memory bank to %s. "
-                   "Please tell me which bank to use." % action,
+        "message": msg,
         "message_postprocess": POSTPROCESS_REWORD,
     })
+
+
+def _bank_names_phrase(banks: list, cap: int = NLA_DESC_BANK_CAP) -> str:
+    """Renders a compact, bounded, comma-separated list of banks as
+    ``"id" (Name)`` entries, appending ``(+K more)`` when truncated. Plain text
+    (no HTML) — intended for REWORD clarifications and dynamic descriptions.
+    """
+    shown = banks[:cap]
+    parts = ["\"%s\" (%s)" % (b.config.id, b.config.name) for b in shown]
+    phrase = ", ".join(parts)
+    extra = len(banks) - len(shown)
+    if extra > 0:
+        phrase += ", (+%d more)" % extra
+    return phrase
+
+
+def _render_bank_catalog(banks: list, cap: int = NLA_DESC_BANK_CAP) -> str:
+    """Builds the suffix appended to a dynamic NLA description enumerating the
+    banks accessible to the requesting user. Bounded by `cap` to keep the
+    router prompt small. Returns a leading-space-prefixed sentence, or a short
+    note when the user has access to no banks.
+    """
+    if not banks:
+        return " (You currently have access to no memory banks.)"
+    return " Available memory banks: %s." % _bank_names_phrase(banks, cap=cap)
 
 
 # ============================== NLA Handlers =============================== #
@@ -326,9 +431,38 @@ def nla_remember(oracle, jdata) -> NLAResult:
     params = NLAEndpointInvokeParameters.from_json(jdata)
     text = _user_text(params)
 
+    # Suggest the DEFAULT target bank's EXISTING tags to the extraction LLM so
+    # it reuses them instead of inventing near-duplicate tags. The explicitly-
+    # named bank is only known AFTER extraction, so we resolve the DEFAULT
+    # target bank (per-request default -> service default) via the shared
+    # resolver WITHOUT a named ref, keeping this to a SINGLE extraction call.
+    # ACLs are respected: `resolve_nla_bank` only returns a bank the caller may
+    # use, and its tags come from the same in-process `list_tags` path that
+    # backs `/m tags`. If no default bank resolves/accessible (or the lookup
+    # fails), we simply omit suggestions and NEVER block the store.
+    # NOTE: the default bank is resolved with require_write=True (it checks
+    # `can_write`, NOT `can_read`). Reading its tags is an incidental READ, so we
+    # additionally gate the `list_tags` read on `can_read` — a bank a caller may
+    # WRITE but not READ (an atypical but config-permitted ACL, since
+    # `write_users` and `read_users` are independent lists) must never have its
+    # tag names surfaced to a caller lacking read authorization.
+    existing_tags = []
+    try:
+        sugg_bank, _ = oracle.resolve_nla_bank(params, None, require_write=True)
+        username = flask.g.user.config.username
+        if sugg_bank is not None and sugg_bank.can_read(username):
+            tag_rows = oracle.service.dispatch(sugg_bank.list_tags)
+            existing_tags = [row["tag"] for row in tag_rows
+                             if isinstance(row, dict) and row.get("tag")]
+    except Exception as e:
+        oracle.log.write("nla_remember tag-suggestion lookup failed: %s" %
+                         str(e))
+        existing_tags = []
+
     # Extract explicit fields from the natural-language message.
     try:
-        fields = oracle.service.nla_extract_store(text)
+        fields = oracle.service.nla_extract_store(text,
+                                                  existing_tags=existing_tags)
     except Exception as e:
         oracle.log.write("nla_remember extraction failed: %s" % str(e))
         return NLAResult.from_json({
@@ -337,24 +471,17 @@ def nla_remember(oracle, jdata) -> NLAResult:
             "message_postprocess": POSTPROCESS_REWORD,
         })
 
-    # Resolve the target bank: an explicitly-named bank wins over the chat's
-    # configured default.
-    bank_id = fields.get("bank", None) or _resolve_default_bank(params)
-    if bank_id is None:
-        return _need_bank_result("save this to")
-
-    # Enforce write ACL under the invoking service account (flask.g.user).
-    bank, status = oracle._acl_write(bank_id)
+    # Resolve the target bank via the shared precedence resolver:
+    #   (a) a bank named in the utterance  ->
+    #   (b) the per-request (telegram per-chat) default  ->
+    #   (c) the service-level default  ->
+    #   (d) a "which bank?" clarification.
+    # The returned bank is already write-ACL-checked for the invoking account; a
+    # named-but-unresolved reference yields a clarification (no silent fallback).
+    bank, err = oracle.resolve_nla_bank(params, fields.get("bank", None),
+                                        require_write=True)
     if bank is None:
-        if status == 403:
-            msg = "I don't have permission to write to that memory bank."
-        else:
-            msg = "I couldn't find a memory bank called \"%s\"." % bank_id
-        return NLAResult.from_json({
-            "success": False,
-            "message": msg,
-            "message_postprocess": POSTPROCESS_REWORD,
-        })
+        return err
 
     # Add the memory with EXPLICIT values (tags sanitized server-side).
     try:
@@ -380,7 +507,7 @@ def nla_remember(oracle, jdata) -> NLAResult:
         })
 
     # Plain-text confirmation (no HTML): safe to REWORD into DImROD's voice.
-    message = "Saved to the \"%s\" memory bank as \"%s\"." % (
+    message = "I saved a note to the \"%s\" memory bank. The note is titled: \"%s\"." % (
         bank.config.name, fields["name"])
     return NLAResult.from_json({
         "success": True,
@@ -395,9 +522,12 @@ def nla_recall(oracle, jdata) -> NLAResult:
     list matching memories from the resolved bank (ACL enforced), and format a
     faithful answer.
 
-    Returns an `NLAResult`. The formatted answer is RAW (already-escaped
-    Telegram HTML) so the user's stored notes are recalled verbatim rather than
-    being paraphrased by the rewording LLM.
+    Returns an `NLAResult`. On a HIT the formatted answer is RAW (already-
+    escaped Telegram HTML) so the user's stored notes are recalled verbatim
+    rather than being paraphrased. On a MISS the handler composes a RAW,
+    HTML-safe "<notice>\n\n<general LLM answer>" itself (falling back to the
+    notice alone if the completion fails). Hard extraction/search errors return
+    a clear REWORD'd error.
     """
     params = NLAEndpointInvokeParameters.from_json(jdata)
     text = _user_text(params)
@@ -413,19 +543,12 @@ def nla_recall(oracle, jdata) -> NLAResult:
             "message_postprocess": POSTPROCESS_REWORD,
         })
 
-    # Resolve the target bank (explicit bank wins over the chat default).
-    bank_id = query.get("bank", None) or _resolve_default_bank(params)
-    if bank_id is None:
-        return _need_bank_result("search")
-
-    # Enforce read ACL under the invoking service account (flask.g.user).
-    bank = oracle._acl_read(bank_id)
+    # Resolve the target bank via the shared precedence resolver (read ACL); a
+    # named-but-unresolved reference yields a clarification (no silent fallback).
+    bank, err = oracle.resolve_nla_bank(params, query.get("bank", None),
+                                        require_write=False)
     if bank is None:
-        return NLAResult.from_json({
-            "success": False,
-            "message": "I couldn't find a memory bank called \"%s\"." % bank_id,
-            "message_postprocess": POSTPROCESS_REWORD,
-        })
+        return err
 
     # Build the structured filter payload for /memory/list.
     filters = {}
@@ -456,13 +579,46 @@ def nla_recall(oracle, jdata) -> NLAResult:
             "message_postprocess": POSTPROCESS_REWORD,
         })
 
+    # Recall outcomes:
+    #   HIT  -> return ONLY the membank findings (RAW, HTML-escaped).
+    #   MISS -> a SHORT "no results" notice FOLLOWED BY a general-purpose LLM
+    #           answer to the user's ORIGINAL question, composed here into ONE
+    #           RAW message. If the completion fails, the notice surfaces alone.
+    #   error -> a REWORD'd error, no completion (handled above).
+    #
+    # This behavior is entirely self-contained within the recall handler: the
+    # speaker performs no special completion logic. On a MISS we run a quick
+    # general completion via the SAME membank dialogue used for extraction, then
+    # compose "<notice>\n\n<answer>" as a single RAW (HTML-safe) message. The
+    # notice is fixed plain text; the completion text is HTML-escaped so it is
+    # safe for the downstream Telegram HTML renderer, matching the escaping used
+    # for the findings section. A completion failure never crashes the NLA — the
+    # notice is returned by itself (the error is logged). This is a SUCCESS.
     if len(memories) == 0:
+        notice = "I didn't find anything in the memory bank."
+        answer = None
+        try:
+            answer = oracle.service.nla_general_answer(text)
+        except Exception as e:
+            oracle.log.write("nla_recall miss completion failed: %s" % str(e))
+            answer = None
+
+        # The notice is a fixed constant with no HTML-special characters. The
+        # completion text is untrusted, so it is HTML-escaped (matching the
+        # findings escaping) before being appended, keeping the composed RAW
+        # message safe for the downstream Telegram HTML renderer.
+        message = notice
+        if isinstance(answer, str) and len(answer.strip()) > 0:
+            message += "\n\n" + html.escape(answer.strip())
+
         return NLAResult.from_json({
             "success": True,
-            "message": "I couldn't find anything about that.",
-            "message_postprocess": POSTPROCESS_REWORD,
+            "message": message,
+            "message_postprocess": POSTPROCESS_RAW,
         })
 
+    # Results found: return the RAW findings section ONLY. On a hit the memories
+    # ARE the answer, so no LLM completion runs.
     message = _format_recall(bank, memories, total)
     return NLAResult.from_json({
         "success": True,
@@ -479,7 +635,7 @@ def _format_recall(bank, memories: list, total: int) -> str:
     `nla_recall`).
     """
     shown = len(memories)
-    header = "<b>Found %d matching memor%s in \"%s\":</b>\n" % (
+    header = "<b>Found %d matching memor%s in \"%s\":</b>" % (
         total,
         "y" if total == 1 else "ies",
         html.escape(bank.config.name),
@@ -491,21 +647,20 @@ def _format_recall(bank, memories: list, total: int) -> str:
     for mem in memories:
         data = mem.to_api_dict()
         name = html.escape(str(data.get("name", "")))
-        when = datetime.utcfromtimestamp(
-            int(data.get("timestamp", 0))).strftime("%Y-%m-%d")
+        when = datetime.utcfromtimestamp(int(data.get("timestamp", 0))).strftime("%Y-%m-%d %H:%M:%S UTC")
 
         content = str(data.get("content", ""))
         if len(content) > RECALL_CONTENT_SNIPPET:
             content = content[:RECALL_CONTENT_SNIPPET].rstrip() + "…"
         content = html.escape(content)
 
-        block = "\n· <b>%s</b> <i>(%s)</i>\n%s" % (name, when, content)
+        block = "\n<b>%s</b> (%s)\n<i>%s</i>" % (name, when, content)
 
         tags = data.get("tags", [])
         if tags:
             tag_str = " ".join("#%s" % html.escape(str(t)) for t in tags)
-            block += "\n<code>%s</code>" % tag_str
+            block += "\n%s" % tag_str
 
-        blocks.append(block)
+        blocks.append("\n" + block)
 
     return header + "".join(blocks)

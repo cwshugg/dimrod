@@ -934,6 +934,71 @@ class MemoryBankRegistry:
         """Returns all banks the given user may read."""
         return [b for b in self._banks.values() if b.can_read(username)]
 
+    def writable_by(self, username: str) -> list:
+        """Returns all banks the given user may write."""
+        return [b for b in self._banks.values() if b.can_write(username)]
+
+    @staticmethod
+    def _normalize_ref(ref) -> str:
+        """Normalizes a natural-language bank reference for matching: lowercases,
+        strips surrounding whitespace, and collapses internal whitespace runs to
+        a single space. Returns "" if `ref` is None/empty.
+        """
+        if ref is None:
+            return ""
+        return " ".join(str(ref).strip().lower().split())
+
+    def resolve_ref(self, ref, username: str, require_write: bool = False):
+        """Resolves a natural-language bank reference to a single accessible
+        `MemoryBank`, or None.
+
+        The candidate pool is ACL-filtered up front: writable banks when
+        `require_write` is True, otherwise readable banks. Matching against that
+        pool proceeds in order (first hit wins), all case/whitespace-insensitive:
+
+          1. Exact normalized **id**.
+          2. Exact normalized **name** (human title).
+          3. **Unique substring** — exactly one accessible bank whose normalized
+             name contains, or is contained by, the normalized ref. If more than
+             one bank matches, the reference is ambiguous and treated as
+             UNRESOLVED (returns None) so the caller can ask to disambiguate.
+
+        Returns the matched `MemoryBank` (already ACL-checked) or None when the
+        reference is empty, unknown, inaccessible, or ambiguous.
+        """
+        norm_ref = self._normalize_ref(ref)
+        if len(norm_ref) == 0:
+            return None
+
+        pool = (self.writable_by(username) if require_write
+                else self.readable_by(username))
+        if len(pool) == 0:
+            return None
+
+        # 1. Exact normalized id.
+        for bank in pool:
+            if self._normalize_ref(bank.config.id) == norm_ref:
+                return bank
+
+        # 2. Exact normalized name.
+        for bank in pool:
+            if self._normalize_ref(bank.config.name) == norm_ref:
+                return bank
+
+        # 3. Unique substring (bidirectional containment) against names.
+        matches = []
+        for bank in pool:
+            norm_name = self._normalize_ref(bank.config.name)
+            if len(norm_name) == 0:
+                continue
+            if norm_ref in norm_name or norm_name in norm_ref:
+                matches.append(bank)
+        if len(matches) == 1:
+            return matches[0]
+
+        # No unique match (zero or ambiguous) -> unresolved.
+        return None
+
     def init_all_schemas(self):
         """Initializes the schema of every bank (creating DB files as needed)."""
         for bank in self._banks.values():

@@ -38,18 +38,24 @@ from models import (
     MemoryBankRegistry,
     MemoryBankConfig,
     MembankInputError,
+    MembankConfigError,
     MembankLockTimeout,
 )
 from threads import WorkerPool, WorkerPoolConfig, WorkerPoolSaturated
 from nla import (
     extract_store_fields,
     extract_query_filters,
+    general_answer,
     nla_remember,
     nla_recall,
     NLA_REMEMBER_NAME,
     NLA_REMEMBER_DESC,
     NLA_RECALL_NAME,
     NLA_RECALL_DESC,
+    _clean_bank,
+    _resolve_default_bank,
+    _need_bank_result,
+    _render_bank_catalog,
 )
 from lib.nla import NLAEndpoint
 
@@ -75,6 +81,13 @@ class MembankConfig(ServiceConfig):
             # `MemoryBankRegistry.build`).
             ConfigField("lock_timeout", [float, int], required=False,
                         default=10.0),
+            # Service-level DEFAULT memory bank id, used by the NLA layer when a
+            # request neither names a bank NOR carries a per-request default
+            # (telegram per-chat). A bank *id* (must be one of `banks[].id`).
+            # Existence is validated fatally at STARTUP; per-user accessibility
+            # is validated at REQUEST time (the invoking service account must be
+            # able to read/write it for the action). Omit/null to disable.
+            ConfigField("default_bank", [str], required=False, default=None),
             # The dialogue (LLM) config used ONLY by the NLA layer to extract
             # structured store/query parameters from natural-language input.
             # Optional so the core service can run without an LLM; the NLA
@@ -111,6 +124,17 @@ class MembankService(Service):
             lock_timeout = None
         self.registry = MemoryBankRegistry.build(self.config.banks,
                                                   lock_timeout=lock_timeout)
+
+        # Validate the service-level default bank id (existence only — this is
+        # user-independent and can be checked at boot). Per-user accessibility
+        # is enforced at request time by `MembankOracle.resolve_nla_bank`. An
+        # unknown id is a fatal config error (fail fast, mirroring the
+        # duplicate-id behavior above).
+        if self.config.default_bank is not None:
+            if self.registry.get(self.config.default_bank) is None:
+                raise MembankConfigError(
+                    "Invalid default_bank \"%s\": no bank with that id is "
+                    "configured." % self.config.default_bank)
 
         # Fixed worker-thread pool (started in run()). The queue is bounded by
         # `worker_pool.max_queue_size` so a saturated pool sheds load with a
@@ -171,13 +195,17 @@ class MembankService(Service):
             self._dialogue = DialogueInterface(self.config.dialogue)
         return self._dialogue
 
-    def nla_extract_store(self, text: str) -> dict:
+    def nla_extract_store(self, text: str, existing_tags: list = None) -> dict:
         """Uses the LLM to extract explicit STORE fields (`name`, `content`,
         `tags`, optional `bank`) from a natural-language "remember this" message.
 
+        `existing_tags` (if provided) are the target bank's current tags,
+        surfaced to the LLM as reuse suggestions (never changes what is stored).
+
         Returns the parsed dict. Raises on unrecoverable LLM/parse failure.
         """
-        return extract_store_fields(self.get_dialogue(), text)
+        return extract_store_fields(self.get_dialogue(), text,
+                                    existing_tags=existing_tags)
 
     def nla_extract_query(self, text: str, now_ts: int = None) -> dict:
         """Uses the LLM to convert a natural-language recall question into
@@ -187,6 +215,15 @@ class MembankService(Service):
         Returns the parsed dict. Raises on unrecoverable LLM/parse failure.
         """
         return extract_query_filters(self.get_dialogue(), text, now_ts=now_ts)
+
+    def nla_general_answer(self, text: str) -> str:
+        """Runs a quick, general-purpose LLM completion that answers the user's
+        question concisely, using the SAME NLA dialogue as the extraction calls.
+
+        Used by `nla_recall` on a MISS to answer the user's original question
+        directly. Returns the raw LLM text. Raises on unrecoverable LLM failure.
+        """
+        return general_answer(self.get_dialogue(), text)
 
 
 # ============================== Service Oracle ============================= #
@@ -224,6 +261,63 @@ class MembankOracle(Oracle):
         if not bank.can_write(username):
             return None, 403
         return bank, 0
+
+    # ------------------------- NLA bank resolution ------------------------- #
+    def resolve_nla_bank(self, params, named_ref, require_write):
+        """Shared NLA bank resolver enforcing the locked precedence chain:
+
+          (a) a bank named in the utterance (NL-resolved via `resolve_ref`,
+              ACL-filtered for the invoking account) ->
+          (b) the per-request default (`request_data.membank.default_bank`,
+              telegram per-chat) ->
+          (c) the service-level default (`config.default_bank`) ->
+          (d) otherwise a "which bank?" clarification (listing accessible banks).
+
+        Special rule for (a): if the utterance NAMED a bank but it does not
+        resolve to an accessible bank, we return a clarification listing the
+        accessible banks rather than silently falling through to (b)/(c) — that
+        would risk reading from / writing to the wrong bank. Fallthrough to
+        (b)/(c)/(d) only happens when the utterance named NO bank at all.
+
+        The (b)/(c) defaults are resolved through the same ACL-filtered
+        `resolve_ref`, so a configured default that is inaccessible to the
+        invoking account is skipped (accessibility is a per-user, request-time
+        property that cannot be fully validated at startup).
+
+        Returns ``(bank, None)`` on success or ``(None, error_result)`` where
+        `error_result` is a ready-to-return `NLAResult` clarification.
+        """
+        username = flask.g.user.config.username
+        action = "save this to" if require_write else "search"
+        accessible = (self.service.registry.writable_by(username)
+                      if require_write
+                      else self.service.registry.readable_by(username))
+
+        # (a) explicit bank named in the utterance.
+        ref = _clean_bank(named_ref)
+        if ref is not None:
+            bank = self.service.registry.resolve_ref(ref, username,
+                                                     require_write=require_write)
+            if bank is not None:
+                return bank, None
+            # Named but unresolved -> clarify; do NOT fall through to defaults.
+            return None, _need_bank_result(action, banks=accessible)
+
+        # (b) per-request default, then (c) service-level default. Each is
+        # resolved through the ACL-filtered resolver; the first accessible hit
+        # wins. An inaccessible/unknown default is skipped.
+        for candidate in (_resolve_default_bank(params),
+                          self.service.config.default_bank):
+            candidate = _clean_bank(candidate)
+            if candidate is None:
+                continue
+            bank = self.service.registry.resolve_ref(
+                candidate, username, require_write=require_write)
+            if bank is not None:
+                return bank, None
+
+        # (d) nothing resolved.
+        return None, _need_bank_result(action, banks=accessible)
 
     # ---------------------------- request helpers -------------------------- #
     @staticmethod
@@ -500,6 +594,27 @@ class MembankOracle(Oracle):
 
 
     # -------------------------------- NLA ---------------------------------- #
+    def describe_nla_endpoint(self, nla_ep):
+        """Serializes an NLA endpoint for `/nla/get`, appending a per-request,
+        ACL-filtered catalog of the banks accessible to the requesting user so
+        the speaker's router LLM has live context on which banks exist.
+
+        `remember` lists WRITABLE banks (matching its write ACL); `recall` lists
+        READABLE banks. The catalog is bounded (`NLA_DESC_BANK_CAP`) so the
+        router prompt stays small. Other endpoints (and other services) fall
+        back to the base `to_json()` behavior.
+        """
+        data = super().describe_nla_endpoint(nla_ep)
+        if nla_ep.name in (NLA_REMEMBER_NAME, NLA_RECALL_NAME):
+            username = flask.g.user.config.username
+            if nla_ep.name == NLA_REMEMBER_NAME:
+                banks = self.service.registry.writable_by(username)
+            else:
+                banks = self.service.registry.readable_by(username)
+            data["description"] = data.get("description", "") + \
+                _render_bank_catalog(banks)
+        return data
+
     def init_nla(self):
         """Registers the membank NLA endpoints (STORE + QUERY).
 

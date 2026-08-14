@@ -31,6 +31,20 @@ The NLA dispatch system uses a `SpeakerNLAQueue` backed by `SpeakerNLAQueueEntry
 
 The NLA worker pool size is configurable via `nla_threads`.
 
+### NLA result composition (recall miss is self-contained)
+
+When one or more NLA endpoints fire, Speaker composes their result messages via
+`nla_compose_message()` — each result's `message` is either reworded (`REWORD`)
+or kept verbatim (`RAW`) per its `message_postprocess` — and returns that text
+as the reply.
+
+Key properties (`nla_compose_message` + `endpoint_talk`):
+
+* If no result produced any text, Speaker responds with a graceful empty
+  success (no payload).
+* The persisted NLA conversation holds a single composed assistant reply.
+* The normal no-NLA dialogue path is untouched.
+
 ## Oracle Endpoints
 
 ### Conversation Management
