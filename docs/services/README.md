@@ -1,6 +1,6 @@
 # DImROD Services
 
-DImROD consists of 14 Python-based microservices, each running as a systemd service. Services communicate via authenticated HTTP/JSON APIs using the [Oracle](../library.md#oraclepy--http-api-server) framework.
+DImROD consists of 15 Python-based microservices, each running as a systemd service. Services communicate via authenticated HTTP/JSON APIs using the [Oracle](../library.md#oraclepy--http-api-server) framework.
 
 ## Service Overview
 
@@ -20,6 +20,7 @@ DImROD consists of 14 Python-based microservices, each running as a systemd serv
 | [Gearhead](gearhead.md) | Vehicle & mileage tracking | ✓ | ✓ |
 | [Taskmaster](taskmaster.md) | Automated recurring job scheduler | — | — |
 | [Rambler](rambler.md) | Flight price scraper | — | — |
+| [Membank](membank.md) | Plaintext "memory" notes stored in ACL-guarded SQLite banks | ✓ | ✓ |
 
 ## Communication Patterns
 
@@ -33,12 +34,13 @@ graph TD
     User <-->|email| Mailman
     Telegram <-->|conversation & NLA| Speaker["Speaker (LLM)"]
     Mailman <-->|conversation & NLA| Speaker
-    Speaker <-->|invoke| NLA["NLA Services (Lumen, Notif, Gearhead, Grocer)"]
+    Speaker <-->|invoke| NLA["NLA Services (Lumen, Notif, Gearhead, Grocer, Membank)"]
     Telegram -->|commands| Lumen
     Telegram -->|commands| Warden
     Telegram -->|commands| Notif
     Telegram -->|commands| Chef
     Telegram -->|/groceries| Grocer
+    Telegram -->|/memory| Speaker
     Grocer -->|recipe resolution| Chef
     Grocer -->|grocery list| Todoist
     Lumen -->|control| IoT["LIFX, Wyze, IFTTT (IoT devices)"]
@@ -57,4 +59,4 @@ graph TD
 
 ### NLA (Natural Language Actions)
 
-Services that expose NLA endpoints (currently Lumen, Notif, Gearhead, and Grocer) register their capabilities with the Oracle. Speaker discovers these at runtime and dispatches natural-language requests to the appropriate service. See the [NLA types documentation](../data-types.md#nla-types) for details.
+Services that expose NLA endpoints (currently Lumen, Notif, Gearhead, Grocer, and Membank) register their capabilities with the Oracle. Speaker discovers these at runtime and dispatches natural-language requests to the appropriate service. See the [NLA types documentation](../data-types.md#nla-types) for details.

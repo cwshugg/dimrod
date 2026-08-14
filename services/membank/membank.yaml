@@ -1,0 +1,79 @@
+# ===========================================================================
+# TEMPLATE CONFIG — Replace all placeholder values before use.
+#
+# This file contains example/placeholder values that must be replaced with
+# real values for a working deployment. Copy this file, fill in your actual
+# configuration, and reference the copy in your service setup.
+# ===========================================================================
+
+service_name: membank
+service_log: stdout
+msghub_name: YOUR_MSGHUB_NAME
+oracle:
+  addr: 0.0.0.0
+  port: 2380
+  log: stdout
+  auth_cookie: membank_auth
+  auth_secret: YOUR_JWT_SECRET_HERE
+  auth_users:
+  - username: admin
+    password: YOUR_PASSWORD_HERE
+    privilege: 0
+  - username: __telegram
+    password: YOUR_PASSWORD_HERE
+    privilege: 1
+  - username: __speaker
+    password: YOUR_PASSWORD_HERE
+    privilege: 1
+
+# Base directory that every bank's db_path must resolve WITHIN (path-safety
+# anchor). Bank db_paths that escape this directory (via `..`, symlinks, or an
+# absolute path outside it) are rejected and the service refuses to start.
+db_dir: /var/lib/dimrod/membank/db
+
+# Number of worker threads dispatching DB jobs.
+worker_count: 4
+
+# --- Fail-secure availability knobs (security finding F1) ------------------
+# lock_timeout: maximum time (seconds) a request will wait to acquire a bank's
+# in-process read/write lock before failing secure with a retryable HTTP 503
+# ("service busy"). This prevents a slow or hot bank from stalling the shared
+# worker pool (and thus unrelated banks) indefinitely. Set to null or 0 for an
+# unbounded wait (the historical behavior). Default: 10.
+lock_timeout: 10
+#
+# max_queue_size: maximum number of DB jobs allowed to wait for a free worker
+# thread. When the pool is saturated, further requests are rejected immediately
+# with a retryable HTTP 503 instead of being queued without bound (so one bank
+# cannot exhaust capacity for others). Set to 0 for an unbounded queue (the
+# historical behavior). Default: 128.
+max_queue_size: 128
+
+# LLM (dialogue) config used ONLY by the NLA layer to extract structured
+# store/query parameters from natural language. The core HTTP API does not use
+# it. Optional: omit it to run the service without the NLA endpoints.
+dialogue:
+  openai_api_key: YOUR_OPENAI_API_KEY_HERE
+  openai_chat_model: gpt-4o-mini
+
+# All configured memory banks. Each bank has a UNIQUE id (client-facing handle,
+# matching ^[A-Za-z0-9_-]+$), a human name, a db_path (within db_dir), and its
+# read/write ACL user lists (drawn from oracle.auth_users). Duplicate ids or
+# duplicate resolved db_paths are a fatal config error.
+banks:
+  - id: personal
+    name: "Personal notes"
+    db_path: /var/lib/dimrod/membank/db/personal.db
+    read_users:  [admin, __speaker, __telegram]
+    write_users: [admin, __speaker, __telegram]
+  - id: worldbuilding
+    name: "Shared worldbuilding ideas"
+    db_path: /var/lib/dimrod/membank/db/worldbuilding.db
+    read_users:  [admin, __speaker, __telegram]
+    write_users: [admin, __speaker, __telegram]
+  - id: events
+    name: "Automated event log"
+    db_path: /var/lib/dimrod/membank/db/events.db
+    # Event-source services write; humans read (least privilege).
+    read_users:  [admin, __speaker, __telegram]
+    write_users: [admin]

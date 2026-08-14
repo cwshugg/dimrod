@@ -598,7 +598,8 @@ class Uniserdes:
         """Makes a copy of this object and returns it."""
         return self.__class__.from_json(self.to_json())
 
-    def to_sqlite3(self, fields_to_keep_visible=[], extra_fields={}):
+    def to_sqlite3(self, fields_to_keep_visible=[], extra_fields={},
+                   include_encoded_obj=True):
         """Converts the object into a tuple for use in a SQLite3 database. By
         default, the object is converted to a JSON string, then encoded and
         represented as a single hex string (a tuple of length 1).
@@ -618,10 +619,22 @@ class Uniserdes:
         All fields specified in `fields_to_keep_visible` must be simple,
         primitive types that can be represented by SQLite3 (such as integers or
         strings).
+
+        `include_encoded_obj` controls whether the leading hex-encoded copy of
+        the whole object is included as tuple entry 0. It defaults to `True`,
+        which preserves the historical behavior for all existing callers. When
+        set to `False`, the encoded-object entry is omitted entirely and the
+        returned tuple contains *only* the `fields_to_keep_visible` values (in
+        order). In that case the object can only be reconstructed from the
+        visible fields, so the caller MUST keep every meaningful field visible
+        (see `parse_sqlite3`'s "all fields must be visible when disabled"
+        contract).
         """
         # encode the entire object as a hex string and store it as the first
-        # field in the tuple
-        result = (self.to_hex(),)
+        # field in the tuple -- unless the caller has opted out via
+        # `include_encoded_obj=False`, in which case the tuple starts empty and
+        # only the visible fields are appended below.
+        result = (self.to_hex(),) if include_encoded_obj else ()
 
         # any `fields_to_keep_visible` are added as additional tuple entries
         for name in fields_to_keep_visible:
@@ -653,12 +666,18 @@ class Uniserdes:
 
         return result
 
-    def to_sqlite3_str(self, fields_to_keep_visible=[], extra_fields={}):
+    def to_sqlite3_str(self, fields_to_keep_visible=[], extra_fields={},
+                       include_encoded_obj=True):
         """Converts the SQLite3 tuple representation of the object to a string that
         can be safely inserted into SQLite3 commands.
+
+        `include_encoded_obj` is forwarded to `to_sqlite3()`; see that method for
+        details. The NULL/quote-escaping logic is unchanged regardless of its
+        value.
         """
         tdata = self.to_sqlite3(fields_to_keep_visible=fields_to_keep_visible,
-                                extra_fields=extra_fields)
+                                extra_fields=extra_fields,
+                                include_encoded_obj=include_encoded_obj)
 
         # convert each tuple entry to a string representation
         str_entries = []
@@ -678,7 +697,8 @@ class Uniserdes:
 
     def get_sqlite3_table_definition(self, table_name: str,
                                      fields_to_keep_visible=[],
-                                     primary_key_field=None):
+                                     primary_key_field=None,
+                                     include_encoded_obj=True):
         """Creates a SQLite `CREATE TABLE` statement used to store this type of
         object, bearing in mind the same `fields_to_keep_visible` as described
         above in `to_sqlite3()`.
@@ -687,10 +707,31 @@ class Uniserdes:
         field to represent the entry's primary ID. If this is specified, the
         given field name must also be present in `fields_to_keep_visible`.
 
+        `include_encoded_obj` controls whether the leading `encoded_obj TEXT`
+        column is emitted. It defaults to `True`, preserving the historical
+        schema for all existing callers. When set to `False`, no `encoded_obj`
+        column is produced and the table consists solely of the
+        `fields_to_keep_visible` columns (in order). Because a table needs at
+        least one column, `fields_to_keep_visible` must be non-empty when
+        `include_encoded_obj=False`; otherwise a `ValueError` is raised.
+
         The SQLite statement is returned.
         """
+        # when the encoded-object column is disabled, the table is composed
+        # entirely of the visible fields, so at least one visible field is
+        # required (a table cannot have zero columns).
+        if not include_encoded_obj and len(fields_to_keep_visible) == 0:
+            raise ValueError(
+                "get_sqlite3_table_definition() requires at least one field in "
+                "`fields_to_keep_visible` when `include_encoded_obj=False` "
+                "(a table needs at least one column)")
+
         result = "CREATE TABLE IF NOT EXISTS %s (" % table_name
-        result += "encoded_obj TEXT, "
+        # only emit the leading encoded-object column when requested. When it is
+        # omitted, the first visible field begins the column list; the existing
+        # per-field trailing-comma logic below already produces correct commas.
+        if include_encoded_obj:
+            result += "encoded_obj TEXT, "
 
         # if a primary key field was given, make sure it is part of
         # `fields_to_keep_visible`
@@ -748,21 +789,66 @@ class Uniserdes:
         result += ")"
         return result
 
-    def parse_sqlite3(self, tdata: tuple, fields_kept_visible=[]):
+    def parse_sqlite3(self, tdata: tuple, fields_kept_visible=[],
+                      include_encoded_obj=True):
         """Takes in an object and parses the given SQLite3 tuple.
 
         If any fields names are specified in the `field_kept_visible` array,
         their values are retrieved from the extra tuple entries and used to
         update the decoded object.
-        """
-        # the first field must be the encoded object; decode it
-        assert len(tdata) >= (1 + len(fields_kept_visible))
 
-        # parse the first field as an encoded hex string
-        self.parse_hex(tdata[0])
+        `include_encoded_obj` must match the value used when the tuple was
+        produced. It defaults to `True`, which preserves the historical
+        behavior: tuple entry 0 is the hex-encoded full object (decoded first),
+        and the visible fields follow starting at index 1.
+
+        When set to `False`, there is no encoded-object entry. The object is
+        reconstructed ENTIRELY from the visible-field columns (starting at tuple
+        index 0), beginning from a default-constructed instance. This is only
+        lossless when EVERY serializable field of the object is present in
+        `fields_kept_visible` -- otherwise the non-visible fields would silently
+        remain at their defaults. To prevent that, this method enforces an
+        "all fields must be visible when disabled" contract: if
+        `fields_kept_visible` is empty, or if any of the object's fields is
+        missing from it, a descriptive `ValueError` is raised.
+        """
+        if include_encoded_obj:
+            # the first field must be the encoded object; decode it
+            assert len(tdata) >= (1 + len(fields_kept_visible))
+
+            # parse the first field as an encoded hex string
+            self.parse_hex(tdata[0])
+
+            # visible fields follow the encoded object, so start at index 1
+            tuple_idx = 1
+        else:
+            # with the encoded object disabled, the object must be rebuilt
+            # entirely from the visible fields. Guard against an empty visible
+            # set and against any field that would be left at its default.
+            if len(fields_kept_visible) == 0:
+                raise ValueError(
+                    "parse_sqlite3() cannot reconstruct a %s object with an "
+                    "empty `fields_kept_visible` while `include_encoded_obj="
+                    "False`: there would be no data to rebuild the object from" %
+                    self.__class__.__name__)
+
+            missing = [f.name for f in self.fields
+                       if f.name not in fields_kept_visible]
+            if len(missing) > 0:
+                raise ValueError(
+                    "parse_sqlite3() cannot reconstruct a %s object while "
+                    "`include_encoded_obj=False`: the following field(s) are "
+                    "missing from `fields_kept_visible` and would be lost: %s. "
+                    "When `include_encoded_obj=False`, every field must be kept "
+                    "visible." % (self.__class__.__name__, ", ".join(missing)))
+
+            assert len(tdata) >= len(fields_kept_visible)
+
+            # no hex decode; the object starts from its constructed defaults and
+            # every visible field is set from its column below.
+            tuple_idx = 0
 
         # iterate through any fields that were kept visible
-        tuple_idx = 1
         for name in fields_kept_visible:
             field = self.get_field(name)
             value = tdata[tuple_idx]
@@ -795,8 +881,16 @@ class Uniserdes:
             tuple_idx += 1
 
     @classmethod
-    def from_sqlite3(cls, tdata: tuple, fields_kept_visible=[]):
+    def from_sqlite3(cls, tdata: tuple, fields_kept_visible=[],
+                     include_encoded_obj=True):
+        """Constructs a new object from the given SQLite3 tuple.
+
+        `include_encoded_obj` is forwarded to `parse_sqlite3()`; see that method
+        for the semantics (in particular the "all fields must be visible when
+        disabled" contract that applies when `include_encoded_obj=False`).
+        """
         c = cls()
-        c.parse_sqlite3(tdata, fields_kept_visible=fields_kept_visible)
+        c.parse_sqlite3(tdata, fields_kept_visible=fields_kept_visible,
+                        include_encoded_obj=include_encoded_obj)
         return c
 

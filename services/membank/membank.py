@@ -1,0 +1,537 @@
+#!/usr/bin/python3
+# The membank service stores plaintext notes ("memories") in one or more memory
+# banks (SQLite databases) and exposes an authenticated, ACL-guarded, explicit
+# HTTP API for creating, retrieving, updating, deleting, and filtering them.
+#
+# All natural-language understanding lives in the NLA/Telegram layer (a later
+# phase) — never in this service. Membank receives only explicit values.
+#
+# See the architecture report `dba181c2549c113f` for the full design.
+#
+#   Connor Shugg
+
+# Imports
+import os
+import sys
+import time
+import flask
+
+# Enable import from the parent directory
+pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+if pdir not in sys.path:
+    sys.path.append(pdir)
+
+# Enable import from this service's directory (for `models` / `threads`)
+sdir = os.path.dirname(os.path.realpath(__file__))
+if sdir not in sys.path:
+    sys.path.append(sdir)
+
+# Local library imports
+from lib.config import ConfigField, Config
+from lib.service import Service, ServiceConfig
+from lib.oracle import Oracle
+from lib.cli import ServiceCLI
+from lib.dialogue import DialogueConfig, DialogueInterface
+
+# Local service imports
+from models import (
+    MemoryBankRegistry,
+    MembankInputError,
+    MembankLockTimeout,
+)
+from threads import WorkerPool, WorkerPoolSaturated
+from nla import (
+    extract_store_fields,
+    extract_query_filters,
+    nla_remember,
+    nla_recall,
+    NLA_REMEMBER_NAME,
+    NLA_REMEMBER_DESC,
+    NLA_RECALL_NAME,
+    NLA_RECALL_DESC,
+)
+from lib.nla import NLAEndpoint
+
+
+# ================================== Config ================================= #
+class MemoryBankConfig(Config):
+    """Configuration for a single memory bank: a unique id, a human name, a
+    SQLite file path, and the read/write ACL user lists.
+    """
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            ConfigField("id",           [str],  required=True),
+            ConfigField("name",         [str],  required=True),
+            ConfigField("db_path",      [str],  required=True),
+            ConfigField("read_users",   [list], required=True),
+            ConfigField("write_users",  [list], required=True),
+        ]
+
+
+class MembankConfig(ServiceConfig):
+    """Configuration for the membank service (extends `ServiceConfig`)."""
+    def __init__(self):
+        super().__init__()
+        self.fields += [
+            ConfigField("banks",        [MemoryBankConfig], required=True),
+            ConfigField("db_dir",       [str],  required=True),
+            ConfigField("worker_count", [int],  required=False, default=4),
+            # `lock_timeout`: bounded wait (seconds) for a bank's per-bank
+            # ReadWriteLock. On timeout the request fails secure with HTTP 503
+            # instead of blocking a worker indefinitely. `null`/0 = unbounded
+            # (the historical behavior).
+            ConfigField("lock_timeout", [float, int], required=False,
+                        default=10.0),
+            # `max_queue_size`: bound on jobs waiting for a free worker. When
+            # the pool is saturated, requests are rejected with a retryable
+            # HTTP 503 rather than queued without limit (so one hot bank can't
+            # exhaust shared capacity). 0 = unbounded (historical behavior).
+            ConfigField("max_queue_size", [int],  required=False, default=128),
+            # The dialogue (LLM) config used ONLY by the NLA layer to extract
+            # structured store/query parameters from natural-language input.
+            # Optional so the core service can run without an LLM; the NLA
+            # endpoints require it to be present.
+            ConfigField("dialogue", [DialogueConfig], required=False,
+                        default=None),
+        ]
+
+
+# ============================== Service Class ============================== #
+class MembankService(Service):
+    """Main service class for membank.
+
+    The service thread validates config, resolves/creates the bank DBs (schema
+    init under each bank's write lock), builds the `MemoryBankRegistry`
+    (enforcing id/path uniqueness), starts a fixed worker pool, then sleeps
+    forever (the Oracle + worker threads do the real work).
+    """
+    def __init__(self, config_path):
+        super().__init__(config_path)
+        self.config = MembankConfig()
+        self.config.parse_file(config_path)
+
+        # Build the registry from config. A duplicate id / duplicate resolved
+        # db_path / unsafe path is a fatal config error — the service refuses to
+        # start (the exception propagates out of the constructor).
+        #
+        # `lock_timeout` bounds each per-bank lock acquisition (fail-secure 503
+        # on timeout). A null/0 value means unbounded (historical behavior).
+        lock_timeout = self.config.lock_timeout
+        if not lock_timeout or lock_timeout <= 0:
+            lock_timeout = None
+        self.registry = MemoryBankRegistry.build(self.config.banks,
+                                                  self.config.db_dir,
+                                                  lock_timeout=lock_timeout)
+
+        # Fixed worker-thread pool (started in run()). The queue is bounded by
+        # `max_queue_size` so a saturated pool sheds load with a retryable 503
+        # instead of queueing without limit (0 = unbounded / historical).
+        self.pool = WorkerPool(self.config.worker_count, log=self.log,
+                               max_queue_size=self.config.max_queue_size)
+
+        # Lazily-constructed dialogue interface for the NLA layer (see
+        # get_dialogue()). Only built on first NLA use.
+        self._dialogue = None
+
+    def run(self):
+        """Overridden main function. Initializes all bank schemas, starts the
+        worker pool, then sleeps forever.
+        """
+        super().run()
+
+        # Resolve/create each bank DB and initialize its schema (under the
+        # bank's write lock).
+        try:
+            self.registry.init_all_schemas()
+            self.log.write("Initialized schemas for %d bank(s)." %
+                           len(self.registry.all()))
+        except Exception as e:
+            self.log.write("Failed to initialize bank schemas: %s" % str(e))
+            raise
+
+        # Start the worker pool.
+        self.pool.start()
+        self.log.write("Worker pool started with %d worker(s)." %
+                       self.pool.worker_count)
+
+        # Sleep forever — the Oracle and worker threads handle all work.
+        while True:
+            time.sleep(60)
+
+    def dispatch(self, fn, *args, **kwargs):
+        """Dispatches a DB operation onto the worker pool and blocks until it
+        completes, returning its result (or re-raising its exception). The
+        callable acquires the target bank's `ReadWriteLock` itself.
+        """
+        return self.pool.submit(fn, *args, **kwargs)
+
+    # ------------------------------- NLA / LLM ----------------------------- #
+    def get_dialogue(self) -> DialogueInterface:
+        """Lazily builds (and caches) the `DialogueInterface` used by the NLA
+        layer. Raises `MembankInputError` if no dialogue config was provided.
+        """
+        if self.config.dialogue is None:
+            raise MembankInputError(
+                "The membank NLA layer requires a `dialogue` config block.")
+        if self._dialogue is None:
+            self._dialogue = DialogueInterface(self.config.dialogue)
+        return self._dialogue
+
+    def nla_extract_store(self, text: str) -> dict:
+        """Uses the LLM to extract explicit STORE fields (`name`, `content`,
+        `tags`, optional `bank`) from a natural-language "remember this" message.
+
+        Returns the parsed dict. Raises on unrecoverable LLM/parse failure.
+        """
+        return extract_store_fields(self.get_dialogue(), text)
+
+    def nla_extract_query(self, text: str, now_ts: int = None) -> dict:
+        """Uses the LLM to convert a natural-language recall question into
+        structured filters (`tags`, `time_range`, `keyword`, `tag_mode`,
+        optional `bank`).
+
+        Returns the parsed dict. Raises on unrecoverable LLM/parse failure.
+        """
+        return extract_query_filters(self.get_dialogue(), text, now_ts=now_ts)
+
+
+# ============================== Service Oracle ============================= #
+class MembankOracle(Oracle):
+    """HTTP oracle for the membank service. Performs auth + per-bank ACL before
+    dispatching any work, and enforces the ACL server-side on every endpoint.
+    """
+
+    # ------------------------------ ACL helpers ---------------------------- #
+    def _acl_read(self, bank_id):
+        """Resolves a bank for a READ operation. Returns the `MemoryBank` if the
+        authenticated caller may read it, else None (caller returns 404 so the
+        bank's existence is never confirmed to unauthorized users).
+        """
+        if not isinstance(bank_id, str) or len(bank_id) == 0:
+            return None
+        username = flask.g.user.config.username
+        bank = self.service.registry.get(bank_id)
+        if bank is None or not bank.can_read(username):
+            return None
+        return bank
+
+    def _acl_write(self, bank_id):
+        """Resolves a bank for a WRITE operation. Returns ``(bank, status)``:
+          * ``(bank, 0)``     — caller may write
+          * ``(None, 404)``   — bank missing or not readable (hidden)
+          * ``(None, 403)``   — readable but not writable
+        """
+        if not isinstance(bank_id, str) or len(bank_id) == 0:
+            return None, 404
+        username = flask.g.user.config.username
+        bank = self.service.registry.get(bank_id)
+        if bank is None or not bank.can_read(username):
+            return None, 404
+        if not bank.can_write(username):
+            return None, 403
+        return bank, 0
+
+    # ---------------------------- request helpers -------------------------- #
+    @staticmethod
+    def _get_bank_id(jdata):
+        """Extracts the required ``bank`` id from request JSON, or None."""
+        if not isinstance(jdata, dict):
+            return None
+        return jdata.get("bank", None)
+
+    # Exceptions that signal transient overload and must fail secure with a
+    # retryable HTTP 503 (lock-acquire timeout or a saturated worker pool).
+    _BUSY_ERRORS = (MembankLockTimeout, WorkerPoolSaturated)
+
+    def _busy_response(self, where, err):
+        """Builds the standard fail-secure 503 response for an overload
+        condition (lock-acquire timeout or saturated pool), logging a
+        content-free, retryable message.
+        """
+        self.log.write("Service busy in %s: %s" % (where, str(err)))
+        return self.make_response(
+            msg="The service is busy; please retry shortly.",
+            success=False, rstatus=503)
+
+    # ------------------------------ endpoints ------------------------------ #
+    def endpoints(self):
+        """Register all Oracle HTTP endpoints."""
+        super().endpoints()
+
+        # ------------------------------------------------------------------ #
+        # POST /bank/list — banks the caller may READ (ACL-filtered)
+        # ------------------------------------------------------------------ #
+        @self.server.route("/bank/list", methods=["POST"])
+        def endpoint_bank_list():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            username = flask.g.user.config.username
+            try:
+                banks = []
+                for bank in self.service.registry.readable_by(username):
+                    count = self.service.dispatch(bank.count_memories)
+                    banks.append({
+                        "id": bank.id,
+                        "name": bank.name,
+                        "can_write": bank.can_write(username),
+                        "memory_count": count,
+                    })
+                return self.make_response(payload={"banks": banks})
+            except self._BUSY_ERRORS as e:
+                return self._busy_response("/bank/list", e)
+            except Exception as e:
+                self.log.write("Error in /bank/list: %s" % str(e))
+                return self.make_response(msg="Failed to list banks.",
+                                          success=False, rstatus=500)
+
+        # ------------------------------------------------------------------ #
+        # POST /memory/list — filtered, paginated memory listing (read)
+        # ------------------------------------------------------------------ #
+        @self.server.route("/memory/list", methods=["POST"])
+        def endpoint_memory_list():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            jdata = flask.g.jdata or {}
+            bank = self._acl_read(self._get_bank_id(jdata))
+            if bank is None:
+                return self.make_response(rstatus=404)
+
+            filters = jdata.get("filters", None)
+            limit = jdata.get("limit", None)
+            offset = jdata.get("offset", 0)
+            order = jdata.get("order", "desc")
+
+            try:
+                memories, total = self.service.dispatch(
+                    bank.list_memories, filters=filters, limit=limit,
+                    offset=offset, order=order)
+                payload = {
+                    "bank": bank.id,
+                    "count": len(memories),
+                    "total": total,
+                    "memories": [m.to_api_dict() for m in memories],
+                }
+                return self.make_response(payload=payload)
+            except MembankInputError as e:
+                return self.make_response(msg=e.message, success=False,
+                                          rstatus=400)
+            except self._BUSY_ERRORS as e:
+                return self._busy_response("/memory/list", e)
+            except Exception as e:
+                self.log.write("Error in /memory/list (bank=%s): %s" %
+                               (bank.id, str(e)))
+                return self.make_response(msg="Failed to list memories.",
+                                          success=False, rstatus=500)
+
+        # ------------------------------------------------------------------ #
+        # POST /memory/get — fetch one memory (read)
+        # ------------------------------------------------------------------ #
+        @self.server.route("/memory/get", methods=["POST"])
+        def endpoint_memory_get():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            jdata = flask.g.jdata or {}
+            bank = self._acl_read(self._get_bank_id(jdata))
+            if bank is None:
+                return self.make_response(rstatus=404)
+
+            memory_id = jdata.get("id", None)
+            try:
+                memory = self.service.dispatch(bank.get_memory, memory_id)
+                if memory is None:
+                    return self.make_response(rstatus=404)
+                return self.make_response(payload={"memory": memory.to_api_dict()})
+            except MembankInputError as e:
+                return self.make_response(msg=e.message, success=False,
+                                          rstatus=400)
+            except self._BUSY_ERRORS as e:
+                return self._busy_response("/memory/get", e)
+            except Exception as e:
+                self.log.write("Error in /memory/get (bank=%s): %s" %
+                               (bank.id, str(e)))
+                return self.make_response(msg="Failed to get memory.",
+                                          success=False, rstatus=500)
+
+        # ------------------------------------------------------------------ #
+        # POST /memory/add — create a memory (write)
+        # ------------------------------------------------------------------ #
+        @self.server.route("/memory/add", methods=["POST"])
+        def endpoint_memory_add():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            jdata = flask.g.jdata or {}
+            bank, status = self._acl_write(self._get_bank_id(jdata))
+            if bank is None:
+                return self.make_response(rstatus=status)
+
+            name = jdata.get("name", None)
+            content = jdata.get("content", None)
+            tags = jdata.get("tags", [])
+            timestamp = jdata.get("timestamp", None)
+
+            try:
+                memory = self.service.dispatch(
+                    bank.add_memory, name=name, content=content, tags=tags,
+                    timestamp=timestamp)
+                return self.make_response(payload={"id": memory.id,
+                                                   "bank": bank.id})
+            except MembankInputError as e:
+                return self.make_response(msg=e.message, success=False,
+                                          rstatus=400)
+            except self._BUSY_ERRORS as e:
+                return self._busy_response("/memory/add", e)
+            except Exception as e:
+                self.log.write("Error in /memory/add (bank=%s): %s" %
+                               (bank.id, str(e)))
+                return self.make_response(msg="Failed to add memory.",
+                                          success=False, rstatus=500)
+
+        # ------------------------------------------------------------------ #
+        # POST /memory/update — modify a memory (write)
+        # ------------------------------------------------------------------ #
+        @self.server.route("/memory/update", methods=["POST"])
+        def endpoint_memory_update():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            jdata = flask.g.jdata or {}
+            bank, status = self._acl_write(self._get_bank_id(jdata))
+            if bank is None:
+                return self.make_response(rstatus=status)
+
+            memory_id = jdata.get("id", None)
+            # Only fields explicitly present in the request are changed.
+            name = jdata.get("name", None)
+            content = jdata.get("content", None)
+            tags = jdata.get("tags", None)
+            timestamp = jdata.get("timestamp", None)
+
+            try:
+                updated = self.service.dispatch(
+                    bank.update_memory, memory_id, name=name, content=content,
+                    tags=tags, timestamp=timestamp)
+                if not updated:
+                    return self.make_response(rstatus=404)
+                return self.make_response(payload={"id": memory_id,
+                                                   "updated": True})
+            except MembankInputError as e:
+                return self.make_response(msg=e.message, success=False,
+                                          rstatus=400)
+            except self._BUSY_ERRORS as e:
+                return self._busy_response("/memory/update", e)
+            except Exception as e:
+                self.log.write("Error in /memory/update (bank=%s): %s" %
+                               (bank.id, str(e)))
+                return self.make_response(msg="Failed to update memory.",
+                                          success=False, rstatus=500)
+
+        # ------------------------------------------------------------------ #
+        # POST /memory/delete — delete a memory (write)
+        # ------------------------------------------------------------------ #
+        @self.server.route("/memory/delete", methods=["POST"])
+        def endpoint_memory_delete():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            jdata = flask.g.jdata or {}
+            bank, status = self._acl_write(self._get_bank_id(jdata))
+            if bank is None:
+                return self.make_response(rstatus=status)
+
+            memory_id = jdata.get("id", None)
+            try:
+                deleted = self.service.dispatch(bank.delete_memory, memory_id)
+                if not deleted:
+                    return self.make_response(rstatus=404)
+                return self.make_response(payload={"id": memory_id,
+                                                   "deleted": True})
+            except MembankInputError as e:
+                return self.make_response(msg=e.message, success=False,
+                                          rstatus=400)
+            except self._BUSY_ERRORS as e:
+                return self._busy_response("/memory/delete", e)
+            except Exception as e:
+                self.log.write("Error in /memory/delete (bank=%s): %s" %
+                               (bank.id, str(e)))
+                return self.make_response(msg="Failed to delete memory.",
+                                          success=False, rstatus=500)
+
+        # ------------------------------------------------------------------ #
+        # POST /tag/list — list tags in a bank (read)
+        # ------------------------------------------------------------------ #
+        @self.server.route("/tag/list", methods=["POST"])
+        def endpoint_tag_list():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            jdata = flask.g.jdata or {}
+            bank = self._acl_read(self._get_bank_id(jdata))
+            if bank is None:
+                return self.make_response(rstatus=404)
+
+            try:
+                tags = self.service.dispatch(bank.list_tags)
+                return self.make_response(payload={"bank": bank.id, "tags": tags})
+            except self._BUSY_ERRORS as e:
+                return self._busy_response("/tag/list", e)
+            except Exception as e:
+                self.log.write("Error in /tag/list (bank=%s): %s" %
+                               (bank.id, str(e)))
+                return self.make_response(msg="Failed to list tags.",
+                                          success=False, rstatus=500)
+
+        # ------------------------------------------------------------------ #
+        # POST /bank/rebuild_tags — admin: rebuild the tag index (write)
+        # ------------------------------------------------------------------ #
+        @self.server.route("/bank/rebuild_tags", methods=["POST"])
+        def endpoint_bank_rebuild_tags():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            # Restricted to privilege 0 (admin) users AND write access.
+            if flask.g.user.config.privilege != 0:
+                return self.make_response(rstatus=404)
+            jdata = flask.g.jdata or {}
+            bank, status = self._acl_write(self._get_bank_id(jdata))
+            if bank is None:
+                return self.make_response(rstatus=status)
+
+            try:
+                self.service.dispatch(bank.rebuild_tags)
+                return self.make_response(payload={"bank": bank.id,
+                                                   "rebuilt": True})
+            except self._BUSY_ERRORS as e:
+                return self._busy_response("/bank/rebuild_tags", e)
+            except Exception as e:
+                self.log.write("Error in /bank/rebuild_tags (bank=%s): %s" %
+                               (bank.id, str(e)))
+                return self.make_response(msg="Failed to rebuild tags.",
+                                          success=False, rstatus=500)
+
+
+    # -------------------------------- NLA ---------------------------------- #
+    def init_nla(self):
+        """Registers the membank NLA endpoints (STORE + QUERY).
+
+        All natural-language understanding lives here in the NLA layer; the
+        HTTP API itself remains explicit ("dumb"). The speaker discovers these
+        via `/nla/get` and routes matching utterances to them. Each handler
+        performs the same server-side per-bank ACL as the regular endpoints
+        (via `flask.g.user`, i.e. the service account that invoked the NLA
+        endpoint).
+        """
+        super().init_nla()
+        self.nla_endpoints += [
+            NLAEndpoint.from_json({
+                "name": NLA_REMEMBER_NAME,
+                "description": NLA_REMEMBER_DESC,
+            }).set_handler(nla_remember),
+            NLAEndpoint.from_json({
+                "name": NLA_RECALL_NAME,
+                "description": NLA_RECALL_DESC,
+            }).set_handler(nla_recall),
+        ]
+
+
+# ================================== Main =================================== #
+if __name__ == "__main__":
+    cli = ServiceCLI(config=MembankConfig, service=MembankService,
+                     oracle=MembankOracle)
+    cli.run()
