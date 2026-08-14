@@ -45,6 +45,7 @@ Users interact with DImROD through `/`-prefixed commands:
 | `/budget` | View budget information | YNAB |
 | `/news` | Get news headlines | NewsAPI |
 | `/recipes` | Search recipes | Chef |
+| `/memory` | Store, search, and manage memories (alias `/m`) | Membank |
 | `/system` | System status and service restart | (local) |
 | `/mode` | Switch DImROD's mood | Speaker |
 | `/help` | List available commands | (local) |
