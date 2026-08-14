@@ -50,22 +50,28 @@ from models import MembankInputError
 NLA_REMEMBER_NAME = "remember"
 NLA_REMEMBER_DESC = (
     "Store a new memory, note, or idea for later recall. "
-    "Use for phrases like \"remember this: ...\", \"note that ...\", "
-    "\"here's an idea: ...\", \"save this memory ...\", "
-    "\"don't let me forget ...\". The message contains something the user "
-    "wants persisted so it can be recalled later."
+    "Use for phrases like: "
+    "\"remember this: ...\", "
+    "\"note that ...\", "
+    "\"here's an idea: ...\", "
+    "\"write this down: ...\", "
+    "\"save this memory ...\", "
+    "\"don't let me forget ...\". "
+    "The message contains something the user wants persisted so it can be recalled later."
 )
 
 NLA_RECALL_NAME = "recall"
 NLA_RECALL_DESC = (
     "Recall previously stored memories, notes, or ideas. "
-    "Use for questions like \"what did I tell you last month about ...?\", "
+    "Use for questions like: "
+    "\"what did I tell you last month about ...?\", "
     "\"what did I save about...?\", "
     "\"what was the number for ...?\", "
     "\"what did I ask you to remember about ...?\", "
     "\"recall my note on the parking spot\", "
-    "\"what do you remember about ...?\". The message asks to retrieve "
-    "something previously stored."
+    "\"what do you remember about ...?\", "
+    "(or really *any* question that starts with \"what\", \"when\", \"where\", \"who\", \"how\", or \"why\"). "
+    "The message asks to retrieve something previously stored."
 )
 
 # Key (inside the speaker's `request_data`) carrying telegram-resolved context.

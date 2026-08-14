@@ -13,8 +13,9 @@ save and recall notes conversationally through the [Telegram](telegram.md) bot.
 * Provide an explicit, "dumb" HTTP API that receives only concrete values
 * Keep all natural-language understanding in a dedicated NLA layer — never in
   the HTTP API
-* Offer a single Telegram `/memory` command that both **stores** and **recalls**
-  notes, choosing intent automatically
+* Offer both a structured Telegram `/memory` (`/m`) command that maps 1:1 onto
+  the oracle endpoints and a conversational natural-language path (plain
+  messages) that **stores** and **recalls** notes by inferring intent
 
 A key design principle: the HTTP API is deliberately explicit. It never guesses
 intent, parses prose, or calls an LLM. All natural-language interpretation lives
@@ -463,46 +464,100 @@ clarification.
 
 ## Telegram `/memory` Command
 
-The [Telegram](telegram.md) bot's `/memory` command (alias: `/m`) is the primary
-user interface to Membank. A single command handles **both** storing and
-recalling — the user never has to say which they mean.
+The [Telegram](telegram.md) bot's `/memory` command (alias: `/m`) is a
+**structured, deterministic** interface to Membank. Each subcommand maps 1:1
+onto a Membank oracle endpoint; the command performs **no** natural-language
+parsing and never calls the Speaker or an LLM. (Conversational, non-slash
+memory — "remember…" / "what did I save about…" — is handled separately by the
+[NLA layer](#natural-language-actions-nla) on the plain-message path.)
 
-How it works:
+### Field syntax
 
-1. Telegram resolves the chat's configured target bank
-   (`get_chat_memory_bank` → the chat's `memory_bank`).
-2. The free-form text plus the resolved default bank are forwarded to the
-   Speaker (`memory_talk`), which routes the utterance to Membank's NLA layer.
-3. The NLA layer decides store-vs-query, performs the operation, and returns a
-   reply, which Telegram renders as HTML.
+After the subcommand keyword, the remainder is split on `.` into fields, with
+whitespace trimmed around each `.` **and** around `=` in `key=value` pairs. So
+these parse identically:
 
-Telegram performs no natural-language parsing of its own; it only enforces the
-chat whitelist, attaches the target bank id, and renders the reply.
+```text
+/m search lore . kw = mithril . limit = 5
+/m search lore.kw=mithril.limit=5
+```
+
+**Field 0 is always the optional bank.** Leave it empty or use `-` to target the
+chat's configured default bank (see
+[per-chat bank mapping](#telegram-per-chat-bank-mapping)); otherwise it is an
+explicit bank id. Fields 1+ are the subcommand's parameters. If the bank field
+is empty/`-` and the chat has no default bank, the command returns a clear
+error.
+
+### Subcommands
+
+| Subcommand | Endpoint | Fields after bank |
+|------------|----------|-------------------|
+| `/m banks` | `POST /bank/list` | none (bank field ignored — lists banks you may access) |
+| `/m tags [bank]` | `POST /tag/list` | none — lists tags + counts |
+| `/m add [bank].name.content[.tags][.timestamp]` | `POST /memory/add` | `name` (req), `content` (req), `tags` (opt, comma-separated), `timestamp` (opt) |
+| `/m get [bank].id` | `POST /memory/get` | `id` (req) — renders the full memory |
+| `/m search [bank].k=v.k=v…` | `POST /memory/list` | `key=value` filters (see below) |
+| `/m edit [bank].id.k=v…` | `POST /memory/update` | `id` (req) then `name=`, `content=`, `tags=` (only provided fields change) |
+| `/m del [bank].id` | `POST /memory/delete` | `id` (req) |
+| `/m rebuild [bank]` | `POST /bank/rebuild_tags` | none (admin only; a 403/404 is surfaced gracefully) |
+| `/m` or `/m help` | — | prints usage/help for every subcommand |
+
+Unknown subcommands show the help; missing required args produce a clear
+per-subcommand usage error.
+
+### Search filters (`/m search`)
+
+Each filter is a `key=value` field:
+
+| Key | Meaning | Maps to |
+|-----|---------|---------|
+| `kw=` | keyword substring (name + content) | `filters.keyword` |
+| `tags=a,b` | tag list | `filters.tags` |
+| `mode=any\|all` | tag match mode (default `any`) | `filters.tag_mode` |
+| `from=` | lower time bound | `filters.time_range.start` |
+| `to=` | upper time bound | `filters.time_range.end` |
+| `limit=` | page size (clamped to ≤ 500) | `limit` |
+| `offset=` | page offset | `offset` |
+| `order=asc\|desc` | sort direction (default `desc`) | `order` |
+
+Results are shown as a compact HTML list (id + name + tags + a content
+snippet), honoring the endpoint's `count`/`total`; the reply notes when the page
+was truncated by `limit`.
+
+### Date/time formats
+
+`add`'s `timestamp` and `search`'s `from=`/`to=` accept:
+
+* epoch **seconds** (e.g. `1704067200`),
+* `YYYY-MM-DD` (e.g. `2024-01-01`), or
+* `YYYY-MM-DD HH:MM:SS`
+
+Dates are interpreted as **UTC** and converted to epoch seconds before the
+request is sent.
 
 ### Examples
 
-Storing:
-
 ```text
-/memory remember that I parked in section G7
-/m here's a worldbuilding idea: the northern glaciers hide an old city
+/m banks
+/m tags lore
+/m add .Parking.Section G7 near the elevator.parking,car
+/m add lore.Mithril.A light, strong silver-white metal.mithril,mines.2024-01-01
+/m get lore.abc123
+/m search lore.kw=mithril.tags=mines.mode=all.limit=5.order=asc
+/m search .from=2024-01-01.to=2024-02-01
+/m edit lore.abc123.name=Mithril ore.tags=mithril,mines
+/m del lore.abc123
+/m rebuild lore
 ```
 
-Recalling:
+### ACL and errors
 
-```text
-/memory what did I save about magic systems?
-/m what did I tell you last month about the car?
-```
-
-### Default bank and inline override
-
-* The chat's `memory_bank` (from `bot_chats`) is the **default** target bank.
-* A bank named explicitly in the message text **overrides** the default.
-* If the chat has no configured bank and none is named, the NLA layer replies
-  asking which bank to use.
-* Sending `/memory` with no text shows usage help, including the chat's currently
-  configured bank.
+The command relies entirely on Membank's server-side, per-user ACL (the Telegram
+service authenticates as its own Membank account). Write subcommands on a
+read-only bank return `403`, unknown banks/memories return `404`, invalid input
+(e.g. a malformed tag) returns `400`, and transient overload returns `503`; the
+command surfaces each as a friendly, HTML-escaped message.
 
 ## Concurrency & Locking
 
