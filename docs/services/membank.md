@@ -326,7 +326,8 @@ Returns a filtered, paginated page of memories.
     "time_range": { "start": 1700000000, "end": 1701000000 },
     "tags": ["car", "parking"],
     "tag_mode": "any",
-    "keyword": "section g7"
+    "keyword": "section g7",
+    "keywords": ["park", "parked", "parking", "car", "vehicle"]
   },
   "limit": 100,
   "offset": 0,
@@ -335,8 +336,14 @@ Returns a filtered, paginated page of memories.
 ```
 
 All `filters` are optional and combined with `AND`. `tag_mode` is `"any"`
-(default) or `"all"`; `keyword` is a substring matched against `name` +
-`content`. `limit` defaults to 100 and is hard-capped at 500. `order` is `"desc"`
+(default) or `"all"`; `keyword` is a single substring matched against `name` +
+`content`. `keywords` is an **optional list** of substrings: each is matched
+against `name` + `content` and the terms are **OR'd together** into one group
+(a memory matches if it contains ANY term), then that group is ANDed with the
+tag/time clauses. `keyword` and `keywords` may be given together (their terms
+are unioned, de-duped); a lone `keyword` behaves exactly as before (the
+`/m search` contract is unchanged). The compiled term set is bounded to 12
+terms. `limit` defaults to 100 and is hard-capped at 500. `order` is `"desc"`
 (newest-first, default) or `"asc"`.
 
 * **Response payload:**
@@ -460,7 +467,7 @@ that invoked the NLA endpoint.
 | NLA endpoint | Handler | Purpose |
 |--------------|---------|---------|
 | `remember` | `nla_remember` | Store a note: turns "remember this: ..." into explicit `{name, content, tags, bank?}` and calls `add_memory` under the write ACL |
-| `recall` | `nla_recall` | Query notes: turns a question into structured filters `{tags, tag_mode, time_range, keyword, bank?}` (the current UTC time is injected so phrases like "last month" resolve) and lists matches |
+| `recall` | `nla_recall` | Query notes: turns a question into structured filters `{tags, tag_mode, time_range, keyword, keywords, bank?}` (the current UTC time is injected so phrases like "last month" resolve, and coarse day-granular ranges are padded ±12h), retrieves candidates with a **wider net**, then applies an **LLM relevance filter** before rendering matches |
 
 The Speaker's router decides store-vs-query intent by selecting one of these two
 endpoints. Membank never guesses: the LLM extraction happens here, and the
@@ -493,15 +500,56 @@ bank. Fallthrough to (b)/(c)/(d) happens only when the utterance named **no**
 bank at all. Inaccessible per-request/service defaults are skipped (accessibility
 is a per-user, request-time property).
 
-#### Recall miss notice + self-contained LLM fallback
+#### Wider-net recall + LLM relevance filter
+
+Conversational recall casts a **wide retrieval net** and then uses the LLM to
+keep only the relevant results, so obvious matches are not lost to an
+over-specific substring or a hard UTC time bound (e.g. *"Where did I park my car
+earlier today"* must recall a stored *"I parked in spot 205"*). The pipeline:
+
+1. **Multi-keyword extraction** — `extract_query_filters` emits a sanitized
+   `keywords` list (individual lowercase words plus light inflection/synonym
+   variants the model infers, e.g. `park → park, parked, parking`;
+   `car → car, vehicle`). The list is stopword-filtered, min-length-2, de-duped,
+   and capped at 12. The legacy single `keyword` is retained for back-compat; if
+   the model returns only `keyword`, it is tokenized to backfill `keywords`.
+   Coarse day-granular time phrases are padded ±12h so a local-time "today" is
+   not cut off by a UTC midnight boundary.
+2. **OR search** — the `keywords` terms are matched as an **OR-group** over
+   `name` + `content` (a memory matches if it contains ANY term), ANDed with any
+   tag/time clauses. A lone `keyword` still compiles to the exact legacy clause.
+3. **Initial narrowing pass** — the extracted filters (including `time_range`)
+   are applied, over-fetching up to 25 candidates (newest-first).
+4. **Fallback widened pass** — if the initial pass returns **nothing**, the
+   `time_range` is dropped and two cheap SQL reads are unioned in Python: the
+   keywords over `name`/`content`, **and** the keywords (plus any extracted
+   tags) matched as OR-**tags** (the one place keyword↔tag matching is enabled).
+   This step makes **zero** extra LLM calls.
+5. **Relevance filter** — the candidates (≤25) plus the original question and
+   the current UTC time are sent to **one** bounded LLM call
+   (`filter_relevant_candidates` / `nla_filter_relevance`), which returns the
+   ids of the relevant memories (id-selection only — stored content is never
+   rewritten). Hallucinated/unknown ids are ignored; the kept set is rendered
+   verbatim, capped at 10.
+
+Recall therefore adds **at most one** extra LLM call (the relevance filter); the
+fallback widening is pure SQL. If the relevance filter **fails** (raises or
+returns unparseable output), recall **degrades to the raw candidates** as a HIT
+— never a false MISS.
+
+
+#### Recall outcomes (self-contained HIT / MISS)
 
 A `recall` produces one of three outcomes, all composed **entirely inside the
 membank `recall` handler** (the Speaker performs no special completion logic):
 
-- **HIT** — a `recall` that matches at least one memory returns `success=True`
+- **HIT** — a `recall` where the relevance filter keeps **at least one** memory
+  (or a filter failure degrades to the raw candidates) returns `success=True`
   with the RAW, HTML-escaped findings message. The user receives **only** the
-  memory findings; no LLM completion runs (the memories *are* the answer).
-- **MISS** — a `recall` that matches **no** memories returns `success=True`
+  memory findings; no general-answer completion runs (the memories *are* the
+  answer).
+- **MISS** — a `recall` where nothing is retrieved (even after the widened
+  fallback) or the relevance filter keeps **none** returns `success=True`
   with a single **RAW** message composed by the handler itself: a **short "no
   results" notice** (`"I didn't find anything in the memory bank."`) followed by
   a **general-purpose LLM answer** to the user's original question, joined by a
@@ -513,8 +561,8 @@ membank `recall` handler** (the Speaker performs no special completion logic):
 - **Hard errors** — extraction/search failures and clarifications return a clear
   `REWORD` error message.
 
-`remember` is always a plain confirmation. There is **no** framework-level
-`append_llm_completion` flag; the recall miss fallback is local to membank.
+`remember` is always a plain confirmation. The recall miss fallback is local to
+membank (composed inside `nla_recall`, not by the speaker).
 
 #### Remember: existing-tag suggestions
 

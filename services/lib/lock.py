@@ -12,17 +12,6 @@
 # Imports
 import threading
 import time
-from contextlib import contextmanager
-
-
-# ================================ LockTimeout =============================== #
-class LockTimeout(Exception):
-    """Raised by the ``read_locked``/``write_locked`` context managers when the
-    lock could not be acquired within the requested ``timeout``. Callers that
-    use the lower-level ``acquire_read``/``acquire_write`` methods get a
-    ``False`` return instead (and can map it to whatever error they prefer).
-    """
-    pass
 
 
 # ============================== ReadWriteLock =============================== #
@@ -114,30 +103,3 @@ class ReadWriteLock:
         with self._read_ready:
             self._writing = False
             self._read_ready.notify_all()
-
-    # --------------------------- context managers -------------------------- #
-    @contextmanager
-    def read_locked(self, timeout=None):
-        """Context manager acquiring the read lock for the duration of the block
-        and releasing it on exit. Raises ``LockTimeout`` if ``timeout`` elapses
-        before the lock is acquired (nothing is held in that case).
-        """
-        if not self.acquire_read(timeout=timeout):
-            raise LockTimeout("timed out acquiring read lock")
-        try:
-            yield self
-        finally:
-            self.release_read()
-
-    @contextmanager
-    def write_locked(self, timeout=None):
-        """Context manager acquiring the write lock for the duration of the
-        block and releasing it on exit. Raises ``LockTimeout`` if ``timeout``
-        elapses before the lock is acquired (nothing is held in that case).
-        """
-        if not self.acquire_write(timeout=timeout):
-            raise LockTimeout("timed out acquiring write lock")
-        try:
-            yield self
-        finally:
-            self.release_write()

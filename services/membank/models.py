@@ -51,6 +51,7 @@ TAGS_MAX_COUNT = 32             # max distinct tags per memory
 TAG_MAX_LEN = 64                # max characters in a single (sanitized) tag
 LIST_LIMIT_DEFAULT = 100        # default page size for /memory/list
 LIST_LIMIT_CAP = 500            # hard cap for the page size
+KEYWORD_SQL_CAP = 12            # max keyword terms compiled into one OR-group
 
 # The client-facing bank id must be path-safe (never used to build a filesystem
 # path, but validated defensively regardless — see §9.2).
@@ -465,6 +466,10 @@ class MemoryBank:
           * ``tags``: list of tags (sanitized before matching)
           * ``tag_mode``: ``"any"`` (default) or ``"all"``
           * ``keyword``: substring matched against name+content (LIKE)
+          * ``keywords``: optional list of substrings; each is matched against
+            name+content (LIKE) and the terms are OR'd together into one group
+            (match ANY term). Unioned with ``keyword`` when both are given.
+            Bounded to ``KEYWORD_SQL_CAP`` compiled terms.
 
         Read lock. Newest-first by default.
         """
@@ -799,18 +804,67 @@ class MemoryBank:
                         "WHERE tag IN (%s))" % placeholders)
                     params.extend(sanitized)
 
-        # keyword substring (name + content), literal % / _
+        # keyword substring search (name + content), literal % / _.
+        #
+        # Two accepted, back-compatible shapes:
+        #   * `keyword`  — a single substring (unchanged legacy contract used by
+        #     telegram `/m search`); matched as one `(name LIKE OR content LIKE)`.
+        #   * `keywords` — an optional list of substrings; each term contributes
+        #     its own `(name LIKE OR content LIKE)` pair and the terms are OR'd
+        #     together into ONE parenthesized group (match ANY term).
+        # When both are present the effective term list is `[keyword] + keywords`
+        # (de-duped, order-preserving). The resulting group is ANDed with the
+        # time/tag clauses exactly as before (`" AND ".join(clauses)`), so a lone
+        # `keyword` yields byte-for-byte identical SQL to the previous behavior.
+        terms = []
+
         keyword = filters.get("keyword")
         if keyword is not None:
             if not isinstance(keyword, str):
                 raise MembankInputError("\"keyword\" must be a string.")
             keyword = keyword.strip()
             if len(keyword) > 0:
-                like = "%" + _like_escape(keyword) + "%"
-                clauses.append(
+                terms.append(keyword)
+
+        keywords = filters.get("keywords")
+        if keywords is not None:
+            if not isinstance(keywords, list):
+                raise MembankInputError("\"keywords\" must be a list.")
+            for kw in keywords:
+                if not isinstance(kw, str):
+                    raise MembankInputError(
+                        "\"keywords\" must be a list of strings.")
+                kw = kw.strip()
+                if len(kw) > 0:
+                    terms.append(kw)
+
+        # De-dupe while preserving order, then cap the number of terms actually
+        # compiled into SQL so the statement stays bounded (upstream extraction
+        # already de-dupes/caps; this is a defensive server-side mirror).
+        seen = set()
+        deduped = []
+        for t in terms:
+            if t in seen:
+                continue
+            seen.add(t)
+            deduped.append(t)
+        deduped = deduped[:KEYWORD_SQL_CAP]
+
+        if deduped:
+            ors = []
+            for t in deduped:
+                like = "%" + _like_escape(t) + "%"
+                ors.append(
                     "(name LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')")
                 params.append(like)
                 params.append(like)
+            # A single term reproduces the exact legacy clause (no extra
+            # wrapping parens) so lone-`keyword` callers are byte-for-byte
+            # unchanged; multiple terms are OR'd inside one group.
+            if len(ors) == 1:
+                clauses.append(ors[0])
+            else:
+                clauses.append("(" + " OR ".join(ors) + ")")
 
         return " AND ".join(clauses), params
 

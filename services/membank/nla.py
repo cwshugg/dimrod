@@ -43,7 +43,7 @@ if sdir not in sys.path:
 from lib.nla import NLAEndpointInvokeParameters, NLAResult
 
 # Local service imports
-from models import MembankInputError
+from models import MembankInputError, sanitize_tag
 
 
 # ================================ Constants ================================ #
@@ -88,6 +88,37 @@ REQUEST_DEFAULT_BANK_KEY = "default_bank"
 RECALL_RENDER_LIMIT = 10
 # How many characters of a memory's content to show in a recall answer.
 RECALL_CONTENT_SNIPPET = 400
+
+# Multi-keyword extraction bounds (see design report ab8428ad682bed19 §3.1).
+# `keywords` is a list of short search terms the query LLM extracts (plus light
+# inflection/synonym expansion). These bounds keep the SQL OR-group and the
+# relevance-filter payload small and predictable regardless of model variance.
+KEYWORD_MAX = 12        # cap on emitted keywords (mirrors models.KEYWORD_SQL_CAP)
+KEYWORD_MIN_LEN = 2     # drop keyword terms shorter than this
+
+# Belt-and-suspenders stopword guard: even though the prompt asks the LLM to
+# omit these, we filter them server-side so a leaked stopword never widens the
+# net into noise. Question words, articles, pronouns, common temporal words,
+# and a few high-frequency verbs/prepositions.
+STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "but", "if", "then", "than", "so",
+    "i", "me", "my", "mine", "we", "us", "our", "you", "your", "yours",
+    "he", "him", "his", "she", "her", "hers", "it", "its", "they", "them",
+    "their", "this", "that", "these", "those",
+    "what", "when", "where", "who", "whom", "whose", "which", "why", "how",
+    "did", "do", "does", "done", "is", "are", "was", "were", "be", "been",
+    "being", "am", "have", "has", "had", "will", "would", "can", "could",
+    "should", "shall", "may", "might", "must",
+    "to", "of", "in", "on", "at", "by", "for", "with", "from", "about",
+    "into", "over", "under", "up", "down", "out", "off",
+    "earlier", "today", "yesterday", "tomorrow", "now", "later", "recently",
+    "ago", "morning", "afternoon", "evening", "tonight", "night",
+    "please", "tell", "say", "said", "get", "got", "there", "here",
+})
+
+# Recall retrieval / relevance-filter bounds (design report §3.5).
+RECALL_CANDIDATE_CAP = 25   # max candidates retrieved + sent to relevance filter
+RELEVANCE_SNIPPET = 300     # chars of content per candidate in the filter prompt
 
 # Upper bound on how many banks are enumerated in a dynamic NLA description or a
 # clarification's bank list, so the router prompt / clarification stays bounded.
@@ -234,13 +265,47 @@ def extract_store_fields(dialogue, text: str, existing_tags: list = None) -> dic
     }
 
 
+def _sanitize_keywords(values) -> list:
+    """Sanitizes a raw list of LLM-provided keyword terms into a clean list.
+
+    Coerces each entry to a lowercase, stripped string; drops empties, terms
+    shorter than ``KEYWORD_MIN_LEN``, and stopwords (``STOPWORDS``); de-dupes
+    while preserving order; caps at ``KEYWORD_MAX``. Returns ``[]`` when nothing
+    survives (the caller decides whether that means ``None``).
+    """
+    if not isinstance(values, list):
+        return []
+    out = []
+    seen = set()
+    for v in values:
+        if not isinstance(v, (str, int)):
+            continue
+        term = str(v).strip().lower()
+        if len(term) < KEYWORD_MIN_LEN:
+            continue
+        if term in STOPWORDS:
+            continue
+        if term in seen:
+            continue
+        seen.add(term)
+        out.append(term)
+        if len(out) >= KEYWORD_MAX:
+            break
+    return out
+
+
 def extract_query_filters(dialogue, text: str, now_ts: int = None) -> dict:
     """Uses the LLM to convert a natural-language recall question into
     structured filters.
 
     Returns a dict: ``{"tags": [..]|None, "time_range": {"start", "end"}|None,
-    "keyword": str|None, "tag_mode": "any"|"all", "bank": str|None}``. Raises
-    ``MembankInputError`` on unrecoverable failure.
+    "keyword": str|None, "keywords": [str, ...]|None, "tag_mode": "any"|"all",
+    "bank": str|None}``. Raises ``MembankInputError`` on unrecoverable failure.
+
+    The ``keywords`` list (new) is a set of short, meaningful, sanitized search
+    terms (single lowercase words plus light inflection/synonym variants the LLM
+    can infer). It casts a WIDER retrieval net than a single substring
+    ``keyword`` (kept for back-compat). See design report ab8428ad682bed19 §3.1.
     """
     if now_ts is None:
         now_ts = int(time.time())
@@ -253,7 +318,8 @@ def extract_query_filters(dialogue, text: str, now_ts: int = None) -> dict:
             "start": "<unix epoch seconds, or omit>",
             "end": "<unix epoch seconds, or omit>",
         },
-        "keyword": "<a substring to search names+content, or omit>",
+        "keywords": ["<individual lowercase search words, or omit>"],
+        "keyword": "<a single legacy substring, or omit>",
         "bank": "<the bank id the user explicitly named, or null>",
     }
     intro = (
@@ -266,14 +332,26 @@ def extract_query_filters(dialogue, text: str, now_ts: int = None) -> dict:
         "- The current UTC time is %s (epoch %d). Resolve relative phrases "
         "like \"last month\" or \"yesterday\" into a \"time_range\" of unix "
         "epoch seconds.\n"
+        "- When the time phrase is COARSE/day-granular (\"today\", "
+        "\"yesterday\", \"this morning\"), PAD the range by about 12 hours on "
+        "each side so a note the user considers \"today\" in their local "
+        "timezone is not excluded by a UTC day boundary.\n"
         "- \"tags\" are short topic keywords; \"tag_mode\" is \"any\" (default) "
         "or \"all\".\n"
-        "- \"keyword\" is a single substring for a free-text search.\n"
+        "- \"keywords\" is the IMPORTANT field: break the question into the KEY "
+        "nouns/verbs the user is really asking about and return them as "
+        "individual lowercase words. INCLUDE obvious inflections and synonyms "
+        "as separate entries (e.g. park, parked, parking; car, vehicle). "
+        "DO NOT include stopwords or question words (where/what/when/did/i/my/"
+        "the/a/an/is/was/earlier/today/...). DO NOT include the whole phrase. "
+        "Return at most %d keywords.\n"
+        "- \"keyword\" is an OPTIONAL single legacy substring for free-text "
+        "search; you may omit it when you provide \"keywords\".\n"
         "- Omit any field you cannot confidently infer (do not guess).\n"
         "- \"bank\" is ONLY set if the user explicitly named a specific bank; "
         "otherwise null.\n"
         "Return only the JSON object."
-        % (json.dumps(output_format, indent=4), now_iso, now_ts)
+        % (json.dumps(output_format, indent=4), now_iso, now_ts, KEYWORD_MAX)
     )
 
     response = dialogue.oneshot(intro, text)
@@ -306,17 +384,26 @@ def extract_query_filters(dialogue, text: str, now_ts: int = None) -> dict:
             if end is not None:
                 time_range["end"] = end
 
-    # Keyword.
+    # Keyword (legacy single substring, kept for back-compat).
     keyword = obj.get("keyword", None)
     if keyword is not None:
         keyword = str(keyword).strip()
         keyword = keyword if len(keyword) > 0 else None
+
+    # Keywords (new multi-term list). Sanitize the LLM's list; if it produced
+    # none but DID emit a legacy `keyword`, backfill by tokenizing that string
+    # on whitespace through the same sanitation. If neither survives, None.
+    keywords = _sanitize_keywords(obj.get("keywords", None))
+    if not keywords and keyword is not None:
+        keywords = _sanitize_keywords(keyword.split())
+    keywords = keywords if len(keywords) > 0 else None
 
     return {
         "tags": tags,
         "tag_mode": tag_mode,
         "time_range": time_range,
         "keyword": keyword,
+        "keywords": keywords,
         "bank": _clean_bank(obj.get("bank", None)),
     }
 
@@ -348,6 +435,92 @@ def general_answer(dialogue, text: str) -> str:
         "preamble; just answer."
     )
     return dialogue.oneshot(intro, text)
+
+
+def filter_relevant_candidates(dialogue, question: str, candidates: list,
+                               now_ts: int = None) -> list:
+    """Uses ONE bounded LLM call to filter recall candidates down to those that
+    are actually relevant to the user's question.
+
+    `candidates` is a list of `Memory` objects (already ACL-gated by the
+    caller). This performs ID-SELECTION ONLY: the LLM is shown a compact record
+    per candidate (id/name/content-snippet/timestamp/tags) plus the ORIGINAL
+    question and the current UTC time (so it can reason about time-relative
+    phrasing like "earlier today"), and returns the ids of the relevant ones.
+    Stored content is NEVER taken from the LLM — only the id selection is used
+    to map back to the original verbatim `Memory` objects.
+
+    Returns the kept `Memory` objects in the LLM's relevance order, de-duped,
+    guarded against hallucinated ids, and truncated to ``RECALL_RENDER_LIMIT``.
+    An empty return means the filter ran and chose none. Raises on an
+    unrecoverable LLM/parse failure so the caller can degrade to raw candidates
+    (never a false MISS). See design report ab8428ad682bed19 §3.5.
+    """
+    if not candidates:
+        return []
+    if now_ts is None:
+        now_ts = int(time.time())
+    now_iso = datetime.utcfromtimestamp(now_ts).strftime("%Y-%m-%d %H:%M:%S")
+
+    # Build the bounded candidate records (cap the number shown to the model).
+    by_id = {}
+    records = []
+    for mem in candidates[:RECALL_CANDIDATE_CAP]:
+        data = mem.to_api_dict()
+        mid = str(data.get("id", ""))
+        if len(mid) == 0:
+            continue
+        by_id[mid] = mem
+        content = str(data.get("content", ""))
+        if len(content) > RELEVANCE_SNIPPET:
+            content = content[:RELEVANCE_SNIPPET].rstrip() + "…"
+        tags = data.get("tags", [])
+        if not isinstance(tags, list):
+            tags = []
+        records.append({
+            "id": mid,
+            "name": str(data.get("name", "")),
+            "content": content,
+            "timestamp": int(data.get("timestamp", 0)),
+            "tags": [str(t) for t in tags[:8]],
+        })
+
+    output_format = {"relevant_ids": ["<id of a relevant candidate>", "..."]}
+    intro = (
+        "You are the relevance filter of a memory recall service. Given the "
+        "user's question and a list of candidate stored memories, return the "
+        "IDs of ONLY those candidates that actually answer or are directly "
+        "relevant to the question. Consider each candidate's timestamp for "
+        "time-relative questions (the current UTC time is %s, epoch %d). Do "
+        "NOT rewrite or summarize memories. If none are relevant, return an "
+        "empty list.\n\n"
+        "Return a SINGLE JSON object (and nothing else) of this form:\n%s\n\n"
+        "Candidates (JSON):\n%s"
+        % (now_iso, now_ts, json.dumps(output_format, indent=4),
+           json.dumps(records, indent=4))
+    )
+
+    response = dialogue.oneshot(intro, question)
+    obj = _first_json_object(response)
+
+    relevant = obj.get("relevant_ids", None)
+    if not isinstance(relevant, list):
+        raise MembankInputError(
+            "relevance filter did not return a \"relevant_ids\" list.")
+
+    # Keep only ids that exist in the candidate set (guards hallucinated ids),
+    # preserve the LLM's order, de-dupe. Map back to verbatim Memory objects.
+    kept = []
+    seen = set()
+    for rid in relevant:
+        rid = str(rid).strip()
+        if rid in seen or rid not in by_id:
+            continue
+        seen.add(rid)
+        kept.append(by_id[rid])
+        if len(kept) >= RECALL_RENDER_LIMIT:
+            break
+    return kept
 
 
 # ============================== NLA Helpers =============================== #
@@ -550,7 +723,9 @@ def nla_recall(oracle, jdata) -> NLAResult:
     if bank is None:
         return err
 
-    # Build the structured filter payload for /memory/list.
+    # Build the structured filter payload for the INITIAL (narrowing) pass.
+    # The new `keywords` list widens name/content matching (OR-group); the
+    # legacy `keyword` is still forwarded for continuity.
     filters = {}
     if query.get("tags"):
         filters["tags"] = query["tags"]
@@ -559,11 +734,16 @@ def nla_recall(oracle, jdata) -> NLAResult:
         filters["time_range"] = query["time_range"]
     if query.get("keyword"):
         filters["keyword"] = query["keyword"]
+    if query.get("keywords"):
+        filters["keywords"] = query["keywords"]
 
+    # Retrieval: an initial narrowing pass, then a WIDENED fallback if it finds
+    # nothing (time dropped; keywords over name/content UNION keywords as
+    # OR-tags — two cheap SQL reads, ZERO extra LLM calls). Both paths produce a
+    # single `candidates` list (<= RECALL_CANDIDATE_CAP) handed to the relevance
+    # filter before any HIT/MISS decision.
     try:
-        memories, total = oracle.service.dispatch(
-            bank.list_memories, filters=filters, limit=RECALL_RENDER_LIMIT,
-            order="desc")
+        candidates = _recall_retrieve(oracle, bank, query, filters)
     except MembankInputError as e:
         return NLAResult.from_json({
             "success": False,
@@ -579,47 +759,38 @@ def nla_recall(oracle, jdata) -> NLAResult:
             "message_postprocess": POSTPROCESS_REWORD,
         })
 
-    # Recall outcomes:
-    #   HIT  -> return ONLY the membank findings (RAW, HTML-escaped).
-    #   MISS -> a SHORT "no results" notice FOLLOWED BY a general-purpose LLM
-    #           answer to the user's ORIGINAL question, composed here into ONE
-    #           RAW message. If the completion fails, the notice surfaces alone.
-    #   error -> a REWORD'd error, no completion (handled above).
+    # Nothing retrieved even after widening -> a real MISS. The relevance filter
+    # is NOT called (no candidates), so recall spends zero filter calls here.
+    if len(candidates) == 0:
+        return _recall_miss(oracle, text)
+
+    # Relevance filter (the precision gate): ONE bounded LLM call over the
+    # candidates + the ORIGINAL question, returning the ids to keep. This is the
+    # AT-MOST-ONE extra LLM call recall may add.
     #
-    # This behavior is entirely self-contained within the recall handler: the
-    # speaker performs no special completion logic. On a MISS we run a quick
-    # general completion via the SAME membank dialogue used for extraction, then
-    # compose "<notice>\n\n<answer>" as a single RAW (HTML-safe) message. The
-    # notice is fixed plain text; the completion text is HTML-escaped so it is
-    # safe for the downstream Telegram HTML renderer, matching the escaping used
-    # for the findings section. A completion failure never crashes the NLA — the
-    # notice is returned by itself (the error is logged). This is a SUCCESS.
-    if len(memories) == 0:
-        notice = "I didn't find anything in the memory bank."
-        answer = None
-        try:
-            answer = oracle.service.nla_general_answer(text)
-        except Exception as e:
-            oracle.log.write("nla_recall miss completion failed: %s" % str(e))
-            answer = None
-
-        # The notice is a fixed constant with no HTML-special characters. The
-        # completion text is untrusted, so it is HTML-escaped (matching the
-        # findings escaping) before being appended, keeping the composed RAW
-        # message safe for the downstream Telegram HTML renderer.
-        message = notice
-        if isinstance(answer, str) and len(answer.strip()) > 0:
-            message += "\n\n" + html.escape(answer.strip())
-
+    #   >=1 kept        -> HIT (RAW findings, verbatim/escaped).
+    #   0 kept (ran ok) -> MISS (notice + general answer).
+    #   filter FAILURE  -> degrade to the RAW candidates (never a false MISS).
+    try:
+        kept = oracle.service.nla_filter_relevance(text, candidates)
+    except Exception as e:
+        # A filter outage must degrade to today's behavior (show what we found),
+        # NOT to a false MISS. Show the raw candidates (newest-first, capped).
+        oracle.log.write("nla_recall relevance filter failed (bank=%s): %s" %
+                         (bank.config.id, str(e)))
+        message = _format_recall(bank, candidates[:RECALL_RENDER_LIMIT])
         return NLAResult.from_json({
             "success": True,
             "message": message,
             "message_postprocess": POSTPROCESS_RAW,
         })
 
-    # Results found: return the RAW findings section ONLY. On a hit the memories
-    # ARE the answer, so no LLM completion runs.
-    message = _format_recall(bank, memories, total)
+    # The filter ran and chose none -> MISS (self-contained notice + answer).
+    if not kept:
+        return _recall_miss(oracle, text)
+
+    # Kept >= 1 -> HIT. The findings ARE the answer, so no completion runs.
+    message = _format_recall(bank, kept)
     return NLAResult.from_json({
         "success": True,
         "message": message,
@@ -627,21 +798,123 @@ def nla_recall(oracle, jdata) -> NLAResult:
     })
 
 
-def _format_recall(bank, memories: list, total: int) -> str:
+def _recall_retrieve(oracle, bank, query: dict, filters: dict) -> list:
+    """Runs the recall retrieval: an initial narrowing `list_memories` pass and,
+    when that returns nothing, a WIDENED fallback pass.
+
+    The fallback drops `time_range` and issues TWO cheap SQL reads which are
+    unioned in Python (design report ab8428ad682bed19 §3.4):
+      * W1 — the extracted keywords matched over name/content (OR-group).
+      * W2 — the same keywords (plus any extracted tags) matched as OR-tags;
+              this is the ONE place keyword<->tag matching is enabled.
+    The union is newest-first and capped at ``RECALL_CANDIDATE_CAP``. ZERO extra
+    LLM calls are made here. Returns a list of `Memory` candidates (possibly
+    empty). Propagates `list_memories` errors to the caller.
+    """
+    memories, _ = oracle.service.dispatch(
+        bank.list_memories, filters=filters, limit=RECALL_CANDIDATE_CAP,
+        order="desc")
+    if len(memories) > 0:
+        return memories[:RECALL_CANDIDATE_CAP]
+
+    # Determine the keyword terms to widen with (backfill from legacy keyword).
+    wide_terms = query.get("keywords")
+    if not wide_terms and query.get("keyword"):
+        wide_terms = _sanitize_keywords(str(query["keyword"]).split())
+    base_tags = query.get("tags") or []
+
+    # Nothing to widen on (no keywords AND no tags) -> no fallback.
+    if not wide_terms and not base_tags:
+        return []
+
+    unioned = []
+    seen = set()
+
+    def _merge(rows):
+        for m in rows:
+            if m.id in seen:
+                continue
+            seen.add(m.id)
+            unioned.append(m)
+
+    # W1: keywords over name/content only (no tags, no time).
+    if wide_terms:
+        w1, _ = oracle.service.dispatch(
+            bank.list_memories, filters={"keywords": list(wide_terms)},
+            limit=RECALL_CANDIDATE_CAP, order="desc")
+        _merge(w1)
+
+    # W2: keywords (+ extracted tags) as OR-tags (no keywords, no time). Only
+    # terms that are VALID tags are used; keyword-derived terms that cannot be a
+    # tag (e.g. start with a digit) are dropped individually so one bad term
+    # never aborts the widened tag read.
+    tag_terms = []
+    tag_seen = set()
+    for t in list(base_tags) + list(wide_terms or []):
+        try:
+            st = sanitize_tag(t)
+        except MembankInputError:
+            continue
+        if st in tag_seen:
+            continue
+        tag_seen.add(st)
+        tag_terms.append(st)
+    if tag_terms:
+        w2, _ = oracle.service.dispatch(
+            bank.list_memories,
+            filters={"tags": tag_terms, "tag_mode": "any"},
+            limit=RECALL_CANDIDATE_CAP, order="desc")
+        _merge(w2)
+
+    # Newest-first across the union, capped.
+    unioned.sort(key=lambda m: (int(m.timestamp), m.id), reverse=True)
+    return unioned[:RECALL_CANDIDATE_CAP]
+
+
+def _recall_miss(oracle, text: str) -> NLAResult:
+    """Builds the self-contained recall MISS result: a SHORT "no results" notice
+    FOLLOWED BY a general-purpose LLM answer to the user's ORIGINAL question,
+    composed into ONE RAW (HTML-safe) message.
+
+    This behavior is entirely self-contained within the recall handler (the
+    speaker performs no special completion logic). The notice is a fixed
+    constant with no HTML-special characters; the completion text is untrusted
+    and HTML-escaped (matching the findings escaping) before being appended. A
+    completion failure never crashes the NLA — the notice surfaces alone (the
+    error is logged). This is a SUCCESS.
+    """
+    notice = "I didn't find anything in the memory bank."
+    answer = None
+    try:
+        answer = oracle.service.nla_general_answer(text)
+    except Exception as e:
+        oracle.log.write("nla_recall miss completion failed: %s" % str(e))
+        answer = None
+
+    message = notice
+    if isinstance(answer, str) and len(answer.strip()) > 0:
+        message += "\n\n" + html.escape(answer.strip())
+
+    return NLAResult.from_json({
+        "success": True,
+        "message": message,
+        "message_postprocess": POSTPROCESS_RAW,
+    })
+
+
+def _format_recall(bank, memories: list) -> str:
     """Formats recalled memories into Telegram HTML.
 
     Every dynamic value is HTML-escaped so stored notes containing '&', '<', or
     '>' cannot break Telegram's HTML parser. The result is returned RAW (see
     `nla_recall`).
     """
-    shown = len(memories)
+    count = len(memories)
     header = "<b>Found %d matching memor%s in \"%s\":</b>" % (
-        total,
-        "y" if total == 1 else "ies",
+        count,
+        "y" if count == 1 else "ies",
         html.escape(bank.config.name),
     )
-    if total > shown:
-        header += "<i>(showing the %d most recent)</i>\n" % shown
 
     blocks = []
     for mem in memories:

@@ -46,6 +46,7 @@ from nla import (
     extract_store_fields,
     extract_query_filters,
     general_answer,
+    filter_relevant_candidates,
     nla_remember,
     nla_recall,
     NLA_REMEMBER_NAME,
@@ -209,8 +210,12 @@ class MembankService(Service):
 
     def nla_extract_query(self, text: str, now_ts: int = None) -> dict:
         """Uses the LLM to convert a natural-language recall question into
-        structured filters (`tags`, `time_range`, `keyword`, `tag_mode`,
-        optional `bank`).
+        structured filters (`tags`, `time_range`, `keyword`, `keywords`,
+        `tag_mode`, optional `bank`).
+
+        `keywords` is a sanitized list of individual search terms (with light
+        inflection/synonym expansion) that widens the retrieval net beyond the
+        single legacy `keyword` substring.
 
         Returns the parsed dict. Raises on unrecoverable LLM/parse failure.
         """
@@ -224,6 +229,20 @@ class MembankService(Service):
         directly. Returns the raw LLM text. Raises on unrecoverable LLM failure.
         """
         return general_answer(self.get_dialogue(), text)
+
+    def nla_filter_relevance(self, question: str, candidates: list,
+                             now_ts: int = None) -> list:
+        """Runs ONE bounded LLM call to filter recall `candidates` (a list of
+        `Memory` objects) down to those relevant to `question`, using the SAME
+        NLA dialogue as the extraction calls.
+
+        ID-selection only: stored content stays verbatim. Returns the kept
+        `Memory` objects in relevance order (truncated to the render limit).
+        Raises on unrecoverable LLM/parse failure so `nla_recall` can degrade to
+        raw candidates rather than emit a false MISS.
+        """
+        return filter_relevant_candidates(self.get_dialogue(), question,
+                                          candidates, now_ts=now_ts)
 
 
 # ============================== Service Oracle ============================= #
