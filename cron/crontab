@@ -39,4 +39,6 @@
 30    2   *   *   4 /home/provolone/chs/scripts/restart-service.sh munchbook
 # MAILMAN: Sunday evenings at 1:45am
 45    1   *   *   0 /home/provolone/chs/scripts/restart-service.sh mailman
+# MEMBANK: Saturday mornings at 2:25am
+25    2   *   *   6 /home/provolone/chs/scripts/restart-service.sh membank
 
