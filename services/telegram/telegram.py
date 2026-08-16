@@ -361,6 +361,11 @@ class TelegramService(Service):
             "message_id": str(message.message_id),
             "chat_id": str(message.chat.id),
         }
+        # forward the originating forum topic (message_thread_id) when present
+        # so NLA-created reminders fire back into the same thread. General /
+        # non-forum chats carry no thread id and omit this field.
+        if getattr(message, "message_thread_id", None) is not None:
+            message_info["topic"] = str(message.message_thread_id)
         pyld["telegram_message"] = message_info
 
         # ping the /talk endpoint
@@ -372,6 +377,54 @@ class TelegramService(Service):
         self.log.write("Failed to get conversation from speaker: %s" %
                        OracleSession.get_response_message(r))
         return None
+
+    @staticmethod
+    def _genuine_reply(message):
+        """Return the message that `message` is *genuinely* replying to, or `None`.
+
+        Inside a Telegram forum TOPIC, Telegram auto-populates
+        `message.reply_to_message` with the topic's `forum_topic_created` service
+        message (topic auto-threading), even when the user did not actually reply
+        to anything. Treating that anchor as a real reply causes two bugs: for the
+        `/remind` command it clobbers a validly-parsed reminder message, and in the
+        conversational path it triggers a spurious speaker search for the topic
+        root's telegram message id (which has no mapping) instead of falling
+        through to the chat's active-conversation lookup. This helper filters out
+        that auto-threading anchor and returns only a real, user-initiated reply.
+
+        All attributes are accessed via `getattr(...)` because they are absent on
+        non-forum messages and older telebot objects (verified against telebot
+        4.29.0 `telebot.types.Message`: `forum_topic_created`, `message_thread_id`,
+        `is_topic_message`).
+        """
+        reply = getattr(message, "reply_to_message", None)
+        if reply is None:
+            return None
+
+        # A `forum_topic_created` service message is the topic-creation anchor,
+        # not a real reply. Ignore it.
+        if getattr(reply, "forum_topic_created", None) is not None:
+            return None
+
+        # Inside a topic, the auto-threaded anchor points at the topic root, whose
+        # message id equals the message's `message_thread_id`. Ignore that too.
+        thread_id = getattr(message, "message_thread_id", None)
+        if thread_id is not None and getattr(reply, "message_id", None) == thread_id:
+            return None
+
+        return reply
+
+    @staticmethod
+    def _convo_key(chat_id, topic_id):
+        """Build the composite key used to index `self.chat_conversations`.
+
+        Active conversations are tracked per (chat, topic) so that forum topics
+        within the same group get independent active-conversation slots and
+        timeouts. `topic_id` is the message's `message_thread_id` (None for the
+        General topic / non-forum chats), which cleanly isolates General from
+        named topics.
+        """
+        return "%s:%s" % (chat_id, topic_id)
 
     def dialogue_message_search(self,
                                 message_id=None,
@@ -779,13 +832,23 @@ class TelegramService(Service):
                     # message to DImROD.
 
                     # is this message in response to another? If so, look for a message
-                    # mapping for the previous message
+                    # mapping for the previous message. Use the shared
+                    # `_genuine_reply` helper so that the forum-topic auto-threading
+                    # anchor is NOT mistaken for a real reply (inside a topic,
+                    # Telegram auto-sets `reply_to_message` to the topic root, which
+                    # has no message mapping and would otherwise cause a spurious
+                    # speaker search + error and skip the active-conversation lookup).
                     convo_id = None
                     convo_is_system_query = False
                     chat_id = str(message.chat.id)
-                    if hasattr(message, "reply_to_message") and \
-                       message.reply_to_message is not None:
-                        rtmsg = message.reply_to_message
+                    # compute the composite (chat, topic) key so that active
+                    # conversations are isolated per forum topic. topic_id is
+                    # None for the General topic / non-forum chats.
+                    topic_id = getattr(message, "message_thread_id", None)
+                    convo_key = self._convo_key(chat_id, topic_id)
+                    reply = self._genuine_reply(message)
+                    if reply is not None:
+                        rtmsg = reply
 
                         # search for a message mapped to the reply-to-message's
                         # telegram message ID
@@ -816,20 +879,19 @@ class TelegramService(Service):
                                 # record, such that this particular telegram chat's
                                 # current conversation is replaced with this one
                                 else:
-                                    self.chat_conversations[chat_id] = {
+                                    self.chat_conversations[convo_key] = {
                                         "conversation_id": convo_id,
                                         "timestamp": datetime.now()
                                     }
                     # otherwise, look for an active conversation ID for this telegram
                     # chat, and use that conversation ID instead
                     else:
-                        chat_id = str(message.chat.id)
-                        if chat_id in self.chat_conversations:
-                            timediff = now.timestamp() - self.chat_conversations[chat_id]["timestamp"].timestamp()
+                        if convo_key in self.chat_conversations:
+                            timediff = now.timestamp() - self.chat_conversations[convo_key]["timestamp"].timestamp()
                             if timediff < self.config.bot_conversation_timeout:
-                                convo_id = self.chat_conversations[chat_id]["conversation_id"]
+                                convo_id = self.chat_conversations[convo_key]["conversation_id"]
                             else:
-                                self.log.write("Conversation for chat \"%s\" has expired." % chat_id)
+                                self.log.write("Conversation for chat \"%s\" has expired." % convo_key)
 
                     # is the conversation a system query to the user? If so, we'll
                     # simply update the conversation to include this new message, and
@@ -891,7 +953,7 @@ class TelegramService(Service):
                             # add the conversation record to the local, temporary
                             # conversation table (this is used to track, and timeout,
                             # active conversations)
-                            self.chat_conversations[chat_id] = {
+                            self.chat_conversations[convo_key] = {
                                 "conversation_id": talkdata["conversation_id"],
                                 "timestamp": datetime.now()
                             }
@@ -1146,8 +1208,21 @@ class TelegramOracle(Oracle):
             if "parse_mode" in flask.g.jdata:
                 pmode = str(flask.g.jdata["parse_mode"])
 
+            # parse an optional forum topic (a.k.a. message_thread_id). A
+            # numeric string is coerced to an int; anything absent/empty maps
+            # to None (General / no topic). 0 is never forwarded as a topic.
+            topic = flask.g.jdata.get("topic")
+            if topic is not None:
+                if isinstance(topic, str):
+                    topic = topic.strip()
+                    topic = int(topic) if topic.isdigit() else (topic or None)
+                if not topic:
+                    topic = None
+
             # send the message and respond
-            self.service.send_message(chat_id, flask.g.jdata["text"], parse_mode=pmode)
+            self.service.send_message(chat_id, flask.g.jdata["text"],
+                                      parse_mode=pmode,
+                                      message_thread_id=topic)
             return self.make_response(msg="Message sent successfully.")
 
         # Endpoint used to instruct the bot to update a message.

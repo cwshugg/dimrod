@@ -58,38 +58,6 @@ def delete_reminder(service, message, rem_id: str):
                          parse_mode="HTML")
 
 
-def _genuine_reply(message):
-    """Return the message that `message` is *genuinely* replying to, or `None`.
-
-    Inside a Telegram forum TOPIC, Telegram auto-populates
-    `message.reply_to_message` with the topic's `forum_topic_created` service
-    message (topic auto-threading), even when the user did not actually reply to
-    anything. That service message has no text, so treating it as a real reply
-    would clobber a validly-parsed reminder message. This helper filters out
-    that auto-threading anchor and returns only a real, user-initiated reply.
-
-    All attributes are accessed via `getattr(...)` because they are absent on
-    non-forum messages and older telebot objects (verified against telebot
-    4.29.0 `telebot.types.Message`: `forum_topic_created`, `message_thread_id`,
-    `is_topic_message`).
-    """
-    reply = getattr(message, "reply_to_message", None)
-    if reply is None:
-        return None
-
-    # A `forum_topic_created` service message is the topic-creation anchor, not
-    # a real reply. Ignore it.
-    if getattr(reply, "forum_topic_created", None) is not None:
-        return None
-
-    # Inside a topic, the auto-threaded anchor points at the topic root, whose
-    # message id equals the message's `message_thread_id`. Ignore that too.
-    thread_id = getattr(message, "message_thread_id", None)
-    if thread_id is not None and getattr(reply, "message_id", None) == thread_id:
-        return None
-
-    return reply
-
 # =================================== Main =================================== #
 def command_remind(service, message, args: list):
     if len(args) < 2:
@@ -143,7 +111,7 @@ def command_remind(service, message, args: list):
     # message's text as this reminder's message. Only overwrite `msg` when the
     # replied-to message actually has text, so that replying to a photo/sticker
     # (text is None) does not erase a validly-parsed after-period message.
-    reply = _genuine_reply(message)
+    reply = service._genuine_reply(message)
     is_reply = reply is not None
     if is_reply and reply.text is not None:
         msg = reply.text
@@ -188,11 +156,18 @@ def command_remind(service, message, args: list):
                              "(%s)" % session.get_response_message(r))
         return
 
+    # build the telegram target for this reminder: the originating chat, plus
+    # the forum topic (message_thread_id) when the command came from one so the
+    # reminder fires back into the same thread.
+    telegram_target = {"chat": str(message.chat.id)}
+    if getattr(message, "message_thread_id", None) is not None:
+        telegram_target["topic"] = str(message.message_thread_id)
+
     # create the reminder by talking to notif's oracle
     payload = {
         "title": "" if is_reply else "🔔",
         "message": msg,
-        "send_telegrams": [str(message.chat.id)],
+        "send_telegrams": [telegram_target],
         "trigger_years": [dt.year],
         "trigger_months": [dt.month],
         "trigger_days": [dt.day],

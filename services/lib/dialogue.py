@@ -285,6 +285,7 @@ class DialogueConversation(Uniserdes):
             UniserdesField("time_start",   [datetime],         required=False, default=None),
             UniserdesField("time_latest",  [datetime],         required=False, default=None),
             UniserdesField("telegram_chat_id", [str],          required=False, default=None),
+            UniserdesField("telegram_topic_id", [str],         required=False, default=None),
         ]
 
     def post_parse_init(self):
@@ -354,7 +355,7 @@ class DialogueConversation(Uniserdes):
 
     @classmethod
     def get_sqlite3_table_fields_kept_visible(self):
-        return ["id", "time_start", "time_latest", "telegram_chat_id"]
+        return ["id", "time_start", "time_latest", "telegram_chat_id", "telegram_topic_id"]
 
 
 # ============================= Dialogue Config ============================== #

@@ -19,6 +19,39 @@ from lib.uniserdes import Uniserdes, UniserdesField
 from lib import dtu as dtu
 
 
+# ========================== TelegramTarget Object ========================== #
+class TelegramTarget(Uniserdes):
+    """Represents a single Telegram delivery target for a reminder: a chat
+    id/name plus an optional forum topic id (message_thread_id).
+
+    The `chat` value keeps the same matching semantics as the old bare-string
+    entry (notif matches by chat id OR substring of the chat name). The
+    `topic` value, when present, is the forum topic (message_thread_id) the
+    reminder should fire into; when absent/None it means General / no topic.
+    """
+    def __init__(self):
+        super().__init__()
+        self.fields = [
+            UniserdesField("chat",  [str],      required=True),
+            UniserdesField("topic", [str, int], required=False, default=None),
+        ]
+
+    def __repr__(self):
+        """Deterministic representation derived solely from this target's field
+        values.
+
+        `Reminder.get_id()` hashes `str(self.send_telegrams)`, which relies on
+        each target's repr. The default object repr embeds the instance's
+        memory address, which would make reminder IDs random per-process and
+        break dedupe. Deriving the repr purely from the field values keeps a
+        reminder's identity stable across parses and processes.
+        """
+        return "TelegramTarget(chat=%r,topic=%r)" % (self.chat, self.topic)
+
+    def __str__(self):
+        return self.__repr__()
+
+
 # ============================= Reminder Object ============================== #
 class Reminder(Uniserdes):
     def __init__(self):
@@ -26,7 +59,7 @@ class Reminder(Uniserdes):
         self.fields = [
             UniserdesField("message",          [str],      required=True),
             UniserdesField("title",            [str],      required=False,     default="Reminder"),
-            UniserdesField("send_telegrams",   [list],     required=False,     default=[]),
+            UniserdesField("send_telegrams",   [TelegramTarget], required=False, default=[]),
             UniserdesField("send_emails",      [list],     required=False,     default=[]),
             UniserdesField("send_ntfys",       [list],     required=False,     default=[]),
             UniserdesField("trigger_years",    [list],     required=False,     default=[]),

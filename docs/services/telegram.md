@@ -138,6 +138,11 @@ Most message endpoints accept:
 | `message_id` | Telegram message ID (for update/delete operations) |
 | `parse_mode` | Telegram parse mode (e.g., `"Markdown"`, `"HTML"`) |
 
+`POST /bot/send/message` additionally accepts an optional `topic`
+(`message_thread_id`) field to deliver the message into a specific forum topic.
+A numeric string is coerced to an integer; when absent/empty the message is sent
+to General / no topic (`0` is never forwarded as a topic).
+
 ## Configuration
 
 | Field | Type | Description |

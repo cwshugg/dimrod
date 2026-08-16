@@ -970,6 +970,33 @@ class SpeakerOracle(Oracle):
                                               success=False, rstatus=400)
                 convo = result[0]
 
+            # remember whether this request is creating a brand-new
+            # conversation (no valid conversation_id supplied). We only stamp
+            # telegram chat/topic context onto NEWLY created conversations, so
+            # a resumed conversation keeps its original topic.
+            convo_is_new = convo is None
+
+            # read optional telegram context from the payload. Non-telegram
+            # callers (e.g. mailman) won't send "telegram_message", so these
+            # stay None and the new columns remain unpopulated.
+            tg_chat_id = None
+            tg_topic_id = None
+            telegram_message = flask.g.jdata.get("telegram_message")
+            if telegram_message is not None:
+                tg_chat_id = telegram_message.get("chat_id")
+                tg_topic_id = telegram_message.get("topic")
+
+            def stamp_telegram_context(c):
+                # stamp telegram chat/topic onto a newly-created conversation,
+                # only overwriting when an incoming value is present. Resumed
+                # conversations already carry their topic and are left alone.
+                if not convo_is_new:
+                    return
+                if tg_chat_id is not None:
+                    c.telegram_chat_id = str(tg_chat_id)
+                if tg_topic_id is not None:
+                    c.telegram_topic_id = str(tg_topic_id)
+
             # look for an optional author name
             aname = None
             if "author_name" in flask.g.jdata:
@@ -1044,6 +1071,7 @@ class SpeakerOracle(Oracle):
                 # persist the authors and the (new or continued) conversation
                 self.service.dialogue.save_author(author)
                 self.service.dialogue.save_author(nla_author)
+                stamp_telegram_context(convo)
                 self.service.dialogue.save_conversation(convo)
 
                 # build a payload to respond with, containing the message as
@@ -1070,6 +1098,7 @@ class SpeakerOracle(Oracle):
 
             # save the author and the conversation
             self.service.dialogue.save_author(author)
+            stamp_telegram_context(convo)
             self.service.dialogue.save_conversation(convo)
 
             # get the latest request and response messages (representing the

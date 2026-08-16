@@ -44,7 +44,7 @@ The NLA endpoint uses the LLM to parse natural-language reminder requests (e.g.,
 |-------|------|----------|-------------|
 | `message` | `str` | Yes | Reminder message text |
 | `title` | `str` | No | Reminder title (default: `"Reminder"`) |
-| `send_telegrams` | `list` | No | Telegram chat targets for delivery |
+| `send_telegrams` | `list` | No | Telegram delivery targets — a list of objects (see below) |
 | `send_emails` | `list` | No | Email addresses for delivery |
 | `send_ntfys` | `list` | No | ntfy.sh topics for delivery |
 | `trigger_years` | `list` | No | Years to fire (e.g., `[2025]`) |
@@ -54,6 +54,29 @@ The NLA endpoint uses the LLM to parse natural-language reminder requests (e.g.,
 | `trigger_hours` | `list` | No | Hours to fire, 0–23 |
 | `trigger_minutes` | `list` | No | Minutes to fire, 0–59 |
 | `id` | `str` | No | Unique reminder ID (auto-generated if omitted) |
+
+**`send_telegrams` target objects:**
+
+Each entry in `send_telegrams` is an object describing a Telegram delivery
+target:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `chat` | `str` | Yes | Telegram chat id **or** name (matched by id, or by name substring) |
+| `topic` | `str` \| `int` | No | Forum topic id (`message_thread_id`) to deliver into. Omit/`null` = General / no topic |
+
+Example:
+
+```json
+"send_telegrams": [
+    {"chat": "cwshugg"},
+    {"chat": "6329709038", "topic": "42"}
+]
+```
+
+When a reminder is created from a Telegram forum topic (via the `/r` command or
+natural-language request), the originating topic is captured automatically so
+the reminder fires back into that same thread.
 
 Reminders support flexible scheduling:
 

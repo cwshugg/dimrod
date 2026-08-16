@@ -27,7 +27,7 @@ from lib.ntfy import ntfy_send
 import lib.dtu as dtu
 
 # Service imports
-from reminder import Reminder
+from reminder import Reminder, TelegramTarget
 
 
 # =============================== Config Class =============================== #
@@ -197,7 +197,7 @@ class NotifService(Service):
         # send to all telegram chats
         telegram_session = None
         telegram_chats = []
-        for chat in rem.send_telegrams:
+        for target in rem.send_telegrams:
             # set up the telegram session during the first iteration
             if telegram_session is None:
                 try:
@@ -212,6 +212,7 @@ class NotifService(Service):
 
             # find the correct chat to which we must send data (search by name
             # OR by ID)
+            chat = target.chat
             matched_chat = None
             for cdata in telegram_chats:
                 if chat.lower() == cdata["id"].lower() or \
@@ -232,8 +233,11 @@ class NotifService(Service):
                 msg = "%s %s" % (title_str, rem.message)
 
             # pack the message into a payload and send it to the telegram
-            # service for delivery
+            # service for delivery. Include the originating forum topic when
+            # the target carries one (absent/None = General / no topic).
             msg_data = {"chat": matched_chat, "text": msg}
+            if target.topic is not None:
+                msg_data["topic"] = target.topic
             r = telegram_session.post("/bot/send/message", payload=msg_data)
             self.log.write(" - Telegrammed \"%s\"." % matched_chat["name"])
 
@@ -463,7 +467,13 @@ def nla_create_reminder(oracle: NotifOracle, jdata: dict):
             if "telegram_message" in reqdata:
                 telegram_info = reqdata["telegram_message"]
                 if "chat_id" in telegram_info:
-                    rem_send_telegrams.append(str(telegram_info["chat_id"]))
+                    # build a TelegramTarget carrying the chat id and, if the
+                    # message originated inside a forum topic, that topic so
+                    # the reminder fires back into the same thread.
+                    target_data = {"chat": str(telegram_info["chat_id"])}
+                    if telegram_info.get("topic") is not None:
+                        target_data["topic"] = telegram_info["topic"]
+                    rem_send_telegrams.append(TelegramTarget.from_json(target_data))
                     # since this came from a telegram message, override the
                     # title with the bell emoji (to mimick the same behavior as
                     # the telegram service when setting reminders via command)
