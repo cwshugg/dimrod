@@ -22,6 +22,34 @@ The bot uses polling (not webhooks) to receive messages and includes automatic r
 
 Each whitelisted chat maintains its own conversation with DImROD via the Speaker service. When a user sends a message that isn't a command, it's forwarded to Speaker's `/talk` endpoint and the response is sent back to the chat.
 
+### Forum Topics
+
+Telegram supergroups can enable **forum topics** (threads). When a message
+arrives from a topic, the bot captures its `message_thread_id` and replies into
+that **same topic** — so a conversation started in a given topic stays there.
+The **General** topic, non-forum groups, and private chats carry no thread id;
+the bot replies with no topic (its historical behavior). A thread id is only
+attached to *new* messages the bot sends (`send_message`, `send_question`,
+`send_menu`); edits, deletions, and reactions target an existing message id and
+are unaffected.
+
+Routing details:
+
+* The originating topic is tracked per-update on the bot's worker thread, so
+  concurrent messages in different topics never cross-talk. Callers may still
+  pass an explicit `message_thread_id=` to force a specific topic (this
+  overrides the captured value); proactive Oracle sends have no ambient topic
+  and therefore go to General.
+* If a topic has been **closed or deleted**, a send to it fails with a
+  `400` error; the bot then retries the message **once** in General so the
+  reply is still delivered, rather than looping/retrying against the dead topic.
+
+> **Privacy mode.** Forum topics do not change Telegram's privacy-mode rules.
+> In a group (topic or not), a bot with privacy mode enabled only receives plain
+> text that is addressed to it (`/cmd@bot`), a reply to one of its messages, or
+> any message if privacy mode is disabled or the bot is a group admin. Enable
+> the appropriate mode via BotFather if the bot should see all topic messages.
+
 ### Menu System
 
 Telegram supports interactive button menus backed by a SQLite database. Menus can be sent to users with callback buttons. The menu behavior is controlled by the `MenuBehaviorType` enum:
@@ -56,7 +84,8 @@ Commands are defined as individual modules under `commands/`, each implementing 
 
 > **`/memory` (`/m`) field syntax.** Arguments follow the subcommand and are
 > split on `.` into fields (whitespace around `.` and `=` is ignored). **Field 0
-> is the optional bank:** leave it empty or use `-` for the chat's default bank,
+> is the optional bank:** leave it empty or use `-` to use the membank
+> **service default bank** (the server resolves its configured `default_bank`),
 > otherwise it is fuzzy-matched against the banks you can access — exact id, then
 > exact name, then a unique name substring; an ambiguous reference lists the
 > candidate banks. Because `.` is the field delimiter, a field value **cannot

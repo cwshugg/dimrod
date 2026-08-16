@@ -273,31 +273,29 @@ def _match_bank(raw: str, banks: list):
 
 
 def _resolve_bank(service, message, fields: list, session=None):
-    """Resolves the target bank id from field 0.
+    """Resolves the target bank reference from field 0.
 
-    Field 0 is the optional bank: empty or ``-`` (`BANK_DEFAULT_SENTINEL`) means
-    "use the chat's configured default bank" (via `get_chat_memory_bank`); that
-    default is already a real id and is used verbatim. Any other value is
-    fuzzy-matched, CLIENT-SIDE, against the banks THIS caller can access (fetched
-    via ``/bank/list``) using `_match_bank`.
+    Field 0 is the optional bank. Empty or ``-`` (`BANK_DEFAULT_SENTINEL`) means
+    "let the membank service resolve its own default bank": in that case the
+    ``bank`` key is OMITTED from the outgoing payload and the server falls back
+    to its configured ``default_bank``. Any other value is fuzzy-matched,
+    CLIENT-SIDE, against the banks THIS caller can access (fetched via
+    ``/bank/list``) using `_match_bank`.
 
     An authenticated membank `session` may be passed in to avoid re-authing; if
     omitted, one is built via `_get_membank_session` (which reports its own
     error and returns None on failure).
 
-    Returns ``(bank_id, None)`` on success. On failure returns ``(None, error)``
-    where ``error`` is an HTML-safe user message, or ``(None, None)`` when the
-    failure has already been reported to the user (e.g. auth failed).
+    Returns ``(bank_ref, None)`` on success, where ``bank_ref`` is the resolved
+    bank id, or ``""`` to signal "omit the bank; use the service default". On
+    failure returns ``(None, error)`` where ``error`` is an HTML-safe user
+    message, or ``(None, None)`` when the failure has already been reported to
+    the user (e.g. auth failed).
     """
     raw = fields[0].strip() if len(fields) > 0 else ""
     if raw == "" or raw == BANK_DEFAULT_SENTINEL:
-        default = service.get_chat_memory_bank(message.chat.id)
-        if default is None or (isinstance(default, str) and len(default) == 0):
-            return None, ("No memory bank was given and this chat has no "
-                          "default bank configured. Specify a bank id as the "
-                          "first field, or ask an admin to set this chat's "
-                          "<code>memory_bank</code>.")
-        return default, None
+        # Omit the bank; the server resolves its configured default_bank.
+        return "", None
 
     # Non-empty field 0: fuzzy-resolve against the caller's accessible banks.
     if session is None:
@@ -331,7 +329,9 @@ def _send_endpoint_error(service, message, session, r, context: str) -> bool:
         msg = ("You don't have permission to %s in that bank "
                "(it may be read-only for you)." % _esc(context))
     elif status == 404:
-        msg = ("I couldn't find that (unknown bank/memory, or you don't have access).")
+        msg = ("I couldn't find that. The bank or memory may not exist, you "
+               "may not have access, or no default bank is configured — try "
+               "naming a bank explicitly as the first field.")
     elif status == 503:
         msg = "My memory is busy right now; please try again shortly."
     else:
@@ -342,6 +342,21 @@ def _send_endpoint_error(service, message, session, r, context: str) -> bool:
 
 
 # =============================== Subcommands =============================== #
+def _bank_display(bank_ref, echoed=None):
+    """Returns a display label for the resolved bank.
+
+    Prefers the server-echoed bank id (accurate when the service default was
+    used), then the client-side ref, and finally a neutral "default bank" label
+    when neither is available (the bank was omitted and the endpoint does not
+    echo it back).
+    """
+    if isinstance(echoed, str) and len(echoed) > 0:
+        return echoed
+    if isinstance(bank_ref, str) and len(bank_ref) > 0:
+        return bank_ref
+    return "default bank"
+
+
 def _cmd_banks(service, message, fields: list) -> bool:
     """`/m banks` -> POST /bank/list. Lists banks the caller may access.
 
@@ -378,8 +393,8 @@ def _cmd_banks(service, message, fields: list) -> bool:
 
 def _cmd_tags(service, message, fields: list) -> bool:
     """`/m tags [bank]` -> POST /tag/list. Lists tags and their counts."""
-    bank_id, err = _resolve_bank(service, message, fields)
-    if bank_id is None:
+    bank_ref, err = _resolve_bank(service, message, fields)
+    if bank_ref is None:
         if err is not None:
             service.send_message(message.chat.id, err, parse_mode="HTML")
         return False
@@ -388,19 +403,24 @@ def _cmd_tags(service, message, fields: list) -> bool:
     if session is None:
         return False
 
-    r = session.post("/tag/list", payload={"bank": bank_id})
+    payload = {}
+    if bank_ref:
+        payload["bank"] = bank_ref
+    r = session.post("/tag/list", payload=payload)
     if not session.get_response_success(r):
         return _send_endpoint_error(service, message, session, r, "list tags")
 
     data = session.get_response_json(r)
     tags = data.get("tags", []) if isinstance(data, dict) else []
+    bank_label = _bank_display(bank_ref,
+                               data.get("bank") if isinstance(data, dict) else None)
     if len(tags) == 0:
         service.send_message(message.chat.id,
                              "Bank <code>%s</code> has no tags yet." %
-                             _esc(bank_id), parse_mode="HTML")
+                             _esc(bank_label), parse_mode="HTML")
         return True
 
-    lines = ["<b>Tags in <code>%s</code>:</b>" % _esc(bank_id)]
+    lines = ["<b>Tags in <code>%s</code>:</b>" % _esc(bank_label)]
     for tag in tags:
         lines.append("• <code>%s</code> (%s)" % (
             _esc(tag.get("tag")), _esc(tag.get("count", 0))))
@@ -410,8 +430,8 @@ def _cmd_tags(service, message, fields: list) -> bool:
 
 def _cmd_add(service, message, fields: list) -> bool:
     """`/m add [bank].name.content[.tags][.timestamp]` -> POST /memory/add."""
-    bank_id, err = _resolve_bank(service, message, fields)
-    if bank_id is None:
+    bank_ref, err = _resolve_bank(service, message, fields)
+    if bank_ref is None:
         if err is not None:
             service.send_message(message.chat.id, err, parse_mode="HTML")
         return False
@@ -423,7 +443,9 @@ def _cmd_add(service, message, fields: list) -> bool:
         _usage(service, message, "add")
         return False
 
-    payload = {"bank": bank_id, "name": name, "content": content}
+    payload = {"name": name, "content": content}
+    if bank_ref:
+        payload["bank"] = bank_ref
 
     # Optional tags (comma-separated) in field 3. The service validates them.
     if len(params) > 2 and len(params[2]) > 0:
@@ -450,17 +472,19 @@ def _cmd_add(service, message, fields: list) -> bool:
 
     data = session.get_response_json(r)
     mem_id = data.get("id") if isinstance(data, dict) else None
+    bank_label = _bank_display(bank_ref,
+                               data.get("bank") if isinstance(data, dict) else None)
     service.send_message(message.chat.id,
                          "Saved to <code>%s</code> as <code>%s</code>." % (
-                             _esc(bank_id), _esc(mem_id)),
+                             _esc(bank_label), _esc(mem_id)),
                          parse_mode="HTML")
     return True
 
 
 def _cmd_get(service, message, fields: list) -> bool:
     """`/m get [bank].id` -> POST /memory/get. Renders the full memory."""
-    bank_id, err = _resolve_bank(service, message, fields)
-    if bank_id is None:
+    bank_ref, err = _resolve_bank(service, message, fields)
+    if bank_ref is None:
         if err is not None:
             service.send_message(message.chat.id, err, parse_mode="HTML")
         return False
@@ -474,7 +498,10 @@ def _cmd_get(service, message, fields: list) -> bool:
     if session is None:
         return False
 
-    r = session.post("/memory/get", payload={"bank": bank_id, "id": mem_id})
+    payload = {"id": mem_id}
+    if bank_ref:
+        payload["bank"] = bank_ref
+    r = session.post("/memory/get", payload=payload)
     if not session.get_response_success(r):
         return _send_endpoint_error(service, message, session, r, "get memory")
 
@@ -484,20 +511,22 @@ def _cmd_get(service, message, fields: list) -> bool:
         service.send_message(message.chat.id, "That memory was not found.")
         return True
 
-    service.send_message(message.chat.id, _render_memory(memory, bank_id),
+    # /memory/get does not echo the bank; use a neutral label if defaulted.
+    service.send_message(message.chat.id,
+                         _render_memory(memory, _bank_display(bank_ref)),
                          parse_mode="HTML")
     return True
 
 
 def _cmd_search(service, message, fields: list) -> bool:
     """`/m search [bank].k=v...` -> POST /memory/list. Compact result list."""
-    bank_id, err = _resolve_bank(service, message, fields)
-    if bank_id is None:
+    bank_ref, err = _resolve_bank(service, message, fields)
+    if bank_ref is None:
         if err is not None:
             service.send_message(message.chat.id, err, parse_mode="HTML")
         return False
 
-    payload, perr = _build_search_payload(bank_id, fields[1:])
+    payload, perr = _build_search_payload(bank_ref, fields[1:])
     if perr is not None:
         service.send_message(message.chat.id, perr, parse_mode="HTML")
         return False
@@ -512,16 +541,18 @@ def _cmd_search(service, message, fields: list) -> bool:
                                     "search memories")
 
     data = session.get_response_json(r)
+    bank_label = _bank_display(bank_ref,
+                               data.get("bank") if isinstance(data, dict) else None)
     service.send_message(message.chat.id,
-                         _render_search(data, bank_id, payload),
+                         _render_search(data, bank_label, payload),
                          parse_mode="HTML")
     return True
 
 
 def _cmd_edit(service, message, fields: list) -> bool:
     """`/m edit [bank].id.k=v...` -> POST /memory/update. Partial updates."""
-    bank_id, err = _resolve_bank(service, message, fields)
-    if bank_id is None:
+    bank_ref, err = _resolve_bank(service, message, fields)
+    if bank_ref is None:
         if err is not None:
             service.send_message(message.chat.id, err, parse_mode="HTML")
         return False
@@ -531,7 +562,9 @@ def _cmd_edit(service, message, fields: list) -> bool:
         _usage(service, message, "edit")
         return False
 
-    payload = {"bank": bank_id, "id": mem_id}
+    payload = {"id": mem_id}
+    if bank_ref:
+        payload["bank"] = bank_ref
     allowed = ("name", "content", "tags")
     saw_update = False
     for field in fields[2:]:
@@ -566,15 +599,15 @@ def _cmd_edit(service, message, fields: list) -> bool:
 
     service.send_message(message.chat.id,
                          "Updated <code>%s</code> in <code>%s</code>." % (
-                             _esc(mem_id), _esc(bank_id)),
+                             _esc(mem_id), _esc(_bank_display(bank_ref))),
                          parse_mode="HTML")
     return True
 
 
 def _cmd_del(service, message, fields: list) -> bool:
     """`/m del [bank].id` -> POST /memory/delete."""
-    bank_id, err = _resolve_bank(service, message, fields)
-    if bank_id is None:
+    bank_ref, err = _resolve_bank(service, message, fields)
+    if bank_ref is None:
         if err is not None:
             service.send_message(message.chat.id, err, parse_mode="HTML")
         return False
@@ -588,22 +621,25 @@ def _cmd_del(service, message, fields: list) -> bool:
     if session is None:
         return False
 
-    r = session.post("/memory/delete", payload={"bank": bank_id, "id": mem_id})
+    payload = {"id": mem_id}
+    if bank_ref:
+        payload["bank"] = bank_ref
+    r = session.post("/memory/delete", payload=payload)
     if not session.get_response_success(r):
         return _send_endpoint_error(service, message, session, r,
                                     "delete memory")
 
     service.send_message(message.chat.id,
                          "Deleted <code>%s</code> from <code>%s</code>." % (
-                             _esc(mem_id), _esc(bank_id)),
+                             _esc(mem_id), _esc(_bank_display(bank_ref))),
                          parse_mode="HTML")
     return True
 
 
 def _cmd_rebuild(service, message, fields: list) -> bool:
     """`/m rebuild [bank]` -> POST /bank/rebuild_tags (admin)."""
-    bank_id, err = _resolve_bank(service, message, fields)
-    if bank_id is None:
+    bank_ref, err = _resolve_bank(service, message, fields)
+    if bank_ref is None:
         if err is not None:
             service.send_message(message.chat.id, err, parse_mode="HTML")
         return False
@@ -612,14 +648,20 @@ def _cmd_rebuild(service, message, fields: list) -> bool:
     if session is None:
         return False
 
-    r = session.post("/bank/rebuild_tags", payload={"bank": bank_id})
+    payload = {}
+    if bank_ref:
+        payload["bank"] = bank_ref
+    r = session.post("/bank/rebuild_tags", payload=payload)
     if not session.get_response_success(r):
         return _send_endpoint_error(service, message, session, r,
                                     "rebuild tags")
 
+    data = session.get_response_json(r)
+    bank_label = _bank_display(bank_ref,
+                               data.get("bank") if isinstance(data, dict) else None)
     service.send_message(message.chat.id,
                          "Rebuilt the tag index for <code>%s</code>." %
-                         _esc(bank_id), parse_mode="HTML")
+                         _esc(bank_label), parse_mode="HTML")
     return True
 
 
@@ -632,14 +674,14 @@ def _memory_snippet(content) -> str:
     return text
 
 
-def _render_memory(memory: dict, bank_id: str) -> str:
+def _render_memory(memory: dict, bank_label: str) -> str:
     """Renders a full memory (name, id, timestamp, tags, content) as HTML."""
     tags = memory.get("tags", []) or []
     tag_str = ", ".join(_esc(t) for t in tags) if len(tags) > 0 else "(none)"
     lines = [
         "<b>%s</b>" % _esc(memory.get("name", "(untitled)")),
         "<i>id:</i> <code>%s</code>" % _esc(memory.get("id")),
-        "<i>bank:</i> <code>%s</code>" % _esc(bank_id),
+        "<i>bank:</i> <code>%s</code>" % _esc(bank_label),
         "<i>when:</i> %s" % _esc(_format_timestamp(memory.get("timestamp"))),
         "<i>tags:</i> %s" % tag_str,
         "",
@@ -648,7 +690,7 @@ def _render_memory(memory: dict, bank_id: str) -> str:
     return "\n".join(lines)
 
 
-def _render_search(data, bank_id: str, payload: dict) -> str:
+def _render_search(data, bank_label: str, payload: dict) -> str:
     """Renders a compact HTML list of search results honoring count/total."""
     if not isinstance(data, dict):
         return "No results."
@@ -657,10 +699,10 @@ def _render_search(data, bank_id: str, payload: dict) -> str:
     total = data.get("total", count)
 
     if count == 0:
-        return "No memories in <code>%s</code> matched." % _esc(bank_id)
+        return "No memories in <code>%s</code> matched." % _esc(bank_label)
 
     header = "<b>%s of %s match(es) in <code>%s</code>:</b>" % (
-        _esc(count), _esc(total), _esc(bank_id))
+        _esc(count), _esc(total), _esc(bank_label))
     lines = [header]
     for memory in memories:
         tags = memory.get("tags", []) or []
@@ -692,15 +734,20 @@ def _render_search(data, bank_id: str, payload: dict) -> str:
 
 
 # ============================ Search payload ============================== #
-def _build_search_payload(bank_id: str, kv_fields: list):
+def _build_search_payload(bank_ref: str, kv_fields: list):
     """Builds the /memory/list payload from ``key=value`` search fields.
+
+    ``bank_ref`` is the resolved bank id, or ``""`` to omit the ``bank`` key and
+    let the service resolve its own default.
 
     Returns ``(payload, None)`` on success or ``(None, error)`` (an escaped-HTML
     error string) when a field is invalid. Recognized keys:
     ``kw``, ``tags``, ``mode``, ``from``, ``to``, ``limit``, ``offset``,
     ``order``.
     """
-    payload = {"bank": bank_id}
+    payload = {}
+    if bank_ref:
+        payload["bank"] = bank_ref
     filters = {}
     time_range = {}
 
@@ -785,13 +832,11 @@ def _usage(service, message, subcommand: str) -> None:
 
 def _memory_help(service, message) -> None:
     """Sends usage help listing every subcommand plus examples."""
-    bank_id = service.get_chat_memory_bank(message.chat.id)
-
     lines = [
         "<b>/memory</b> (alias <b>/m</b>) — structured memory commands.",
         "",
         "The first field is the <b>bank</b>: leave it empty or use "
-        "<code>-</code> for this chat's default bank. Otherwise it is "
+        "<code>-</code> to use the <b>service default</b> bank. Otherwise it is "
         "fuzzy-matched against the banks you can access: exact id, then exact "
         "name, then a unique name substring; if a reference matches more than "
         "one bank the reply lists the candidates so you can be more specific.",
@@ -826,16 +871,11 @@ def _memory_help(service, message) -> None:
         "<code>/m add .Parking.Section G7 near the elevator.parking</code>",
         "<code>/m get lore.abc123</code>",
         "<code>/m edit lore.abc123.tags=mithril,mines</code>",
+        "",
+        "<i>Leaving the bank empty uses the service's configured default "
+        "bank; if none is configured (or you can't access it), name a bank "
+        "as the first field.</i>",
     ]
-
-    if bank_id is not None:
-        lines.append("")
-        lines.append("This chat's default bank: <code>%s</code>" %
-                     _esc(bank_id))
-    else:
-        lines.append("")
-        lines.append("<i>This chat has no default bank; name one as the first "
-                     "field.</i>")
 
     service.send_message(message.chat.id, "\n".join(lines), parse_mode="HTML")
 

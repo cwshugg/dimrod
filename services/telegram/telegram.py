@@ -9,10 +9,12 @@ import sys
 import time
 import re
 from datetime import datetime
+import enum
 import flask
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, \
                           ReactionTypeEmoji
+from telebot.apihelper import ApiTelegramException
 import traceback
 import threading
 import sqlite3
@@ -56,6 +58,64 @@ from commands.s_reset import command_s_reset
 from commands.s_menu import command_s_menu
 
 
+# Substrings (matched case-insensitively) that indicate a telegram API 400
+# error caused by a bad/closed/missing forum topic (message_thread_id).
+_BAD_TOPIC_SUBSTRINGS = (
+    "thread not found",
+    "message thread not found",
+    "topic_closed",
+)
+
+
+class SendErrorClass(enum.Enum):
+    """Classification of errors raised while sending a telegram message."""
+    # Any error we should handle with the existing refresh/sleep/retry loop.
+    FATAL = "fatal"
+    # A 400 error indicating the target forum topic is bad/closed/missing. The
+    # send should be retried exactly once with no message_thread_id (General).
+    BAD_TOPIC = "bad_topic"
+
+
+def classify_send_error(e: Exception) -> SendErrorClass:
+    """Classifies a message-send exception into a `SendErrorClass`.
+
+    A `BAD_TOPIC` is an `ApiTelegramException` with HTTP 400 whose description
+    indicates the forum topic is unavailable (closed/missing). Everything else
+    is `FATAL` (handled by the existing refresh/sleep/retry behavior).
+    """
+    if isinstance(e, ApiTelegramException) and getattr(e, "error_code", None) == 400:
+        description = str(getattr(e, "description", "")).lower()
+        if any(sub in description for sub in _BAD_TOPIC_SUBSTRINGS):
+            return SendErrorClass.BAD_TOPIC
+    return SendErrorClass.FATAL
+
+
+# Regex matching the "/bot<token>/" segment of a Telegram Bot API URL, where
+# <token> is "<bot_id>:<secret>". telebot/requests transport errors sometimes
+# embed the full request URL, so this is a defensive fallback that masks the
+# secret even if it does not exactly equal the configured key.
+_BOT_URL_TOKEN_RE = re.compile(r"(bot\d+):[A-Za-z0-9_-]+")
+
+
+def redact_secrets(msg, token=None) -> str:
+    """Returns `msg` with the Telegram bot token redacted for safe logging.
+
+    Bot-API transport errors can embed the request URL, which contains the bot
+    token in the "/bot<token>/" path segment; logging that verbatim would leak
+    the credential. We mask both the exact configured token wherever it appears
+    and, as a fallback, the "bot<id>:<secret>" URL form. The token is never
+    emitted in cleartext.
+    """
+    text = msg if isinstance(msg, str) else str(msg)
+    # mask the exact configured token wherever it appears
+    if token:
+        text = text.replace(token, "<redacted>")
+    # defensive fallback: mask the secret embedded in a Bot API URL, keeping the
+    # (non-secret) bot id for debuggability
+    text = _BOT_URL_TOKEN_RE.sub(r"\1:<redacted>", text)
+    return text
+
+
 class TelegramConfig(ServiceConfig):
     def __init__(self):
         """Constructor."""
@@ -95,6 +155,14 @@ class TelegramService(Service):
         self.config = TelegramConfig()
         self.config.parse_file(config_path)
         self.refresh()
+
+        # Thread-local "ambient" message context. telebot dispatches each
+        # inbound update on its own worker thread and runs the handler (and any
+        # sends it performs) synchronously in that same thread, so a plain
+        # threading.local gives correct per-update isolation. Currently this
+        # only carries the originating forum-topic id (message_thread_id) so
+        # replies land in the same topic; it is left easy to extend later.
+        self._ambient_msg_ctx = threading.local()
 
         # define the bot's commands
         self.commands = [
@@ -177,19 +245,29 @@ class TelegramService(Service):
         """Sets up a new TeleBot instance."""
         self.bot = telebot.TeleBot(self.config.bot_api_key)
 
+    def _ambient_thread_id(self):
+        """Returns the ambient forum-topic id (message_thread_id) captured for
+        the update currently being handled on this thread, or None if there is
+        no ambient topic (General / non-forum / proactive send).
+        """
+        return getattr(self._ambient_msg_ctx, "message_thread_id", None)
+
     def check_message(self, message):
         """Takes in a message and checks the chat-of-origin (or user-of-origin) and
         returns True if the user/chat is whitelisted. Returns False otherwise.
         """
         # first, check the chat ID
         chat_id = str(message.chat.id)
+        # capture the originating forum-topic id (None = General/non-forum/private)
+        thread_id = getattr(message, "message_thread_id", None)
         chat_is_valid = False
         for chat in self.chats:
             if chat.id == chat_id:
                 chat_is_valid = True
                 break
         if not chat_is_valid:
-            self.log.write("Message from unrecognized chat: %s" % chat_id)
+            self.log.write("Message from unrecognized chat: \"%s\" (topic: %s)" %
+                           (chat_id, thread_id))
             return False
 
         # next, check the user ID
@@ -198,11 +276,12 @@ class TelegramService(Service):
         for user in self.users:
             if user.id == user_id:
                 user_is_valid = True
-                self.log.write("Message from %s in chat \"%s\"." %
-                               (user.name, chat.name))
+                self.log.write("Message from \"%s\" in chat \"%s\" (topic: %s)." %
+                               (user.name, chat.name, thread_id))
                 break
         if not user_is_valid:
-            self.log.write("Message from unrecognized user: %s" % user_id)
+            self.log.write("Message from unrecognized user: \"%s\" (topic: %s)" %
+                           (user_id, thread_id))
         return user_is_valid
 
     def get_speaker_session(self):
@@ -284,15 +363,6 @@ class TelegramService(Service):
         }
         pyld["telegram_message"] = message_info
 
-        # include the chat's configured membank default bank (if any) so the
-        # speaker forwards it into the NLA invocation's `request_data`, letting
-        # the membank remember/recall NLAs resolve the target bank. When the
-        # chat has no configured bank, omit the key (the NLA will ask which
-        # bank to use).
-        memory_bank = self.get_chat_memory_bank(message.chat.id)
-        if memory_bank is not None:
-            pyld["membank"] = {"default_bank": memory_bank}
-
         # ping the /talk endpoint
         r = speaker.post("/talk", payload=pyld)
         if OracleSession.get_response_success(r):
@@ -301,20 +371,6 @@ class TelegramService(Service):
         # if the above didn't work, return nothing
         self.log.write("Failed to get conversation from speaker: %s" %
                        OracleSession.get_response_message(r))
-        return None
-
-    # ------------------------------- Memory --------------------------------- #
-    def get_chat_memory_bank(self, chat_id):
-        """Resolves the configured membank bank id for a telegram chat.
-
-        The per-chat target bank is a telegram-side config concern (membank has
-        no default-bank concept). Returns the bank id string, or None if the
-        chat has no configured target bank.
-        """
-        chat_id = str(chat_id)
-        for chat in self.chats:
-            if chat.id == chat_id:
-                return getattr(chat, "memory_bank", None)
         return None
 
     def dialogue_message_search(self,
@@ -440,9 +496,25 @@ class TelegramService(Service):
     def send_message(self, chat_id, text,
                      parse_mode=None,
                      reply_markup=None,
-                     reply_to_message_id=None):
-        """Wrapper for sending a message."""
+                     reply_to_message_id=None,
+                     message_thread_id=None):
+        """Wrapper for sending a message.
+
+        `message_thread_id` selects the forum topic to send into. An explicit
+        value wins; when omitted (None) the ambient topic captured for the
+        update currently being handled on this thread is used. `None` means
+        "no topic" (General / non-forum) — 0 is never passed.
+        """
         text = self.sanitize_message_text(text, parse_mode=parse_mode)
+
+        # explicit-wins: only fall back to the ambient topic when the caller
+        # did not specify one
+        if message_thread_id is None:
+            message_thread_id = self._ambient_thread_id()
+        # 0 is never a valid forum topic id; treat any falsy value as "no topic"
+        # so a literal 0 is never forwarded to telebot.
+        if not message_thread_id:
+            message_thread_id = None
 
         # try sending the message a finite number of times
         for i in range(self.config.bot_error_retry_attempts):
@@ -450,14 +522,34 @@ class TelegramService(Service):
                 return self.bot.send_message(chat_id, text,
                                              parse_mode=parse_mode,
                                              reply_markup=reply_markup,
-                                             reply_to_message_id=reply_to_message_id)
+                                             reply_to_message_id=reply_to_message_id,
+                                             message_thread_id=message_thread_id)
             except Exception as e:
+                # if the target forum topic is bad/closed/missing, retry exactly
+                # once with no topic (deliver to General) instead of resetting
+                # the bot and looping.
+                if classify_send_error(e) == SendErrorClass.BAD_TOPIC and \
+                   message_thread_id is not None:
+                    self.log.write("Topic unavailable (%s); retrying once in "
+                                   "General." % getattr(e, "description", e))
+                    try:
+                        return self.bot.send_message(chat_id, text,
+                                                     parse_mode=parse_mode,
+                                                     reply_markup=reply_markup,
+                                                     reply_to_message_id=reply_to_message_id)
+                    except Exception as e2:
+                        self.log.write("General fallback also failed: %s" %
+                                       redact_secrets(str(e2), getattr(self.config, "bot_api_key", None)))
+                        return None
+
                 # on failure, sleep for a small amount of time, and get a new
                 # bot instance
                 self.log.write("Failed to send message. "
                                "Resetting the bot, sleeping for a short time, "
                                "and trying again.")
-                tb = traceback.format_exc()
+                # redact the bot token before logging the traceback, since a
+                # transport error string can embed the Bot API URL/token
+                tb = redact_secrets(traceback.format_exc(), getattr(self.config, "bot_api_key", None))
                 for line in tb.split("\n"):
                     self.log.write(line)
                 self.refresh()
@@ -507,14 +599,16 @@ class TelegramService(Service):
                 time.sleep(self.config.bot_error_retry_delay)
         self.log.write("Failed to delete message. Giving up.")
 
-    def send_question(self, chat_id, question: str, parse_mode=None):
+    def send_question(self, chat_id, question: str, parse_mode=None,
+                      message_thread_id=None):
         """Sends a message that is intended to pose a question (and ask for a
         response from) the user. The message is sent, and a conversation is sent
         to Speaker for storage. The details of the conversation are returned, so
         the caller can check in for a response later.
         """
         # send the message, and receive the telegram message object
-        message = self.send_message(chat_id, question, parse_mode=parse_mode)
+        message = self.send_message(chat_id, question, parse_mode=parse_mode,
+                                    message_thread_id=message_thread_id)
 
         # create a `DialogueConversation` object to represent this question
         now = datetime.now()
@@ -540,12 +634,14 @@ class TelegramService(Service):
         return DialogueConversation.from_json(convo_data)
 
     def send_menu(self, chat_id, m: Menu,
-                  parse_mode=None):
+                  parse_mode=None,
+                  message_thread_id=None):
         """Builds and sends a menu of buttons."""
         markup = m.get_markup()
         msg = self.send_message(chat_id, m.title,
                                 parse_mode=parse_mode,
-                                reply_markup=markup)
+                                reply_markup=markup,
+                                message_thread_id=message_thread_id)
 
         # perform a few sanity checks
         assert msg.reply_markup is not None
@@ -655,155 +751,162 @@ class TelegramService(Service):
             # Generic message handler.
             @self.bot.message_handler()
             def bot_handle_message(message):
-                if not self.check_message(message):
-                    return
-                now = datetime.now()
-
-                # split the message into pieces and look for a command name (it must
-                # begin with a "/" to be a command)
-                args = message.text.split()
-                first = args[0].strip().lower()
-                if first.startswith(TelegramCommand.prefix):
-                    for command in self.commands:
-                        if command.match(first):
-                            command.run(self, message, args)
-                            return
-                    # if we didn't find a matching command, tell the user
-                    self.send_message(message.chat.id,
-                                      "Sorry, that's not a valid command.\n"
-                                      "Try /help.")
-                    return
-
-                # if a matching command wasn't found, we'll interpret it as a chat
-                # message to DImROD.
-
-                # is this message in response to another? If so, look for a message
-                # mapping for the previous message
-                convo_id = None
-                convo_is_system_query = False
-                chat_id = str(message.chat.id)
-                if hasattr(message, "reply_to_message") and \
-                   message.reply_to_message is not None:
-                    rtmsg = message.reply_to_message
-
-                    # search for a message mapped to the reply-to-message's
-                    # telegram message ID
-                    messages = self.dialogue_message_search(
-                        telegram_message_id=str(rtmsg.message_id),
-                    )
-
-                    # if a result was found, get the conversation ID from the
-                    # message and save it
-                    if messages is not None:
-                        messages_len = len(messages)
-                        if messages_len > 0:
-                            if messages_len > 1:
-                                self.log.write("Unexpectedly found more than one message "
-                                               "matching telegram message ID \"%s\". "
-                                               "Using the first one." %
-                                               str(rtmsg.message_id))
-                            first_message_data = messages[0]
-                            first_message = DialogueMessage.from_json(first_message_data["message"])
-                            convo_id = first_message_data["conversation_id"]
-
-                            # is the message a system query type?
-                            if first_message.author.type in [DialogueAuthorType.SYSTEM_QUERY_TO_USER,
-                                                             DialogueAuthorType.USER_ANSWER_TO_QUERY]:
-                                convo_is_system_query = True
-                            # if the message is a normal message, we want to
-                            # replace the conversation ID in the local conversation
-                            # record, such that this particular telegram chat's
-                            # current conversation is replaced with this one
-                            else:
-                                self.chat_conversations[chat_id] = {
-                                    "conversation_id": convo_id,
-                                    "timestamp": datetime.now()
-                                }
-                # otherwise, look for an active conversation ID for this telegram
-                # chat, and use that conversation ID instead
-                else:
-                    chat_id = str(message.chat.id)
-                    if chat_id in self.chat_conversations:
-                        timediff = now.timestamp() - self.chat_conversations[chat_id]["timestamp"].timestamp()
-                        if timediff < self.config.bot_conversation_timeout:
-                            convo_id = self.chat_conversations[chat_id]["conversation_id"]
-                        else:
-                            self.log.write("Conversation for chat \"%s\" has expired." % chat_id)
-
-                # is the conversation a system query to the user? If so, we'll
-                # simply update the conversation to include this new message, and
-                # react to the message
-                if convo_is_system_query:
-                    # put together a message object to use to update the system
-                    # query conversation
-                    answer_msg = DialogueMessage.from_json({
-                        "author": DialogueAuthor.from_json({
-                            "type": DialogueAuthorType.USER_ANSWER_TO_QUERY.value,
-                            "name": "telegram_answerer",
-                        }),
-                        "content": message.text,
-                        "telegram_chat_id": str(chat_id),
-                        "telegram_message_id": str(message.id),
-                    })
-                    self.dialogue_conversation_addmsg(convo_id, answer_msg)
-
-                    # add a reaction to the message, so the user knows we processed
-                    # the message
-                    self.react_to_message(chat_id, message.id, emoji="👍")
-                    return
-
-                # if it's a normal message, pass the message (and conversation ID,
-                # if we found one) to the dialogue interface
+                # capture the originating forum-topic id so replies land in the same
+                # topic; cleared in the finally so it never leaks into the next update
+                # handled on this worker thread.
+                self._ambient_msg_ctx.message_thread_id = getattr(message, "message_thread_id", None)
                 try:
-                    talkdata = self.dialogue_talk(message, conversation_id=convo_id)
+                    if not self.check_message(message):
+                        return
+                    now = datetime.now()
 
-                    # check for failure-to-converse and update the chat dictionary,
-                    # if able
-                    response = None
-                    if talkdata is None:
-                        response = "Sorry, I couldn't generate a response."
+                    # split the message into pieces and look for a command name (it must
+                    # begin with a "/" to be a command)
+                    args = message.text.split()
+                    first = args[0].strip().lower()
+                    if first.startswith(TelegramCommand.prefix):
+                        for command in self.commands:
+                            if command.match(first):
+                                command.run(self, message, args)
+                                return
+                        # if we didn't find a matching command, tell the user
+                        self.send_message(message.chat.id,
+                                          "Sorry, that's not a valid command.\n"
+                                          "Try /help.")
+                        return
+
+                    # if a matching command wasn't found, we'll interpret it as a chat
+                    # message to DImROD.
+
+                    # is this message in response to another? If so, look for a message
+                    # mapping for the previous message
+                    convo_id = None
+                    convo_is_system_query = False
+                    chat_id = str(message.chat.id)
+                    if hasattr(message, "reply_to_message") and \
+                       message.reply_to_message is not None:
+                        rtmsg = message.reply_to_message
+
+                        # search for a message mapped to the reply-to-message's
+                        # telegram message ID
+                        messages = self.dialogue_message_search(
+                            telegram_message_id=str(rtmsg.message_id),
+                        )
+
+                        # if a result was found, get the conversation ID from the
+                        # message and save it
+                        if messages is not None:
+                            messages_len = len(messages)
+                            if messages_len > 0:
+                                if messages_len > 1:
+                                    self.log.write("Unexpectedly found more than one message "
+                                                   "matching telegram message ID \"%s\". "
+                                                   "Using the first one." %
+                                                   str(rtmsg.message_id))
+                                first_message_data = messages[0]
+                                first_message = DialogueMessage.from_json(first_message_data["message"])
+                                convo_id = first_message_data["conversation_id"]
+
+                                # is the message a system query type?
+                                if first_message.author.type in [DialogueAuthorType.SYSTEM_QUERY_TO_USER,
+                                                                 DialogueAuthorType.USER_ANSWER_TO_QUERY]:
+                                    convo_is_system_query = True
+                                # if the message is a normal message, we want to
+                                # replace the conversation ID in the local conversation
+                                # record, such that this particular telegram chat's
+                                # current conversation is replaced with this one
+                                else:
+                                    self.chat_conversations[chat_id] = {
+                                        "conversation_id": convo_id,
+                                        "timestamp": datetime.now()
+                                    }
+                    # otherwise, look for an active conversation ID for this telegram
+                    # chat, and use that conversation ID instead
                     else:
-                        response = talkdata["response"]
+                        chat_id = str(message.chat.id)
+                        if chat_id in self.chat_conversations:
+                            timediff = now.timestamp() - self.chat_conversations[chat_id]["timestamp"].timestamp()
+                            if timediff < self.config.bot_conversation_timeout:
+                                convo_id = self.chat_conversations[chat_id]["conversation_id"]
+                            else:
+                                self.log.write("Conversation for chat \"%s\" has expired." % chat_id)
 
-                    # send the response, and capture the returned message object
-                    rmessage = self.send_message(message.chat.id, response, parse_mode="HTML")
-                    if rmessage is None:
-                        raise Exception("Failed to send response message.")
+                    # is the conversation a system query to the user? If so, we'll
+                    # simply update the conversation to include this new message, and
+                    # react to the message
+                    if convo_is_system_query:
+                        # put together a message object to use to update the system
+                        # query conversation
+                        answer_msg = DialogueMessage.from_json({
+                            "author": DialogueAuthor.from_json({
+                                "type": DialogueAuthorType.USER_ANSWER_TO_QUERY.value,
+                                "name": "telegram_answerer",
+                            }),
+                            "content": message.text,
+                            "telegram_chat_id": str(chat_id),
+                            "telegram_message_id": str(message.id),
+                        })
+                        self.dialogue_conversation_addmsg(convo_id, answer_msg)
 
-                    if talkdata is not None and "conversation_id" in talkdata:
-                        # update both the request message (the user's message) and
-                        # the response message (the message we generated) to
-                        # includethe telegram chat ID and their corresponding
-                        # telegram message IDs. This will let us query for them
-                        # later by the telegram message ID
-                        self.dialogue_message_update(
-                            talkdata["request_message_id"],
-                            telegram_message_id=str(message.id),
-                            telegram_chat_id=str(message.chat.id)
-                        )
-                        self.dialogue_message_update(
-                            talkdata["response_message_id"],
-                            telegram_message_id=str(rmessage.id),
-                            telegram_chat_id=str(rmessage.chat.id)
-                        )
+                        # add a reaction to the message, so the user knows we processed
+                        # the message
+                        self.react_to_message(chat_id, message.id, emoji="👍")
+                        return
 
-                        # add the conversation record to the local, temporary
-                        # conversation table (this is used to track, and timeout,
-                        # active conversations)
-                        self.chat_conversations[chat_id] = {
-                            "conversation_id": talkdata["conversation_id"],
-                            "timestamp": datetime.now()
-                        }
+                    # if it's a normal message, pass the message (and conversation ID,
+                    # if we found one) to the dialogue interface
+                    try:
+                        talkdata = self.dialogue_talk(message, conversation_id=convo_id)
 
-                except Exception as e:
-                    # dump the exception stack trace into the message, for easier
-                    # debugging through Telegram
-                    tb = traceback.format_exc()
-                    msg = "Something went wrong.\n\n<code>%s</code>" % tb
-                    self.send_message(message.chat.id, msg, parse_mode="HTML")
+                        # check for failure-to-converse and update the chat dictionary,
+                        # if able
+                        response = None
+                        if talkdata is None:
+                            response = "Sorry, I couldn't generate a response."
+                        else:
+                            response = talkdata["response"]
 
-                    # raise the exception
-                    raise e
+                        # send the response, and capture the returned message object
+                        rmessage = self.send_message(message.chat.id, response, parse_mode="HTML")
+                        if rmessage is None:
+                            raise Exception("Failed to send response message.")
+
+                        if talkdata is not None and "conversation_id" in talkdata:
+                            # update both the request message (the user's message) and
+                            # the response message (the message we generated) to
+                            # includethe telegram chat ID and their corresponding
+                            # telegram message IDs. This will let us query for them
+                            # later by the telegram message ID
+                            self.dialogue_message_update(
+                                talkdata["request_message_id"],
+                                telegram_message_id=str(message.id),
+                                telegram_chat_id=str(message.chat.id)
+                            )
+                            self.dialogue_message_update(
+                                talkdata["response_message_id"],
+                                telegram_message_id=str(rmessage.id),
+                                telegram_chat_id=str(rmessage.chat.id)
+                            )
+
+                            # add the conversation record to the local, temporary
+                            # conversation table (this is used to track, and timeout,
+                            # active conversations)
+                            self.chat_conversations[chat_id] = {
+                                "conversation_id": talkdata["conversation_id"],
+                                "timestamp": datetime.now()
+                            }
+
+                    except Exception as e:
+                        # dump the exception stack trace into the message, for easier
+                        # debugging through Telegram
+                        tb = traceback.format_exc()
+                        msg = "Something went wrong.\n\n<code>%s</code>" % tb
+                        self.send_message(message.chat.id, msg, parse_mode="HTML")
+
+                        # raise the exception
+                        raise e
+                finally:
+                    self._ambient_msg_ctx.message_thread_id = None
 
             # Callback for any menu buttons that are pressed.
             @self.bot.callback_query_handler(func=lambda call: True)

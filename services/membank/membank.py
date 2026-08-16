@@ -339,12 +339,20 @@ class MembankOracle(Oracle):
         return None, _need_bank_result(action, banks=accessible)
 
     # ---------------------------- request helpers -------------------------- #
-    @staticmethod
-    def _get_bank_id(jdata):
-        """Extracts the required ``bank`` id from request JSON, or None."""
-        if not isinstance(jdata, dict):
-            return None
-        return jdata.get("bank", None)
+    def _get_bank_id(self, jdata):
+        """Extracts the ``bank`` id from request JSON.
+
+        When the request omits ``bank`` (missing or empty), fall back to the
+        service-level default (``config.default_bank``), mirroring the NLA
+        precedence step (c). This may be None when no default is configured, in
+        which case the caller's ACL check behaves exactly as before (404). ACL
+        is still enforced on the resolved default afterward, so an explicit
+        ``bank`` continues to override the default.
+        """
+        bank = jdata.get("bank", None) if isinstance(jdata, dict) else None
+        if not isinstance(bank, str) or len(bank) == 0:
+            return self.service.config.default_bank
+        return bank
 
     # Exceptions that signal transient overload and must fail secure with a
     # retryable HTTP 503 (lock-acquire timeout or a saturated worker pool).

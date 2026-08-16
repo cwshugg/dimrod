@@ -28,12 +28,6 @@ class TelegramChat(TelegramObject):
         self.fields = [
             UniserdesField("id",       [str],      required=True),
             UniserdesField("name",     [str],      required=False, default=None),
-            # Optional membank bank id this chat's /memory command targets by
-            # default. Membank has NO default-bank concept; this per-chat
-            # mapping lives entirely on the telegram side. When None, the
-            # /memory command asks the user which bank to use (or the user must
-            # name one inline).
-            UniserdesField("memory_bank", [str],   required=False, default=None)
         ]
 
     @staticmethod

@@ -141,7 +141,7 @@ extends `ServiceConfig` (which requires `service_name`, `msghub_name`, and an
 | `banks` | `list[MemoryBankConfig]` | ✓ | — | All configured memory banks and their ACLs |
 | `worker_pool` | `WorkerPoolConfig` | ✗ | defaults | Nested worker-pool settings (`worker_count`, `max_queue_size`); omit to use the defaults below |
 | `lock_timeout` | `float`/`int` | ✗ | `10.0` | **Service-level default** per-bank `ReadWriteLock` acquire timeout, in seconds. On timeout the request fails secure with a retryable `503`. `null` or `0` means an unbounded wait (the historical behavior). Each bank inherits this default unless it sets its own `lock_timeout` |
-| `default_bank` | `str` | ✗ | `None` | **Service-level default** memory bank **id** used by the NLA layer when a request neither names a bank nor supplies a per-request default (see [bank resolution](#bank-resolution-precedence)). Existence is validated at **startup** (an unknown id is fatal); per-user accessibility is validated at **request time**. `null`/omitted disables it |
+| `default_bank` | `str` | ✗ | `None` | **Service-level default** memory bank **id** used by the NLA layer **and** the direct `/m*` endpoints when a request neither names a bank nor supplies a per-request default (see [bank resolution](#bank-resolution-precedence)). Existence is validated at **startup** (an unknown id is fatal); per-user accessibility is validated at **request time**. `null`/omitted disables it |
 | `dialogue` | `DialogueConfig` | ✗ | `None` | LLM settings used **only** by the NLA layer; omit to run the core API without NLA |
 
 ### Worker-pool fields (`worker_pool` → `WorkerPoolConfig`)
@@ -227,10 +227,11 @@ worker_pool:
 # own lock_timeout. Use null/0 for the unbounded (historical) behavior.
 lock_timeout: 10
 
-# Service-level DEFAULT memory bank id for the NLA layer, used when a request
-# neither names a bank nor carries a per-request (telegram per-chat) default.
-# Must be one of banks[].id below; existence is validated at startup (fatal if
-# unknown), accessibility per-user at request time. Omit/null to disable.
+# Service-level DEFAULT memory bank id, used by the NLA layer AND the direct
+# /m* endpoints when a request neither names a bank nor carries a per-request
+# default. Must be one of banks[].id below; existence is validated at startup
+# (fatal if unknown), accessibility per-user at request time. Omit/null to
+# disable.
 default_bank: personal
 
 # LLM config used ONLY by the NLA layer. Omit to run without NLA endpoints.
@@ -257,30 +258,26 @@ banks:
     write_users: [admin]
 ```
 
-### Telegram per-chat bank mapping
+### Telegram default bank
 
-Membank itself has **no** default-bank concept — it only ever receives an
-explicit bank `id`. Choosing which bank a given Telegram chat targets is a
-telegram-side concern. Each entry in the Telegram service's `bot_chats` list may
-carry an optional `memory_bank` field naming the target bank:
+Membank owns the **single source of truth** for the default bank: the
+service-level `default_bank` config field. When a caller (including the Telegram
+`/memory` command) issues a direct `/m*` request **without** naming a bank, the
+direct endpoints fall back to `default_bank` (see
+[bank resolution precedence](#bank-resolution-precedence) step **(c)**), then
+enforce the caller's ACL on the resolved bank exactly as if it had been named
+explicitly. There is **no** per-chat bank configuration on the Telegram side.
 
-```yaml
-bot_chats:
-  - id: "123456789"
-    memory_bank: personal
-  - id: "987654321"
-    memory_bank: worldbuilding
-```
+When a Telegram chat runs `/memory` and leaves a subcommand's bank field empty
+or `-`, the command simply **omits** the `bank` key from its request, letting
+membank resolve `default_bank`. A bank named explicitly as the first field
+overrides this. If no `default_bank` is configured (or the caller cannot access
+it), the request returns the normal `404`/`403`, and `/memory` surfaces a
+friendly message inviting the user to name a bank explicitly.
 
-When a chat runs `/memory`, the Telegram service resolves that chat's
-`memory_bank` (via `get_chat_memory_bank`) and uses it as the **default** bank
-whenever a subcommand's bank field is left empty or `-`. A bank named explicitly
-as the first field of a subcommand overrides this default. If a chat has no
-`memory_bank` and no bank is named, the command replies with a clear error
-asking the user to specify a bank or configure a default.
-
-For the natural-language (non-slash, conversational) path, the resolved default
-bank is instead attached to the Speaker's NLA request; see
+For the natural-language (non-slash, conversational) path, no per-request
+default is attached by Telegram anymore; the NLA layer falls through to the same
+service-level `default_bank`. See
 [Natural-Language Actions](#natural-language-actions-nla).
 
 ## Oracle Endpoints
@@ -486,10 +483,13 @@ Both handlers resolve their target bank through one shared resolver
    (writable banks for `remember`, readable banks for `recall`), so a match is
    always one the invoking account may use. An ambiguous substring (two or more
    matches) is treated as unresolved.
-2. **(b) the per-request default** — `request_data.membank.default_bank`, the
-   Telegram per-chat target bank.
+2. **(b) the per-request default** — `request_data.membank.default_bank`. This
+   slot is **reserved** and currently has **no producer**: Telegram no longer
+   attaches a per-chat default, so in practice resolution skips straight from
+   (a) to (c). It remains in the precedence order for forward compatibility.
 3. **(c) the service-level default** — `MembankConfig.default_bank` (see
-   [config](#configuration)).
+   [config](#configuration)). This is the effective default for both the NLA
+   path and the direct `/m*` endpoints.
 4. **(d) a "which bank?" clarification** — when nothing resolves.
 
 Special rule for **(a)**: if the utterance *named* a bank but it does not
@@ -611,9 +611,10 @@ these parse identically:
 /m search lore.kw=mithril.limit=5
 ```
 
-**Field 0 is always the optional bank.** Leave it empty or use `-` to target the
-chat's configured default bank (see
-[per-chat bank mapping](#telegram-per-chat-bank-mapping)); otherwise it is
+**Field 0 is always the optional bank.** Leave it empty or use `-` to use the
+membank **service default bank** (the request omits `bank` and the server
+resolves `default_bank`, see
+[bank resolution precedence](#bank-resolution-precedence)); otherwise it is
 **fuzzy-matched client-side** against the banks the caller can access, mirroring
 the server's `MemoryBankRegistry.resolve_ref` (see
 [bank resolution precedence](#bank-resolution-precedence)): exact `id`, then
@@ -622,8 +623,9 @@ contains, or is contained by, the reference (bidirectional containment against
 **names only**). If the reference matches **more than one** bank, the reply
 lists the candidate banks so you can be more specific; if it matches **none**,
 you get a "no matching bank" error. Fields 1+ are the subcommand's parameters.
-If the bank field is empty/`-` and the chat has no default bank, the command
-returns a clear error.
+If the bank field is empty/`-` and no `default_bank` is configured (or you
+cannot access it), the server returns a `404`/`403` and the command asks you to
+name a bank explicitly.
 
 > **Field-delimiter limitation.** Because `.` separates fields and there is no
 > escape mechanism, a field value **cannot contain a literal `.`**. For example,
