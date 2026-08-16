@@ -1369,11 +1369,23 @@ class TelegramOracle(Oracle):
             if "parse_mode" in flask.g.jdata:
                 pmode = str(flask.g.jdata["parse_mode"])
 
+            # parse an optional forum topic (a.k.a. message_thread_id). A
+            # numeric string is coerced to an int; anything absent/empty maps
+            # to None (General / no topic). 0 is never forwarded as a topic.
+            topic = flask.g.jdata.get("topic")
+            if topic is not None:
+                if isinstance(topic, str):
+                    topic = topic.strip()
+                    topic = int(topic) if topic.isdigit() else (topic or None)
+                if not topic:
+                    topic = None
+
             # send the message and respond
             convo = self.service.send_question(
                 chat_id,
                 flask.g.jdata["text"],
-                parse_mode=pmode
+                parse_mode=pmode,
+                message_thread_id=topic
             )
             return self.make_response(payload=convo.to_json())
 
@@ -1406,8 +1418,20 @@ class TelegramOracle(Oracle):
                 return self.make_response(success=False,
                                           msg="Invalid menu data.")
 
+            # parse an optional forum topic (a.k.a. message_thread_id). A
+            # numeric string is coerced to an int; anything absent/empty maps
+            # to None (General / no topic). 0 is never forwarded as a topic.
+            topic = flask.g.jdata.get("topic")
+            if topic is not None:
+                if isinstance(topic, str):
+                    topic = topic.strip()
+                    topic = int(topic) if topic.isdigit() else (topic or None)
+                if not topic:
+                    topic = None
+
             # send the menu and respond (return the menu object)
-            self.service.send_menu(chat_id, menu, parse_mode="HTML")
+            self.service.send_menu(chat_id, menu, parse_mode="HTML",
+                                   message_thread_id=topic)
             return self.make_response(msg="Menu sent successfully.",
                                       payload=menu.to_json())
 

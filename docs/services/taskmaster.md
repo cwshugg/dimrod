@@ -86,3 +86,9 @@ None.
 * Pickle-based timestamp persistence survives service restarts
 * The YNAB auto-categorization task uses Speaker's LLM to classify uncategorized transactions
 * The LifeTracker tasks use Telegram's interactive menu system for user data entry
+  * A tracker config specifies `telegram_chat_id`, which may be a friendly chat
+    name (resolved against `/bot/chats` by id or name substring) or a raw numeric
+    id (used as a fallback when no whitelisted chat matches).
+  * An optional `telegram_topic_id` routes both score-report messages and metric
+    question menus into a specific Telegram forum topic; omit it for General / no
+    topic.

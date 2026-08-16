@@ -264,6 +264,7 @@ class LifeTracker(Uniserdes):
             UniserdesField("metrics",      [LifeMetric],   required=True),
             UniserdesField("db_path",      [str],          required=True),
             UniserdesField("telegram_chat_id", [str],      required=True),
+            UniserdesField("telegram_topic_id", [str],     required=False, default=None),
         ]
 
     def get_database(self):
@@ -473,15 +474,49 @@ class TaskJob_LifeTracker(TaskJob):
         s.login()
         return s
 
+    def _resolve_telegram_chat(self, telegram_session, chat_id_or_name):
+        """Resolves a chat id or friendly name against the telegram bot's list
+        of whitelisted chats (GET `/bot/chats`). Mirrors notif's resolution: a
+        chat matches when the given value equals its id (exact, case-insensitive)
+        OR is a case-insensitive substring of its name. Returns the matched chat
+        object (dict) so it can be sent under the `"chat"` key, or None if there
+        is no match (or the chat list can't be retrieved).
+        """
+        try:
+            r = telegram_session.get("/bot/chats")
+            chats = telegram_session.get_response_json(r)
+        except Exception as e:
+            self.log("Failed to retrieve telegram chats: %s" % e)
+            return None
+
+        needle = str(chat_id_or_name).lower()
+        for cdata in chats:
+            if needle == cdata["id"].lower() or needle in cdata["name"].lower():
+                return cdata
+        return None
+
     def send_message(self, tracker: LifeTracker, text: str):
         """Sends a message to Telegram."""
         telegram_session = self.get_telegram_session()
 
-        # create a payload and send it to Telegram to create the menu
-        payload = {
-            "chat_id": tracker.telegram_chat_id,
-            "text": text,
-        }
+        # create a payload and send it to Telegram to create the menu.
+        # Resolve the configured chat id/name against the bot's whitelisted
+        # chats: if matched, send the chat object under "chat"; otherwise fall
+        # back to the raw "chat_id" (e.g. a legacy numeric id).
+        payload = {"text": text}
+        matched_chat = self._resolve_telegram_chat(telegram_session,
+                                                   tracker.telegram_chat_id)
+        if matched_chat is not None:
+            payload["chat"] = matched_chat
+        else:
+            self.log("Could not resolve telegram chat \"%s\"; "
+                     "falling back to raw chat_id." % tracker.telegram_chat_id)
+            payload["chat_id"] = tracker.telegram_chat_id
+
+        # include the forum topic when one is configured (omit when None)
+        if tracker.telegram_topic_id is not None:
+            payload["topic"] = tracker.telegram_topic_id
+
         r = telegram_session.post("/bot/send/message", payload=payload)
 
         # we expect menu creation to always succeed
@@ -496,11 +531,24 @@ class TaskJob_LifeTracker(TaskJob):
         """Sends LifeMetric to be completed via a Telegram menu."""
         telegram_session = self.get_telegram_session()
 
-        # create a payload and send it to Telegram to create the menu
-        payload = {
-            "chat_id": tracker.telegram_chat_id,
-            "menu": metric.get_telegram_menu(title_prefix="❓ "),
-        }
+        # create a payload and send it to Telegram to create the menu.
+        # Resolve the configured chat id/name against the bot's whitelisted
+        # chats: if matched, send the chat object under "chat"; otherwise fall
+        # back to the raw "chat_id" (e.g. a legacy numeric id).
+        payload = {"menu": metric.get_telegram_menu(title_prefix="❓ ")}
+        matched_chat = self._resolve_telegram_chat(telegram_session,
+                                                   tracker.telegram_chat_id)
+        if matched_chat is not None:
+            payload["chat"] = matched_chat
+        else:
+            self.log("Could not resolve telegram chat \"%s\"; "
+                     "falling back to raw chat_id." % tracker.telegram_chat_id)
+            payload["chat_id"] = tracker.telegram_chat_id
+
+        # include the forum topic when one is configured (omit when None)
+        if tracker.telegram_topic_id is not None:
+            payload["topic"] = tracker.telegram_topic_id
+
         r = telegram_session.post("/bot/send/menu", payload=payload)
 
         # we expect menu creation to always succeed

@@ -141,7 +141,10 @@ Most message endpoints accept:
 `POST /bot/send/message` additionally accepts an optional `topic`
 (`message_thread_id`) field to deliver the message into a specific forum topic.
 A numeric string is coerced to an integer; when absent/empty the message is sent
-to General / no topic (`0` is never forwarded as a topic).
+to General / no topic (`0` is never forwarded as a topic). `POST
+/bot/send/menu` and `POST /bot/send/question` accept the same optional `topic`
+field with identical semantics, forwarding it as `message_thread_id` to the
+underlying send.
 
 ## Configuration
 
