@@ -135,6 +135,14 @@ def command_remind(service, message, args: list):
                              "Sorry, I couldn't parse a date or time from your message.")
         return
 
+    # parse_datetime returns a tz-aware datetime when the user typed a tz code
+    # (e.g. "9am PT"), or a naive server-local datetime otherwise. notif fires
+    # triggers against its own naive server-local wall clock, so convert any
+    # tz-aware result to server-local naive time before building the payload.
+    # Naive results (no tz code) are used as-is (server home tz).
+    if dt is not None and dt.tzinfo is not None:
+        dt = dt.astimezone().replace(tzinfo=None)
+
     # create a HTTP session with notif
     session = OracleSession(service.config.notif)
     try:
@@ -168,11 +176,13 @@ def command_remind(service, message, args: list):
         "title": "" if is_reply else "🔔",
         "message": msg,
         "send_telegrams": [telegram_target],
-        "trigger_years": [dt.year],
-        "trigger_months": [dt.month],
-        "trigger_days": [dt.day],
-        "trigger_hours": [dt.hour],
-        "trigger_minutes": [dt.minute]
+        "trigger": {
+            "years":   [dt.year],
+            "months":  [dt.month],
+            "days":    [dt.day],
+            "hours":   [dt.hour],
+            "minutes": [dt.minute]
+        }
     }
     try:
         r = session.post("/reminder/create", payload=payload)

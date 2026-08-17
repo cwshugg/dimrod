@@ -368,20 +368,26 @@ def nla_create_reminder(oracle: NotifOracle, jdata: dict):
                    "    {\n" \
                    "        \"title\": \"(OPTIONAL) TITLE OF THE REMINDER\",\n" \
                    "        \"message\": \"CONTENT OF THE REMINDER\",\n" \
-                   "        \"trigger_years\": [YEAR1_TO_TRIGGER_ON, YEAR2_TO_TRIGGER_ON, ...],\n" \
-                   "        \"trigger_months\": [MONTH1_TO_TRIGGER_ON, MONTH2_TO_TRIGGER_ON, ...],\n" \
-                   "        \"trigger_days\": [DAY1_TO_TRIGGER_ON, DAY2_TO_TRIGGER_ON, ...],\n" \
-                   "        \"trigger_hours\": [HOUR1_TO_TRIGGER_ON_IN_24H_FORMAT, HOUR2_TO_TRIGGER_ON_IN_24H_FORMAT, ...],\n" \
-                   "        \"trigger_minutes\": [MINUTE1_TO_TRIGGER_ON, MINUTE2_TO_TRIGGER_ON, ...],\n" \
+                   "        \"trigger\": {\n" \
+                   "            \"years\": [YEAR1_TO_TRIGGER_ON, YEAR2_TO_TRIGGER_ON, ...],\n" \
+                   "            \"months\": [MONTH1_TO_TRIGGER_ON, MONTH2_TO_TRIGGER_ON, ...],\n" \
+                   "            \"days\": [DAY1_TO_TRIGGER_ON, DAY2_TO_TRIGGER_ON, ...],\n" \
+                   "            \"weekdays\": [WEEKDAY1_TO_TRIGGER_ON, WEEKDAY2_TO_TRIGGER_ON, ...],\n" \
+                   "            \"hours\": [HOUR1_TO_TRIGGER_ON_IN_24H_FORMAT, HOUR2_TO_TRIGGER_ON_IN_24H_FORMAT, ...],\n" \
+                   "            \"minutes\": [MINUTE1_TO_TRIGGER_ON, MINUTE2_TO_TRIGGER_ON, ...]\n" \
+                   "        }\n" \
                    "    },\n" \
                    "    {\n" \
                    "        \"title\": \"(OPTIONAL) TITLE OF THE REMINDER\",\n" \
                    "        \"message\": \"CONTENT OF THE REMINDER\",\n" \
-                   "        \"trigger_years\": [YEAR1_TO_TRIGGER_ON, YEAR2_TO_TRIGGER_ON, ...],\n" \
-                   "        \"trigger_months\": [MONTH1_TO_TRIGGER_ON, MONTH2_TO_TRIGGER_ON, ...],\n" \
-                   "        \"trigger_days\": [DAY1_TO_TRIGGER_ON, DAY2_TO_TRIGGER_ON, ...],\n" \
-                   "        \"trigger_hours\": [HOUR1_TO_TRIGGER_ON_IN_24H_FORMAT, HOUR2_TO_TRIGGER_ON_IN_24H_FORMAT, ...],\n" \
-                   "        \"trigger_minutes\": [MINUTE1_TO_TRIGGER_ON, MINUTE2_TO_TRIGGER_ON, ...],\n" \
+                   "        \"trigger\": {\n" \
+                   "            \"years\": [YEAR1_TO_TRIGGER_ON, YEAR2_TO_TRIGGER_ON, ...],\n" \
+                   "            \"months\": [MONTH1_TO_TRIGGER_ON, MONTH2_TO_TRIGGER_ON, ...],\n" \
+                   "            \"days\": [DAY1_TO_TRIGGER_ON, DAY2_TO_TRIGGER_ON, ...],\n" \
+                   "            \"weekdays\": [WEEKDAY1_TO_TRIGGER_ON, WEEKDAY2_TO_TRIGGER_ON, ...],\n" \
+                   "            \"hours\": [HOUR1_TO_TRIGGER_ON_IN_24H_FORMAT, HOUR2_TO_TRIGGER_ON_IN_24H_FORMAT, ...],\n" \
+                   "            \"minutes\": [MINUTE1_TO_TRIGGER_ON, MINUTE2_TO_TRIGGER_ON, ...]\n" \
+                   "        }\n" \
                    "    }\n" \
                    "]\n" \
                    "\n" \
@@ -389,15 +395,16 @@ def nla_create_reminder(oracle: NotifOracle, jdata: dict):
                    "The \"message\" field is required and should contain the content of the reminder.\n" \
                    "If the user's message refers to \"me\" or \"my\", please rephrase the reminder's message as though you are speaking *to* the user (\"you\", \"your\", etc.).\n" \
                    "The \"title\" field is optional; if you cannot find a fitting title, omit this field.\n" \
-                   "All \"trigger_*\" fields should be lists of integers.\n" \
-                   "Collectively, these \"trigger_*\" fields should define the exact datetime(s) at which the reminder should be sent.\n" \
+                   "The \"trigger\" object holds the schedule; each of its \"years\"/\"months\"/\"days\"/\"weekdays\"/\"hours\"/\"minutes\" fields is a list of integers (omit a field, or leave it as an empty list, to leave that component unconstrained).\n" \
+                   "In \"weekdays\", 0=Sunday, 1=Monday, ... 6=Saturday. In \"days\", negative values count from the end of the month (-1 = last day).\n" \
+                   "Collectively, these \"trigger\" fields should define the exact datetime(s) at which the reminder should be sent.\n" \
                    "Use the current datetime, and the user's wording, to determine a value for each of these.\n" \
                    "A few other notes to consider when determining the trigger values:\n\n" \
                    "* If no day is explicitly said by the user, but a time is provided, assume that the user wants the next occurrence of that specific time.\n" \
                    "    * Ex: If the user says \"4:45pm\", but says no day, determine when the next occurrence of 4:45pm would be, and set the triggers to reflect this.\n" \
                    "* If a day is specified, but no specific time, assume that the user wants the time to be the same as the *current* time.\n" \
                    "    * Ex: If the user says \"two days from now\", but says no time, use the current time of day when setting the trigger fields.\n" \
-                   "* Unless the user specifies explicit details about the remimder repeating, you must set *all* \"trigger_*\" fields to contain values such that the reminder will occur only a SINGLE time.\n" \
+                   "* Unless the user specifies explicit details about the remimder repeating, you must set the \"trigger\" fields to contain values such that the reminder will occur only a SINGLE time.\n" \
                    "\n" \
                    "If you detect that the user wants multiple reminders to be created, please create multiple JSON objects in the list.\n" \
                    "If not enough information is available to determine the contents or the time any reminders, please respond with an empty list: []\n" \

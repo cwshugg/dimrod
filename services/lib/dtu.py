@@ -9,6 +9,7 @@ import sys
 import re
 from datetime import datetime, timedelta, date, time
 from enum import Enum
+from zoneinfo import ZoneInfo
 
 # Enable import from the parent directory
 pdir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -17,6 +18,30 @@ if pdir not in sys.path:
 
 # Local imports
 from lib.uniserdes import Uniserdes, UniserdesField
+
+# Mapping of common timezone abbreviations to their IANA zone names. The IANA
+# zone (resolved via `zoneinfo.ZoneInfo`) handles DST automatically, so the
+# standard and daylight variants (ex: "EST"/"EDT") map to the same zone as the
+# generic abbreviation ("ET"). Lookups are performed case-insensitively against
+# the WHOLE arg token (see `parse_datetime`).
+TIMEZONE_ABBREVIATIONS = {
+    "ET":   "America/New_York",
+    "EST":  "America/New_York",
+    "EDT":  "America/New_York",
+    "CT":   "America/Chicago",
+    "CST":  "America/Chicago",
+    "CDT":  "America/Chicago",
+    "MT":   "America/Denver",
+    "MST":  "America/Denver",
+    "MDT":  "America/Denver",
+    "PT":   "America/Los_Angeles",
+    "PST":  "America/Los_Angeles",
+    "PDT":  "America/Los_Angeles",
+    "CET":  "Europe/Paris",
+    "CEST": "Europe/Paris",
+    "UTC":  "UTC",
+    "GMT":  "UTC",
+}
 
 
 class Weekday(Enum):
@@ -724,9 +749,21 @@ def parse_time_clock(text: str):
     text = text.replace("am", "") if am else text.replace("pm", "")
 
     # if there's a colon, split the string into hour and minute sections
-    pieces = text.split(":")
-    hour_str = pieces[0]
-    minute_str = pieces[1] if len(pieces) > 1 else "0"
+    if ":" in text:
+        pieces = text.split(":")
+        hour_str = pieces[0]
+        minute_str = pieces[1] if len(pieces) > 1 else "0"
+    else:
+        # no colon: support the compact form (ex: "1030pm" -> 22:30). When more
+        # than two digits remain, the last two are minutes and the leading
+        # digit(s) are the hour; otherwise it's just an hour (minute 0).
+        digits = text.strip()
+        if len(digits) > 2:
+            hour_str = digits[:-2]
+            minute_str = digits[-2:]
+        else:
+            hour_str = digits
+            minute_str = "0"
 
     # parse each string accordingly
     try:
@@ -762,21 +799,67 @@ def parse_datetime(args: list, now=None):
         """
         return get_weekday(dt).value + 1
 
-    # if `now` was not specified, default to the current datetime
-    if now is None:
+    def p_timezone(text: str):
+        """Returns a `ZoneInfo` for a timezone-abbreviation token (matched
+        case-insensitively against the WHOLE token), or None if unrecognized.
+        """
+        zone = TIMEZONE_ABBREVIATIONS.get(text.strip().upper())
+        return None if zone is None else ZoneInfo(zone)
+
+    # scan the args for a timezone-abbreviation token (order-independent). When
+    # present, all parsing is done relative to that zone and a tz-aware datetime
+    # is returned; when absent, behavior is unchanged (naive local datetime).
+    tz = None
+    for arg in args:
+        tz = p_timezone(arg)
+        if tz is not None:
+            break
+
+    # tz-aware datetimes must not be shifted with `add_seconds`/`add_days`,
+    # which round-trip through `fromtimestamp` and drop tzinfo. Use plain
+    # timedelta arithmetic when a tz is present; otherwise use the existing
+    # helpers so the no-tz path stays byte-for-byte unchanged.
+    def _shift_seconds(dt: datetime, secs):
+        if tz is None:
+            return add_seconds(dt, secs)
+        return dt + timedelta(seconds=secs)
+
+    def _shift_days(dt: datetime, days):
+        if tz is None:
+            return add_days(dt, days)
+        return dt + timedelta(days=days)
+
+    # establish the reference "now". When a tz is present, "now" must be
+    # now-in-that-zone: a supplied naive `now` gets the zone attached, a
+    # supplied tz-aware `now` is converted into the zone, and a missing `now`
+    # defaults to `datetime.now(tz)`.
+    if tz is not None:
+        if now is None:
+            now = datetime.now(tz)
+        elif now.tzinfo is None:
+            now = now.replace(tzinfo=tz)
+        else:
+            now = now.astimezone(tz)
+    elif now is None:
+        # if `now` was not specified, default to the current datetime
         now = datetime.now()
 
     # iterate through the arguments, one at a time, searching for date and time
     # specifications
     dt = None
     for arg in args:
+        # skip the timezone-abbreviation token (already resolved above)
+        if p_timezone(arg) is not None:
+            continue
+
         # look for a YYYY-MM-DD date stamp
         datestamp = parse_yyyymmdd(arg)
         if datestamp is not None:
             # fill out the starting and ending datetimes with these, depending
-            # on the order received
+            # on the order received (preserve the resolved tz, if any)
             dt = datetime(datestamp[0], datestamp[1], datestamp[2],
-                          hour=0, minute=0, second=0, microsecond=0)
+                          hour=0, minute=0, second=0, microsecond=0,
+                          tzinfo=tz)
             continue
 
         # look for mention of a weekday
@@ -784,9 +867,9 @@ def parse_datetime(args: list, now=None):
         if wd is not None:
             # increase the current datetime until it lines up with the
             # specified weekday
-            dt = add_days(now, 1)
+            dt = _shift_days(now, 1)
             while g_weekday(dt) != wd:
-                dt = add_days(dt, 1)
+                dt = _shift_days(dt, 1)
             continue
 
         # look for AM/PM suffixed timestamps
@@ -807,7 +890,7 @@ def parse_datetime(args: list, now=None):
                 offset += 86400
             offset += (h - dt.hour) * 3600
             offset += (m - dt.minute) * 60
-            dt = add_seconds(dt, offset)
+            dt = _shift_seconds(dt, offset)
             continue
 
         # look for suffixed time offsets ("1d", "2h", "3m", etc.)
@@ -816,7 +899,7 @@ def parse_datetime(args: list, now=None):
             # set `dt` to the current time if it hasn't been set yet
             if dt is None:
                 dt = now
-            dt = add_seconds(dt, offset)
+            dt = _shift_seconds(dt, offset)
             continue
     return dt
 
