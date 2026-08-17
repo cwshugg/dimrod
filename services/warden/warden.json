@@ -38,6 +38,9 @@
         }
     ],
 
+    "__comment_refresh_rate": "Cadence (seconds) of warden's main-loop device-ping sweep: how long the service sleeps between successive ping cycles. Defaults to 300 (5 minutes).",
+    "refresh_rate": 300,
+
     "__comment_database": "On-disk SQLite database used to durably mirror the device cache so it survives a restart. 'path' selects the file (defaults to '.warden.db' next to the service). 'check_same_thread' must stay false so warden's worker-thread pool can share the single connection, and 'timeout'/'busy_timeout_ms' control how long sqlite waits on a locked database.",
     "database": {
         "path": ".warden.db",

@@ -24,6 +24,9 @@ known_devices:
   - ff:ff:ff:ff:ff:ff:ff:ff
   tags:
   - apparel
+# Cadence (seconds) of warden's main-loop device-ping sweep: how long the
+# service sleeps between successive ping cycles. Defaults to 300 (5 minutes).
+refresh_rate: 300
 # On-disk SQLite database used to durably mirror the device cache so it survives
 # a service restart. `path` selects the file (defaults to ".warden.db" next to
 # the service). The remaining keys tune the shared sqlite3 connection used by

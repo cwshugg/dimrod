@@ -53,7 +53,7 @@ class WardenConfig(ServiceConfig):
         # create lumen-specific fields to append to the existing service fields
         fields = [
             ConfigField("known_devices",    [KnownDeviceConfig], required=True),
-            ConfigField("refresh_rate",     [int],      required=False,     default=120),
+            ConfigField("refresh_rate",     [int],      required=False,     default=300),
             ConfigField("ping_timeout",     [float],    required=False,     default=0.25),
             ConfigField("ping_tries",       [int],      required=False,     default=1),
             ConfigField("sweep_threshold",  [int],      required=False,     default=3600),
