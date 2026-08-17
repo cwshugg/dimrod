@@ -23,7 +23,9 @@ if pdir not in sys.path:
 from lib.config import ConfigField
 from lib.db import Database, DatabaseConfig
 from lib.arp import Arp, ArpError
-from lib.nmap import Nmap, NmapError
+from lib.nmap import Nmap, NmapError, NmapPrivilegeError, is_root
+from lib.arpspoof import ArpSpoof, ArpSpoofError, \
+                        ArpSpoofNotInstalledError, ArpSpoofPrivilegeError
 from lib.service import Service, ServiceConfig
 from lib.oracle import Oracle
 from lib.nla import NLAEndpoint, NLAEndpointInvokeParameters, NLAResult
@@ -31,7 +33,16 @@ from lib.cli import ServiceCLI
 
 # Service imports
 from device import KnownDeviceConfig, DeviceHardwareAddress, \
-                   DeviceNetworkAddress, Device
+                   DeviceNetworkAddress, Device, DevicePort, DeviceOSInfo
+from jobs import Job, JobType, JobStatus, JobManager
+
+
+# ================================ Constants ================================ #
+# Path to the Linux IPv4 forwarding toggle. Warden sets this to "0" for the
+# duration of an ARP-poison block so the poisoned target is black-holed
+# (dropped) instead of having its traffic transparently relayed, then restores
+# the prior value afterward.
+IP_FORWARD_PATH = "/proc/sys/net/ipv4/ip_forward"
 
 
 # =============================== Config Class =============================== #
@@ -55,6 +66,19 @@ class WardenConfig(ServiceConfig):
                 "busy_timeout_ms": 5000,
             })),
             ConfigField("device_ttl",       [int],      required=False,     default=604800),
+            # ---- background job system ---------------------------------------
+            # size of the worker-thread pool that executes scan/ARP-poison/sweep
+            # jobs
+            ConfigField("job_workers",      [int],      required=False,     default=4),
+            # how long (seconds) finished jobs are retained for status polling
+            ConfigField("job_result_ttl",   [int],      required=False,     default=3600),
+            # default duration (seconds) for an ARP-poison block job
+            ConfigField("arppoison_default_duration", [int], required=False, default=60),
+            # absolute upper bound (seconds) an ARP-poison block may ever run,
+            # regardless of the requested/default duration
+            ConfigField("arppoison_hard_cap", [int],     required=False,     default=300),
+            # cadence (seconds) of the routine per-device port/OS scans
+            ConfigField("device_scan_interval", [int],  required=False,     default=3600),
         ]
         self.fields += fields
 
@@ -311,11 +335,26 @@ class WardenService(Service):
         assert self.config.ping_timeout > 0.0, "the ping timeout must be greater than 0"
         assert self.config.ping_tries > 0, "the ping try count must be greater than 0"
         assert self.config.device_ttl > 0, "the device TTL must be greater than 0"
+        assert self.config.job_workers > 0, "the job worker count must be greater than 0"
+        assert self.config.job_result_ttl > 0, "the job result TTL must be greater than 0"
+        assert self.config.arppoison_default_duration > 0, "the ARP-poison default duration must be greater than 0"
+        assert self.config.arppoison_hard_cap > 0, "the ARP-poison hard cap must be greater than 0"
+        assert self.config.device_scan_interval > 0, "the device scan interval must be greater than 0"
 
         # the service will keep a cache of IP/MAC addresses, but it starts as an
-        # empty dictionary
+        # empty dictionary. The cache is read by the Flask oracle threads
+        # (`/devices`, `/known_devices`, NLA) AND mutated by the background job
+        # worker threads, so ALL access (mutation and iteration) is guarded by
+        # `self.cache_lock`; readers copy a snapshot under the lock before
+        # serializing to avoid "dictionary changed size during iteration".
         self.cache = {}
+        self.cache_lock = threading.Lock()
         self.last_sweep = datetime.fromtimestamp(0)
+
+        # tracks the last time each device (by lowercased MAC) had a routine
+        # port/OS scan enqueued, so the `device_scan_interval` cadence is
+        # honored. Guarded by `self.cache_lock` alongside the cache.
+        self.device_scan_times = {}
 
         # set up the on-disk device database (a durable mirror of the in-memory
         # cache). All persistence logic lives in `WardenDatabase`, which owns
@@ -326,6 +365,26 @@ class WardenService(Service):
         # and reuse them for every lookup/ping (see `self.arp`/`self.ping_nmap`)
         self.arp_client = Arp()
         self.nmap_client = Nmap()
+
+        # the low-level `arpspoof` wrapper used by the ARP-poison block job. If
+        # arpspoof is not installed, ARP-poison requests are refused (soft-fail)
+        # rather than crashing; warn ONCE at startup so the operator knows.
+        self.arpspoof_client = ArpSpoof()
+        if not ArpSpoof.is_installed():
+            self.log.write("[WARN] the 'arpspoof' binary is not installed "
+                           "(install the 'dsniff' package); ARP-poison block "
+                           "requests will be refused until it is available.")
+
+        # cached (gateway_ip, iface) parsed from `ip route show default`; lazily
+        # populated by `get_default_route()` and reused across ARP-poison jobs.
+        self._default_route = None
+
+        # the background job manager (worker pool + queue + registry). Handlers
+        # are registered in `run()` before the pool is started.
+        self.jobs = JobManager(num_workers=self.config.job_workers,
+                               result_ttl=self.config.job_result_ttl,
+                               log=self.log)
+        self._register_job_handlers()
 
 
     def run(self):
@@ -342,46 +401,47 @@ class WardenService(Service):
         self.addr = self.get_address()
         self.log.write("Warden's IP address: %s" % self.addr)
 
+        # start the background job worker pool. Workers run scans/sweeps/
+        # ARP-poison jobs OFF this main thread so the sweep/ping loop never
+        # blocks.
+        self.jobs.start()
+
         # initialize the on-disk device database and load any previously-cached
         # devices so the index survives a reboot
         self.db.init()
         loaded = self.db.load_all()
-        for macaddr in loaded:
-            self.cache[macaddr] = loaded[macaddr]
+        with self.cache_lock:
+            for macaddr in loaded:
+                self.cache[macaddr] = loaded[macaddr]
         self.log.write("Loaded %d device(s) from the database." % len(loaded))
 
-        # before entering the main loop, we'll sweep the network a number of
-        # times to build up the cache of connected devices
-        for i in range(self.config.initial_sweeps):
-            self.log.write("Performing initial network sweep (%d/%d)" %
-                           ((i + 1), self.config.initial_sweeps))
-            self.sweep()
-
-        # dump out the current state of the cache
-        self.log.write("Initial cache entries:")
-        for entry in self.cache:
-            self.log.write(" - %s" % self.cache[entry].to_str_brief())
+        # before entering the main loop, enqueue a network sweep job (instead
+        # of sweeping inline on this thread) to build up the device cache. The
+        # dedup guard prevents stacking overlapping sweeps.
+        if self.config.initial_sweeps > 0:
+            self.log.write("Enqueuing initial network sweep.")
+            self.enqueue_sweep()
 
         # loop forever
         while True:
             now = datetime.now()
             pfx = "[%s]" % now.strftime("%Y-%m-%d %H:%M:%S")
 
-            # if we're past the sweep threshold, sweep the network
+            # if we're past the sweep threshold, enqueue a sweep job.
+            # `enqueue_sweep` skips if one is already active.
             if can_sweep():
                 # before sweeping, update the MAC address vendor cache
                 self.log.write("%s Refreshing MAC address vendor cache..." % pfx)
                 self.mac_vendor_refresh_cache()
 
-                # initiate the sweep, then write out all entries in the cache
-                self.log.write("%s Sweeping the network..." % pfx)
-                self.sweep()
-                for entry in self.cache:
-                    self.log.write(" - %s" % self.cache[entry].to_str_brief())
+                self.log.write("%s Enqueuing network sweep..." % pfx)
+                self.enqueue_sweep()
 
-            # iterate across all devices stored in the cache
-            for addr in self.cache:
-                device = self.cache[addr]
+            # iterate across a SNAPSHOT of the cache (worker threads may mutate
+            # the live cache concurrently)
+            for device in self.cache_snapshot():
+                if device.net_addr is None:
+                    continue
 
                 # ping the device and update if it responds
                 ping_tries = self.config.ping_tries * 2
@@ -392,6 +452,10 @@ class WardenService(Service):
                     # persist the updated last_seen to the durable DB mirror
                     self.db.save(device)
 
+                    # enqueue routine per-device port/OS scans, honoring the
+                    # configured cadence; these run on the worker pool
+                    self.maybe_enqueue_device_scans(device)
+
             # prune any devices that haven't been seen within the configured TTL
             # from both the cache and the database
             self.prune_stale_devices(now=datetime.now())
@@ -400,21 +464,82 @@ class WardenService(Service):
             time.sleep(self.config.refresh_rate)
 
 
+    # ---------------------------- Job Enqueueing ---------------------------- #
+    def enqueue_sweep(self):
+        """Enqueues a `network_sweep` job unless one is already pending/running
+        (avoids stacking overlapping sweeps). Returns the job id, or None if a
+        sweep was already active. `last_sweep` is advanced here so the main
+        loop does not re-enqueue on every iteration while a sweep is queued.
+        """
+        if self.jobs.has_active(JobType.NETWORK_SWEEP):
+            return None
+        self.last_sweep = datetime.now()
+        return self.jobs.submit(JobType.NETWORK_SWEEP, {})
+
+    def maybe_enqueue_device_scans(self, device: Device):
+        """For a device that is currently up, enqueues internal port-scan (and,
+        when root, OS-detection) jobs at most every `device_scan_interval`
+        seconds. Tracks the per-device last-scan time under `cache_lock`.
+        """
+        if device.hw_addr is None or device.net_addr is None:
+            return
+        macaddr = device.hw_addr.macaddr.lower()
+        ipaddr = device.net_addr.ipaddr
+        now_ts = datetime.now().timestamp()
+
+        # honor the cadence: skip if we scanned this device too recently
+        with self.cache_lock:
+            last = self.device_scan_times.get(macaddr, 0)
+            if now_ts - last < self.config.device_scan_interval:
+                return
+            self.device_scan_times[macaddr] = now_ts
+
+        # enqueue a port scan; and an OS-detection scan only when we have root
+        # (OS detection requires raw sockets). These are internal jobs.
+        self.jobs.submit(JobType.SCAN_PORTS, {"target": ipaddr, "routine": True})
+        if is_root():
+            self.jobs.submit(JobType.DETECT_OS, {"target": ipaddr, "routine": True})
+
+
     # ------------------------------- Caching -------------------------------- #
     def cache_get(self, macaddr: str):
         """Returns the matching device object, or None."""
         macaddr = macaddr.lower()
-        return None if macaddr not in self.cache else self.cache[macaddr]
+        with self.cache_lock:
+            return self.cache.get(macaddr)
 
     def cache_set(self, device: Device):
         """Takes a MAC address and adds an entry to the cache. The `Device` object is
         returned. The device is also upserted to the on-disk database so the
         cache survives a reboot.
+
+        Thread-safe: the in-memory cache mutation is guarded by `cache_lock`
+        (the DB save has its own internal lock).
         """
         macaddr = device.hw_addr.macaddr.lower()
-        self.cache[macaddr] = device
+        with self.cache_lock:
+            self.cache[macaddr] = device
         self.db.save(device)
         return device
+
+    def cache_snapshot(self):
+        """Returns a shallow-copied list of the cached `Device` objects taken
+        under `cache_lock`. Callers (oracle readers, main loop) iterate the
+        snapshot instead of the live dict to avoid "dictionary changed size
+        during iteration" while worker threads mutate the cache.
+        """
+        with self.cache_lock:
+            return list(self.cache.values())
+
+    def cache_get_by_ip(self, ipaddr: str):
+        """Returns the cached device whose network address matches `ipaddr`, or
+        None. Taken under `cache_lock`.
+        """
+        with self.cache_lock:
+            for device in self.cache.values():
+                if device.net_addr is not None and device.net_addr.ipaddr == ipaddr:
+                    return device
+        return None
 
     # ------------------------------ Database -------------------------------- #
     def prune_stale_devices(self, now: datetime = None):
@@ -425,20 +550,27 @@ class WardenService(Service):
         now = datetime.now() if now is None else now
         cutoff = now.timestamp() - self.config.device_ttl
 
-        # identify stale devices first (don't mutate the dict while iterating)
-        stale = []
-        for macaddr in self.cache:
-            device = self.cache[macaddr]
-            # a device with no last_seen has never been observed; treat as stale
-            last_seen_ts = device.last_seen.timestamp() if device.last_seen else 0
-            if last_seen_ts < cutoff:
-                stale.append(macaddr)
+        # identify stale devices first (don't mutate the dict while iterating);
+        # both the scan and the removal happen under the cache lock so worker
+        # threads can't mutate the cache mid-prune
+        with self.cache_lock:
+            stale = []
+            for macaddr in self.cache:
+                device = self.cache[macaddr]
+                # a device with no last_seen has never been observed; treat as stale
+                last_seen_ts = device.last_seen.timestamp() if device.last_seen else 0
+                if last_seen_ts < cutoff:
+                    stale.append(macaddr)
 
-        # remove stale devices from cache and DB
+            # remove stale devices from the cache (DB removal happens below,
+            # outside the lock, since the DB has its own lock)
+            for macaddr in stale:
+                self.log.write("Pruning stale device: %s" %
+                               self.cache[macaddr].to_str_brief())
+                del self.cache[macaddr]
+                self.device_scan_times.pop(macaddr, None)
+
         for macaddr in stale:
-            self.log.write("Pruning stale device: %s" %
-                           self.cache[macaddr].to_str_brief())
-            del self.cache[macaddr]
             self.db.delete(macaddr)
         return stale
 
@@ -514,14 +646,8 @@ class WardenService(Service):
             log_msg_end = "" if i < len(addresses) - 1 else "\n"
             self.log.write(log_msg % addr, begin="\r", end=log_msg_end)
 
-            d = Device()
-            d.init_defaults()
-
-            # ping and save the address if the ping succeeded
+            # ping the address; skip it if it doesn't respond
             if self.ping(addr):
-                d.set_network_address(DeviceNetworkAddress.from_json({
-                    "ipaddr": addr,
-                }))
                 self.log.write(" - UP", show_prefix=False, end="")
             else:
                 continue
@@ -543,24 +669,13 @@ class WardenService(Service):
             except Exception as e:
                 pass
 
-            # save the MAC addr and vendor information to the device object
-            d.set_hardware_address(DeviceHardwareAddress.from_json({
-                "macaddr": macaddr,
-                "vendor": vendor,
-            }))
-
-            # does this MAC address match any of our known devices? If so,
-            # set the device object's known device to point at the known
-            # device's info object
-            for known_dev in self.config.known_devices:
-                for known_mac in known_dev.macaddrs:
-                    if known_mac.lower() == macaddr:
-                        d.set_known_device(known_dev.copy())
-                        break
-
-            # store what information we collected on this device in the cache
-            d.set_last_seen(datetime.now())
-            self.cache_set(d)
+            # merge into the cache + DB via the shared ingest path, which
+            # REUSES any existing cached device so previously-collected
+            # open_ports / os_info are preserved across sweeps (rather than
+            # being clobbered by a fresh Device).
+            d = self._ingest_discovered_device(addr, macaddr, vendor)
+            if d is None:
+                continue
 
             # append the device object to the resulting list of devices
             self.log.write("", show_prefix=False)
@@ -674,6 +789,352 @@ class WardenService(Service):
         mac.update_vendors()
 
 
+    # ===================== Subnet / ARP-Poison Guards ====================== #
+    def get_local_network(self):
+        """Returns the service's local IPv4 network as an `ipaddress.IPv4Network`
+        (derived from `get_netmask()`), or None if it cannot be determined.
+        """
+        try:
+            return ipaddress.IPv4Network(self.get_netmask(), strict=False)
+        except Exception as e:
+            self.log.write("Failed to determine the local network: %s" % e)
+            return None
+
+    def is_local_subnet(self, ipaddr: str) -> bool:
+        """Returns True if `ipaddr` is a valid address on the service's local
+        subnet. Used to restrict ARP-poison blocks to the local network only.
+        """
+        network = self.get_local_network()
+        if network is None:
+            return False
+        try:
+            return ipaddress.IPv4Address(ipaddr) in network
+        except Exception:
+            return False
+
+    def get_default_route(self):
+        """Determines the LAN's default gateway IP and interface name.
+
+        Parses `ip route show default` (e.g. "default via 192.168.0.1 dev eth0
+        ...") and returns a `(gateway_ip, iface)` tuple. Returns `(None, None)`
+        if the default route cannot be determined. The result is cached after a
+        successful lookup and reused across ARP-poison jobs; a failed lookup is
+        not cached so it is retried on the next call.
+        """
+        # reuse a previously cached, fully-resolved route
+        cached = self._default_route
+        if cached is not None and cached[0] is not None and cached[1] is not None:
+            return cached
+
+        gateway = None
+        iface = None
+        try:
+            args = ["ip", "route", "show", "default"]
+            result = subprocess.run(args, capture_output=True)
+            text = result.stdout.decode(errors="replace")
+            for line in text.split("\n"):
+                pieces = line.split()
+                # look for the "via <gw>" and "dev <iface>" tokens on the line
+                if "via" in pieces and "dev" in pieces:
+                    gateway = pieces[pieces.index("via") + 1]
+                    iface = pieces[pieces.index("dev") + 1]
+                    break
+        except Exception as e:
+            self.log.write("Failed to determine the default route: %s" % e)
+
+        route = (gateway, iface)
+        # only cache a fully-resolved route so failures are retried later
+        if gateway is not None and iface is not None:
+            self._default_route = route
+        return route
+
+    def clamp_arppoison_duration(self, duration=None) -> int:
+        """Normalizes and clamps a requested ARP-poison block duration into
+        `[1, arppoison_hard_cap]`, defaulting to `arppoison_default_duration`
+        when unspecified.
+        """
+        if duration is None:
+            duration = self.config.arppoison_default_duration
+        try:
+            duration = int(duration)
+        except (TypeError, ValueError):
+            duration = self.config.arppoison_default_duration
+        # never allow a non-positive or over-cap duration
+        duration = max(1, duration)
+        return min(duration, self.config.arppoison_hard_cap)
+
+    # ================= ip_forward black-hole helpers ================== #
+    def _read_ip_forward(self):
+        """Reads the current `/proc/sys/net/ipv4/ip_forward` value.
+
+        Returns the stripped string value (e.g. "0" or "1"), or None if it
+        cannot be read (e.g. non-Linux, or insufficient privilege).
+        """
+        try:
+            with open(IP_FORWARD_PATH, "r") as f:
+                return f.read().strip()
+        except OSError as e:
+            self.log.write("Failed to read %s: %s" % (IP_FORWARD_PATH, e))
+            return None
+
+    def _write_ip_forward(self, value) -> bool:
+        """Writes `value` to `/proc/sys/net/ipv4/ip_forward` (best-effort, root).
+
+        Returns True on success, False if the write failed (logged).
+        """
+        try:
+            with open(IP_FORWARD_PATH, "w") as f:
+                f.write("%s\n" % str(value).strip())
+            return True
+        except OSError as e:
+            self.log.write("Failed to set %s to %s: %s"
+                           % (IP_FORWARD_PATH, value, e))
+            return False
+
+    def enqueue_arppoison(self, target: str, duration=None) -> str:
+        """Validates and enqueues an `arppoison` block job. Enforces the guards
+        at submit time: arpspoof MUST be installed, the target MUST be on the
+        local subnet, the default gateway/interface MUST be resolvable, and the
+        duration is clamped to `[1, arppoison_hard_cap]`. Returns the new job id.
+
+        Raises:
+          ValueError  If the target is missing/invalid, not on the local subnet,
+                      arpspoof is not installed, or the gateway/interface cannot
+                      be determined. The caller (endpoint) turns this into a
+                      descriptive error response and NO job is enqueued.
+        """
+        if not isinstance(target, str) or len(target.strip()) == 0:
+            raise ValueError("a non-empty target address is required")
+        target = target.strip()
+
+        # ARP poisoning is only valid on the local LAN
+        if not self.is_local_subnet(target):
+            raise ValueError("ARP-poison target '%s' is not on the local "
+                             "subnet; ARP-poison blocks are restricted to the "
+                             "local network" % target)
+
+        # install enforcement (soft-fail): refuse rather than enqueue-then-fail
+        if not ArpSpoof.is_installed():
+            raise ValueError("arpspoof is not installed (install the 'dsniff' "
+                             "package); ARP-poison block requests are refused")
+
+        # derive the gateway/interface; refuse if they cannot be determined
+        gateway, iface = self.get_default_route()
+        if gateway is None or iface is None:
+            raise ValueError("could not determine the default gateway / LAN "
+                             "interface; ARP-poison block request refused")
+
+        duration = self.clamp_arppoison_duration(duration)
+        return self.jobs.submit(JobType.ARPPOISON, {
+            "target": target,
+            "gateway": gateway,
+            "iface": iface,
+            "duration": duration,
+        })
+
+
+    # ============================ Job Handlers ============================= #
+    def _register_job_handlers(self):
+        """Registers this service's job handlers with the job manager."""
+        self.jobs.register(JobType.SCAN_RANGE, self._job_scan_range)
+        self.jobs.register(JobType.SCAN_PORTS, self._job_scan_ports)
+        self.jobs.register(JobType.DETECT_OS, self._job_detect_os)
+        self.jobs.register(JobType.ARPPOISON, self._job_arppoison)
+        self.jobs.register(JobType.NETWORK_SWEEP, self._job_network_sweep)
+
+    def _ingest_discovered_device(self, ipaddr, macaddr, vendor=None):
+        """Merges a discovered (ip, mac, vendor) tuple into the cache + DB using
+        the same path the sweep uses, matching known devices by MAC. Returns the
+        `Device`, or None if there is no MAC address (no primary key).
+        """
+        if macaddr is None:
+            return None
+        macaddr = macaddr.lower()
+
+        # reuse the existing cached device if we already know this MAC, so we
+        # don't clobber previously-collected open_ports / os_info
+        device = self.cache_get(macaddr)
+        if device is None:
+            device = Device()
+            device.init_defaults()
+            device.set_hardware_address(DeviceHardwareAddress.from_json({
+                "macaddr": macaddr,
+                "vendor": vendor,
+            }))
+
+        # (re)assign the network address and (best-effort) vendor
+        if ipaddr is not None:
+            device.set_network_address(DeviceNetworkAddress.from_json({
+                "ipaddr": ipaddr,
+            }))
+        if vendor is not None and device.hw_addr is not None:
+            device.hw_addr.vendor = vendor
+
+        # match against known devices by MAC
+        for known_dev in self.config.known_devices:
+            for known_mac in known_dev.macaddrs:
+                if known_mac.lower() == macaddr:
+                    device.set_known_device(known_dev.copy())
+                    break
+
+        device.set_last_seen(datetime.now())
+        self.cache_set(device)
+        return device
+
+    def _job_scan_range(self, job: Job):
+        """Handler: scan an IP range/CIDR for up hosts (`Nmap.scan_range`) and
+        merge each discovered device into the cache + DB. Result is the list of
+        up hosts. Defaults `target` to the local subnet.
+        """
+        target = job.params.get("target")
+        if target is None:
+            target = self.get_netmask()     # local subnet CIDR (e.g. x.x.x.x/24)
+        hosts = self.nmap_client.scan_range(target)
+        for h in hosts:
+            self._ingest_discovered_device(h.get("address"),
+                                           h.get("macaddr"),
+                                           h.get("vendor"))
+        return {"target": target, "hosts": hosts, "count": len(hosts)}
+
+    def _job_scan_ports(self, job: Job):
+        """Handler: scan a single host for open ports (`Nmap.scan_ports`) and
+        update that device's `open_ports` in the cache + DB. Result is the list
+        of ports found.
+        """
+        target = job.params.get("target")
+        if not target:
+            raise ValueError("a 'target' address is required")
+        ports = job.params.get("ports")
+        scanned = self.nmap_client.scan_ports(target, ports=ports)
+
+        # keep only OPEN ports and convert into DevicePort objects
+        now = datetime.now()
+        open_ports = []
+        for p in scanned:
+            if p.get("state") != "open":
+                continue
+            open_ports.append(DevicePort.from_json({
+                "port": p.get("port"),
+                "protocol": p.get("protocol") or "tcp",
+                "state": p.get("state") or "open",
+                "service": p.get("service"),
+                "scanned_at": now.isoformat(),
+            }))
+
+        # persist to the matching device, if we know it
+        device = self.cache_get_by_ip(target)
+        if device is not None:
+            device.set_open_ports(open_ports)
+            self.db.save(device)
+
+        return {"target": target,
+                "open_ports": [op.to_json() for op in open_ports],
+                "count": len(open_ports)}
+
+    def _job_detect_os(self, job: Job):
+        """Handler: OS detection for a single host (`Nmap.detect_os`, REQUIRES
+        root). Updates that device's `os_info` in the cache + DB. Raises
+        `NmapPrivilegeError` (captured as a failed job) when unprivileged.
+        """
+        target = job.params.get("target")
+        if not target:
+            raise ValueError("a 'target' address is required")
+
+        # Nmap.detect_os raises NmapPrivilegeError when not root; let it
+        # propagate so the job manager marks the job failed with a clear message
+        info = self.nmap_client.detect_os(target)
+        matches = info.get("matches", [])
+        best = matches[0] if matches else None
+
+        os_info = DeviceOSInfo.from_json({
+            "name": best.get("name") if best else None,
+            "accuracy": best.get("accuracy") if best else None,
+            "family": None,
+            "scanned_at": datetime.now().isoformat(),
+        })
+
+        device = self.cache_get_by_ip(target)
+        if device is not None:
+            device.set_os_info(os_info)
+            self.db.save(device)
+
+        return {"target": target, "os_info": os_info.to_json(),
+                "matches": matches}
+
+    def _job_arppoison(self, job: Job):
+        """Handler: ARP-poison a single local-subnet host for a bounded duration
+        to cut it off the network. Re-validates the guards inside the worker
+        (local subnet + still-installed + root), determines the gateway/interface
+        if not already in the job params, disables IP forwarding for the duration
+        (restored in a `finally`) so the target is black-holed, then runs the
+        bounded `arpspoof` subprocess via `self.arpspoof_client`.
+
+        Raises:
+          ArpSpoofNotInstalledError  If arpspoof is no longer installed.
+          ArpSpoofPrivilegeError     If not running as root.
+          ValueError                 If the target is off-subnet or the
+                                     gateway/interface cannot be determined.
+        The job manager captures any of these and marks the job failed.
+        """
+        target = job.params.get("target")
+        if not target:
+            raise ValueError("a 'target' address is required")
+
+        # re-enforce the guards inside the worker (defense in depth)
+        if not self.is_local_subnet(target):
+            raise ValueError("ARP-poison target '%s' is not on the local subnet"
+                             % target)
+
+        # install enforcement: refuse if arpspoof vanished since submit time
+        if not ArpSpoof.is_installed():
+            raise ArpSpoofNotInstalledError(
+                "arpspoof is not installed; cannot run ARP-poison block")
+
+        # ARP poisoning needs raw sockets, which require root
+        if not is_root():
+            raise ArpSpoofPrivilegeError(
+                "ARP poisoning requires root privileges")
+
+        duration = self.clamp_arppoison_duration(job.params.get("duration"))
+
+        # determine the gateway/interface, preferring the params captured at
+        # submit time and falling back to a fresh lookup
+        gateway = job.params.get("gateway")
+        iface = job.params.get("iface")
+        if not gateway or not iface:
+            gateway, iface = self.get_default_route()
+        if not gateway or not iface:
+            raise ValueError("could not determine the default gateway / LAN "
+                             "interface for the ARP-poison block")
+
+        # Black-hole the target: disable IP forwarding for the duration so the
+        # poisoned traffic is dropped rather than transparently relayed. The
+        # prior value is ALWAYS restored via the finally, even on error.
+        prior_forward = self._read_ip_forward()
+        forwarding_disabled = self._write_ip_forward(0)
+        if not forwarding_disabled:
+            self.log.write("[WARN] could not disable IP forwarding; the "
+                           "ARP-poison target may be relayed rather than "
+                           "black-holed.")
+        try:
+            summary = self.arpspoof_client.poison(target, gateway, iface,
+                                                  duration)
+        finally:
+            # restore the prior forwarding value (best-effort) if we changed it
+            if forwarding_disabled and prior_forward is not None:
+                self._write_ip_forward(prior_forward)
+
+        summary["ip_forward_disabled"] = forwarding_disabled
+        return summary
+
+    def _job_network_sweep(self, job: Job):
+        """Handler: wraps the existing `sweep()` as a background job so the main
+        thread never blocks. Returns a brief summary of the sweep.
+        """
+        found = self.sweep()
+        return {"devices_found": len(found)}
+
+
 # ============================== Service Oracle ============================== #
 class WardenOracle(Oracle):
     def init_nla(self):
@@ -721,11 +1182,11 @@ class WardenOracle(Oracle):
                                           rmessage="The \"tags\" field must be a list.")
 
             # retrieve all devices from the warden's cache and build a JSON
-            # dictionary to return.
+            # dictionary to return. Iterate a SNAPSHOT taken under the cache
+            # lock so worker threads mutating the cache can't cause a
+            # "dictionary changed size during iteration" error.
             result = []
-            named_devices_already_added = {}
-            for addr in self.service.cache:
-                d = self.service.cache[addr]
+            for d in self.service.cache_snapshot():
 
                 # if tags were provided, skip devices that don't have all
                 # requested tags
@@ -744,6 +1205,97 @@ class WardenOracle(Oracle):
                            (len(result), flask.g.user.config.username))
             return self.make_response(payload=result)
 
+        # ---------------------------- Job Endpoints ------------------------- #
+        # Submit a range/CIDR host-discovery scan. Body: optional "target"
+        # (defaults to the local subnet). Returns the new job's id.
+        @self.server.route("/scan/range", methods=["POST"])
+        def endpoint_scan_range():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            jdata = flask.g.jdata or {}
+            target = jdata.get("target", None)
+            if target is not None and (not isinstance(target, str)
+                                       or len(target.strip()) == 0):
+                return self.make_response(msg="The \"target\" field must be a "
+                                          "non-empty string.", success=False,
+                                          rstatus=400)
+            params = {} if target is None else {"target": target.strip()}
+            job_id = self.service.jobs.submit(JobType.SCAN_RANGE, params)
+            return self.make_response(payload={"job_id": job_id})
+
+        # Submit a port scan for a single host. Body: "target" (required),
+        # optional "ports". Returns the new job's id.
+        @self.server.route("/scan/ports", methods=["POST"])
+        def endpoint_scan_ports():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            jdata = flask.g.jdata or {}
+            target = jdata.get("target", None)
+            if not isinstance(target, str) or len(target.strip()) == 0:
+                return self.make_response(msg="A non-empty \"target\" address is "
+                                          "required.", success=False, rstatus=400)
+            params = {"target": target.strip()}
+            if "ports" in jdata and jdata["ports"] is not None:
+                params["ports"] = jdata["ports"]
+            job_id = self.service.jobs.submit(JobType.SCAN_PORTS, params)
+            return self.make_response(payload={"job_id": job_id})
+
+        # Submit an OS-detection scan for a single host (requires root; the job
+        # will fail with a clear message otherwise). Body: "target" (required).
+        @self.server.route("/scan/os", methods=["POST"])
+        def endpoint_scan_os():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            jdata = flask.g.jdata or {}
+            target = jdata.get("target", None)
+            if not isinstance(target, str) or len(target.strip()) == 0:
+                return self.make_response(msg="A non-empty \"target\" address is "
+                                          "required.", success=False, rstatus=400)
+            job_id = self.service.jobs.submit(JobType.DETECT_OS,
+                                              {"target": target.strip()})
+            return self.make_response(payload={"job_id": job_id})
+
+        # Submit an ARP-poison block job to cut a single host off the local
+        # network (local subnet only, duration hard-capped, arpspoof required).
+        # Body: "target" (required), optional "duration". Returns the job id.
+        @self.server.route("/arppoison", methods=["POST"])
+        def endpoint_arppoison():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            jdata = flask.g.jdata or {}
+            target = jdata.get("target", None)
+            if not isinstance(target, str) or len(target.strip()) == 0:
+                return self.make_response(msg="A non-empty \"target\" address is "
+                                          "required.", success=False, rstatus=400)
+            # enforce the guards (arpspoof installed + local subnet + gateway
+            # resolvable + hard cap) at submit time; on any failure return a
+            # descriptive error and DO NOT enqueue a job.
+            try:
+                job_id = self.service.enqueue_arppoison(
+                    target.strip(), jdata.get("duration", None))
+            except ValueError as e:
+                return self.make_response(msg=str(e), success=False, rstatus=400)
+            return self.make_response(payload={"job_id": job_id})
+
+        # Retrieve a single job's status/result/error by id.
+        @self.server.route("/jobs/<job_id>", methods=["GET"])
+        def endpoint_job(job_id):
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            job = self.service.jobs.get(job_id)
+            if job is None:
+                return self.make_response(msg="No job with id \"%s\"." % job_id,
+                                          success=False, rstatus=404)
+            return self.make_response(payload=job.to_json())
+
+        # List recent jobs (newest first).
+        @self.server.route("/jobs", methods=["GET"])
+        def endpoint_jobs():
+            if not flask.g.user:
+                return self.make_response(rstatus=404)
+            result = [job.to_json() for job in self.service.jobs.list()]
+            return self.make_response(payload=result)
+
 
 # =============================== NLA Handlers =============================== #
 def nla_get_network_devices(oracle, jdata):
@@ -754,10 +1306,8 @@ def nla_get_network_devices(oracle, jdata):
     """
     params = NLAEndpointInvokeParameters.from_json(jdata)
 
-    # collect all devices from the warden's cache
-    devices = []
-    for addr in oracle.service.cache:
-        devices.append(oracle.service.cache[addr])
+    # collect all devices from the warden's cache (snapshot under the lock)
+    devices = list(oracle.service.cache_snapshot())
 
     if len(devices) == 0:
         return NLAResult.from_json({

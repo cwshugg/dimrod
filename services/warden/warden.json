@@ -47,5 +47,20 @@
     },
 
     "__comment_device_ttl": "Seconds after which an unseen device is pruned from both the cache and database. Defaults to 604800 (1 week).",
-    "device_ttl": 604800
+    "device_ttl": 604800,
+
+    "__comment_job_workers": "Background job system: size of the worker-thread pool that runs scan/ARP-poison/sweep jobs off the main service thread. Must be greater than 0.",
+    "job_workers": 3,
+
+    "__comment_job_result_ttl": "How long (seconds) a finished job is retained so its status/result can be polled via the API before it is evicted. Defaults to 3600 (1 hour).",
+    "job_result_ttl": 3600,
+
+    "__comment_arppoison_default_duration": "Default duration (seconds) of an ARP-poison block job when none is requested. An ARP-poison block cuts a single local-network device off the LAN by poisoning its ARP cache (via arpspoof) and black-holing its traffic.",
+    "arppoison_default_duration": 60,
+
+    "__comment_arppoison_hard_cap": "Absolute upper bound (seconds) an ARP-poison block may EVER run, regardless of the requested/default duration. ARP-poison blocks are additionally restricted to targets on warden's own local subnet.",
+    "arppoison_hard_cap": 300,
+
+    "__comment_device_scan_interval": "Cadence (seconds) of the routine per-device open-port / OS-detection scans. Defaults to 3600 (1 hour).",
+    "device_scan_interval": 3600
 }
