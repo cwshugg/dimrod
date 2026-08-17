@@ -11,6 +11,7 @@ import socket
 import ipaddress
 import time
 import threading
+import traceback
 from datetime import datetime
 from mac_vendor_lookup import BaseMacLookup, MacLookup
 
@@ -39,7 +40,7 @@ from jobs import Job, JobType, JobStatus, JobManager
 
 # ================================ Constants ================================ #
 # Path to the Linux IPv4 forwarding toggle. Warden sets this to "0" for the
-# duration of an ARP-poison block so the poisoned target is black-holed
+# duration of an ARP-block so the poisoned target is black-holed
 # (dropped) instead of having its traffic transparently relayed, then restores
 # the prior value afterward.
 IP_FORWARD_PATH = "/proc/sys/net/ipv4/ip_forward"
@@ -67,16 +68,16 @@ class WardenConfig(ServiceConfig):
             })),
             ConfigField("device_ttl",       [int],      required=False,     default=604800),
             # ---- background job system ---------------------------------------
-            # size of the worker-thread pool that executes scan/ARP-poison/sweep
+            # size of the worker-thread pool that executes scan/ARP-block/sweep
             # jobs
             ConfigField("job_workers",      [int],      required=False,     default=4),
             # how long (seconds) finished jobs are retained for status polling
             ConfigField("job_result_ttl",   [int],      required=False,     default=3600),
-            # default duration (seconds) for an ARP-poison block job
-            ConfigField("arppoison_default_duration", [int], required=False, default=60),
-            # absolute upper bound (seconds) an ARP-poison block may ever run,
+            # default duration (seconds) for an ARP-block job
+            ConfigField("arpblock_default_duration", [int], required=False, default=60),
+            # absolute upper bound (seconds) an ARP-block may ever run,
             # regardless of the requested/default duration
-            ConfigField("arppoison_hard_cap", [int],     required=False,     default=300),
+            ConfigField("arpblock_hard_cap", [int],     required=False,     default=300),
             # cadence (seconds) of the routine per-device port/OS scans
             ConfigField("device_scan_interval", [int],  required=False,     default=3600),
         ]
@@ -337,8 +338,8 @@ class WardenService(Service):
         assert self.config.device_ttl > 0, "the device TTL must be greater than 0"
         assert self.config.job_workers > 0, "the job worker count must be greater than 0"
         assert self.config.job_result_ttl > 0, "the job result TTL must be greater than 0"
-        assert self.config.arppoison_default_duration > 0, "the ARP-poison default duration must be greater than 0"
-        assert self.config.arppoison_hard_cap > 0, "the ARP-poison hard cap must be greater than 0"
+        assert self.config.arpblock_default_duration > 0, "the ARP-block default duration must be greater than 0"
+        assert self.config.arpblock_hard_cap > 0, "the ARP-block hard cap must be greater than 0"
         assert self.config.device_scan_interval > 0, "the device scan interval must be greater than 0"
 
         # the service will keep a cache of IP/MAC addresses, but it starts as an
@@ -366,17 +367,17 @@ class WardenService(Service):
         self.arp_client = Arp()
         self.nmap_client = Nmap()
 
-        # the low-level `arpspoof` wrapper used by the ARP-poison block job. If
-        # arpspoof is not installed, ARP-poison requests are refused (soft-fail)
+        # the low-level `arpspoof` wrapper used by the ARP-block job. If
+        # arpspoof is not installed, ARP-block requests are refused (soft-fail)
         # rather than crashing; warn ONCE at startup so the operator knows.
         self.arpspoof_client = ArpSpoof()
         if not ArpSpoof.is_installed():
             self.log.write("[WARN] the 'arpspoof' binary is not installed "
-                           "(install the 'dsniff' package); ARP-poison block "
+                           "(install the 'dsniff' package); ARP-block "
                            "requests will be refused until it is available.")
 
         # cached (gateway_ip, iface) parsed from `ip route show default`; lazily
-        # populated by `get_default_route()` and reused across ARP-poison jobs.
+        # populated by `get_default_route()` and reused across ARP-block jobs.
         self._default_route = None
 
         # the background job manager (worker pool + queue + registry). Handlers
@@ -391,18 +392,12 @@ class WardenService(Service):
         """Overridden main function implementation."""
         super().run()
 
-        def can_sweep():
-            """Helper function to determine if it's time for a sweep."""
-            time_to_sweep_threshold = now.timestamp() - self.last_sweep.timestamp()
-            can_sweep = time_to_sweep_threshold >= self.config.sweep_threshold
-            return can_sweep
-
         # get our own IP address
         self.addr = self.get_address()
         self.log.write("Warden's IP address: %s" % self.addr)
 
         # start the background job worker pool. Workers run scans/sweeps/
-        # ARP-poison jobs OFF this main thread so the sweep/ping loop never
+        # ARP-block jobs OFF this main thread so the sweep/ping loop never
         # blocks.
         self.jobs.start()
 
@@ -427,41 +422,66 @@ class WardenService(Service):
             now = datetime.now()
             pfx = "[%s]" % now.strftime("%Y-%m-%d %H:%M:%S")
 
-            # if we're past the sweep threshold, enqueue a sweep job.
-            # `enqueue_sweep` skips if one is already active.
-            if can_sweep():
-                # before sweeping, update the MAC address vendor cache
-                self.log.write("%s Refreshing MAC address vendor cache..." % pfx)
-                self.mac_vendor_refresh_cache()
+            # Wrap the monitoring cycle in a try-catch to avoid crashing due to
+            # transient errors arising from internet access, ARP cache access,
+            # etc.
+            try:
+                self._run_cycle(now, pfx)
+            except Exception:
+                self.log.write("[ERROR] Unexpected error during monitoring "
+                               "cycle; continuing.\n%s" %
+                               traceback.format_exc())
+            finally:
+                # sleep for the specified amount of seconds (always honored,
+                # even when the cycle above raised, to avoid a tight error loop)
+                time.sleep(self.config.refresh_rate)
 
-                self.log.write("%s Enqueuing network sweep..." % pfx)
-                self.enqueue_sweep()
+    def _run_cycle(self, now: datetime, pfx: str):
+        """Performs a single monitoring cycle: optionally refreshes the vendor
+        cache + enqueues a sweep, pings cached devices, and prunes stale ones.
 
-            # iterate across a SNAPSHOT of the cache (worker threads may mutate
-            # the live cache concurrently)
-            for device in self.cache_snapshot():
-                if device.net_addr is None:
-                    continue
+        Extracted from `run()`'s loop body so the per-cycle work can be wrapped
+        by a single try/except safety net (and unit-tested in isolation). `now`
+        is the cycle timestamp and `pfx` its formatted log prefix.
+        """
+        def can_sweep():
+            """Helper function to determine if it's time for a sweep."""
+            time_to_sweep_threshold = now.timestamp() - self.last_sweep.timestamp()
+            can_sweep = time_to_sweep_threshold >= self.config.sweep_threshold
+            return can_sweep
 
-                # ping the device and update if it responds
-                ping_tries = self.config.ping_tries * 2
-                if self.ping(device.net_addr.ipaddr, tries=ping_tries):
-                    self.log.write("%s Device \"%s\" is responding." %
-                                   (pfx, device.to_str_brief()))
-                    device.set_last_seen(datetime.now())
-                    # persist the updated last_seen to the durable DB mirror
-                    self.db.save(device)
+        # if we're past the sweep threshold, enqueue a sweep job.
+        # `enqueue_sweep` skips if one is already active.
+        if can_sweep():
+            # before sweeping, update the MAC address vendor cache
+            self.log.write("%s Refreshing MAC address vendor cache..." % pfx)
+            self.mac_vendor_refresh_cache()
 
-                    # enqueue routine per-device port/OS scans, honoring the
-                    # configured cadence; these run on the worker pool
-                    self.maybe_enqueue_device_scans(device)
+            self.log.write("%s Enqueuing network sweep..." % pfx)
+            self.enqueue_sweep()
 
-            # prune any devices that haven't been seen within the configured TTL
-            # from both the cache and the database
-            self.prune_stale_devices(now=datetime.now())
+        # iterate across a SNAPSHOT of the cache (worker threads may mutate
+        # the live cache concurrently)
+        for device in self.cache_snapshot():
+            if device.net_addr is None:
+                continue
 
-            # sleep for the specified amount of seconds
-            time.sleep(self.config.refresh_rate)
+            # ping the device and update if it responds
+            ping_tries = self.config.ping_tries * 2
+            if self.ping(device.net_addr.ipaddr, tries=ping_tries):
+                self.log.write("%s Device \"%s\" is responding." %
+                               (pfx, device.to_str_brief()))
+                device.set_last_seen(datetime.now())
+                # persist the updated last_seen to the durable DB mirror
+                self.db.save(device)
+
+                # enqueue routine per-device port/OS scans, honoring the
+                # configured cadence; these run on the worker pool
+                self.maybe_enqueue_device_scans(device)
+
+        # prune any devices that haven't been seen within the configured TTL
+        # from both the cache and the database
+        self.prune_stale_devices(now=datetime.now())
 
 
     # ---------------------------- Job Enqueueing ---------------------------- #
@@ -774,22 +794,60 @@ class WardenService(Service):
             return None
 
     def mac_vendor(self, macaddr: str):
-        """Looks up the vendor for a given MAC address. Returns a string."""
+        """Looks up the vendor for a given MAC address.
+
+        Returns the vendor string on success, or `None` when the vendor cannot
+        be determined. A lookup can fail either because the vendor is genuinely
+        unknown (`VendorNotFoundError`) or because the underlying library tries
+        to download the OUI list when the on-disk cache is absent and the
+        network is unavailable (raising socket/aiohttp errors). Warden treats
+        all of these as "no vendor" and never propagates, so a transient
+        network outage cannot disrupt device discovery. Callers already tolerate
+        a `None` return (see `sweep()`).
+        """
         # sanitize the MAC address
         macaddr_sanitized = macaddr.lower().replace("-", ":").replace(".", ":")
 
-        # perform a lookup
-        mac = MacLookup()
-        return mac.lookup(macaddr_sanitized)
+        # perform a lookup. Catch broadly on purpose: the underlying library
+        # raises several unrelated types (VendorNotFoundError, InvalidMacError,
+        # socket.gaierror, aiohttp errors on cache-miss downloads). None of
+        # these should crash the caller, so any failure yields None.
+        try:
+            mac = MacLookup()
+            return mac.lookup(macaddr_sanitized)
+        except Exception as e:
+            # quiet, non-spammy note; a missing vendor is expected and benign
+            self.log.write("MAC vendor lookup for %s failed: %s" %
+                           (macaddr, e))
+            return None
 
     def mac_vendor_refresh_cache(self):
-        """Refreshes the MAC address vendor cache."""
+        """Refreshes the MAC address vendor cache from the IEEE OUI list.
+
+        This performs a NETWORK fetch (aiohttp) to `standards-oui.ieee.org`.
+        During an internet outage this call raises `socket.gaierror` /
+        `aiohttp.ClientConnectorDNSError`. This method is invoked from the
+        long-lived monitoring loop in `run()`, so any escape would kill the
+        thread. We therefore catch broadly, log a concise warning, and RETURN
+        normally, continuing to use whatever cached vendor data already exists.
+        """
         BaseMacLookup.cache_path = self.config.mac_vendor_cache_path
         mac = MacLookup()
-        mac.update_vendors()
+
+        # Broad `except Exception` is JUSTIFIED here: `update_vendors()` performs
+        # a network fetch and can raise many unrelated exception types
+        # (socket.gaierror, aiohttp connector/DNS errors, timeouts). For a
+        # daemon monitoring thread, a failed refresh must be survivable — never
+        # fatal — so we swallow the error and keep the existing cache.
+        try:
+            mac.update_vendors()
+        except Exception as e:
+            self.log.write("[WARN] Failed to refresh MAC vendor cache "
+                           "(network?): %s" % e)
+            return
 
 
-    # ===================== Subnet / ARP-Poison Guards ====================== #
+    # ===================== Subnet / ARP-Block Guards ====================== #
     def get_local_network(self):
         """Returns the service's local IPv4 network as an `ipaddress.IPv4Network`
         (derived from `get_netmask()`), or None if it cannot be determined.
@@ -802,7 +860,7 @@ class WardenService(Service):
 
     def is_local_subnet(self, ipaddr: str) -> bool:
         """Returns True if `ipaddr` is a valid address on the service's local
-        subnet. Used to restrict ARP-poison blocks to the local network only.
+        subnet. Used to restrict ARP-blocks to the local network only.
         """
         network = self.get_local_network()
         if network is None:
@@ -818,7 +876,7 @@ class WardenService(Service):
         Parses `ip route show default` (e.g. "default via 192.168.0.1 dev eth0
         ...") and returns a `(gateway_ip, iface)` tuple. Returns `(None, None)`
         if the default route cannot be determined. The result is cached after a
-        successful lookup and reused across ARP-poison jobs; a failed lookup is
+        successful lookup and reused across ARP-block jobs; a failed lookup is
         not cached so it is retried on the next call.
         """
         # reuse a previously cached, fully-resolved route
@@ -848,20 +906,20 @@ class WardenService(Service):
             self._default_route = route
         return route
 
-    def clamp_arppoison_duration(self, duration=None) -> int:
-        """Normalizes and clamps a requested ARP-poison block duration into
-        `[1, arppoison_hard_cap]`, defaulting to `arppoison_default_duration`
+    def clamp_arpblock_duration(self, duration=None) -> int:
+        """Normalizes and clamps a requested ARP-block duration into
+        `[1, arpblock_hard_cap]`, defaulting to `arpblock_default_duration`
         when unspecified.
         """
         if duration is None:
-            duration = self.config.arppoison_default_duration
+            duration = self.config.arpblock_default_duration
         try:
             duration = int(duration)
         except (TypeError, ValueError):
-            duration = self.config.arppoison_default_duration
+            duration = self.config.arpblock_default_duration
         # never allow a non-positive or over-cap duration
         duration = max(1, duration)
-        return min(duration, self.config.arppoison_hard_cap)
+        return min(duration, self.config.arpblock_hard_cap)
 
     # ================= ip_forward black-hole helpers ================== #
     def _read_ip_forward(self):
@@ -891,11 +949,11 @@ class WardenService(Service):
                            % (IP_FORWARD_PATH, value, e))
             return False
 
-    def enqueue_arppoison(self, target: str, duration=None) -> str:
-        """Validates and enqueues an `arppoison` block job. Enforces the guards
+    def enqueue_arpblock(self, target: str, duration=None) -> str:
+        """Validates and enqueues an `arpblock` job. Enforces the guards
         at submit time: arpspoof MUST be installed, the target MUST be on the
         local subnet, the default gateway/interface MUST be resolvable, and the
-        duration is clamped to `[1, arppoison_hard_cap]`. Returns the new job id.
+        duration is clamped to `[1, arpblock_hard_cap]`. Returns the new job id.
 
         Raises:
           ValueError  If the target is missing/invalid, not on the local subnet,
@@ -907,25 +965,25 @@ class WardenService(Service):
             raise ValueError("a non-empty target address is required")
         target = target.strip()
 
-        # ARP poisoning is only valid on the local LAN
+        # ARP-block is only valid on the local LAN
         if not self.is_local_subnet(target):
-            raise ValueError("ARP-poison target '%s' is not on the local "
-                             "subnet; ARP-poison blocks are restricted to the "
+            raise ValueError("ARP-block target '%s' is not on the local "
+                             "subnet; ARP-blocks are restricted to the "
                              "local network" % target)
 
         # install enforcement (soft-fail): refuse rather than enqueue-then-fail
         if not ArpSpoof.is_installed():
             raise ValueError("arpspoof is not installed (install the 'dsniff' "
-                             "package); ARP-poison block requests are refused")
+                             "package); ARP-block requests are refused")
 
         # derive the gateway/interface; refuse if they cannot be determined
         gateway, iface = self.get_default_route()
         if gateway is None or iface is None:
             raise ValueError("could not determine the default gateway / LAN "
-                             "interface; ARP-poison block request refused")
+                             "interface; ARP-block request refused")
 
-        duration = self.clamp_arppoison_duration(duration)
-        return self.jobs.submit(JobType.ARPPOISON, {
+        duration = self.clamp_arpblock_duration(duration)
+        return self.jobs.submit(JobType.ARPBLOCK, {
             "target": target,
             "gateway": gateway,
             "iface": iface,
@@ -939,7 +997,7 @@ class WardenService(Service):
         self.jobs.register(JobType.SCAN_RANGE, self._job_scan_range)
         self.jobs.register(JobType.SCAN_PORTS, self._job_scan_ports)
         self.jobs.register(JobType.DETECT_OS, self._job_detect_os)
-        self.jobs.register(JobType.ARPPOISON, self._job_arppoison)
+        self.jobs.register(JobType.ARPBLOCK, self._job_arpblock)
         self.jobs.register(JobType.NETWORK_SWEEP, self._job_network_sweep)
 
     def _ingest_discovered_device(self, ipaddr, macaddr, vendor=None):
@@ -1061,8 +1119,8 @@ class WardenService(Service):
         return {"target": target, "os_info": os_info.to_json(),
                 "matches": matches}
 
-    def _job_arppoison(self, job: Job):
-        """Handler: ARP-poison a single local-subnet host for a bounded duration
+    def _job_arpblock(self, job: Job):
+        """Handler: ARP-block a single local-subnet host for a bounded duration
         to cut it off the network. Re-validates the guards inside the worker
         (local subnet + still-installed + root), determines the gateway/interface
         if not already in the job params, disables IP forwarding for the duration
@@ -1082,20 +1140,20 @@ class WardenService(Service):
 
         # re-enforce the guards inside the worker (defense in depth)
         if not self.is_local_subnet(target):
-            raise ValueError("ARP-poison target '%s' is not on the local subnet"
+            raise ValueError("ARP-block target '%s' is not on the local subnet"
                              % target)
 
         # install enforcement: refuse if arpspoof vanished since submit time
         if not ArpSpoof.is_installed():
             raise ArpSpoofNotInstalledError(
-                "arpspoof is not installed; cannot run ARP-poison block")
+                "arpspoof is not installed; cannot run ARP-block")
 
-        # ARP poisoning needs raw sockets, which require root
+        # ARP-block needs raw sockets, which require root
         if not is_root():
             raise ArpSpoofPrivilegeError(
-                "ARP poisoning requires root privileges")
+                "ARP-block requires root privileges")
 
-        duration = self.clamp_arppoison_duration(job.params.get("duration"))
+        duration = self.clamp_arpblock_duration(job.params.get("duration"))
 
         # determine the gateway/interface, preferring the params captured at
         # submit time and falling back to a fresh lookup
@@ -1105,7 +1163,7 @@ class WardenService(Service):
             gateway, iface = self.get_default_route()
         if not gateway or not iface:
             raise ValueError("could not determine the default gateway / LAN "
-                             "interface for the ARP-poison block")
+                             "interface for the ARP-block")
 
         # Black-hole the target: disable IP forwarding for the duration so the
         # poisoned traffic is dropped rather than transparently relayed. The
@@ -1114,7 +1172,7 @@ class WardenService(Service):
         forwarding_disabled = self._write_ip_forward(0)
         if not forwarding_disabled:
             self.log.write("[WARN] could not disable IP forwarding; the "
-                           "ARP-poison target may be relayed rather than "
+                           "ARP-block target may be relayed rather than "
                            "black-holed.")
         try:
             summary = self.arpspoof_client.poison(target, gateway, iface,
@@ -1255,11 +1313,11 @@ class WardenOracle(Oracle):
                                               {"target": target.strip()})
             return self.make_response(payload={"job_id": job_id})
 
-        # Submit an ARP-poison block job to cut a single host off the local
+        # Submit an ARP-block job to cut a single host off the local
         # network (local subnet only, duration hard-capped, arpspoof required).
         # Body: "target" (required), optional "duration". Returns the job id.
-        @self.server.route("/arppoison", methods=["POST"])
-        def endpoint_arppoison():
+        @self.server.route("/arpblock", methods=["POST"])
+        def endpoint_arpblock():
             if not flask.g.user:
                 return self.make_response(rstatus=404)
             jdata = flask.g.jdata or {}
@@ -1271,7 +1329,7 @@ class WardenOracle(Oracle):
             # resolvable + hard cap) at submit time; on any failure return a
             # descriptive error and DO NOT enqueue a job.
             try:
-                job_id = self.service.enqueue_arppoison(
+                job_id = self.service.enqueue_arpblock(
                     target.strip(), jdata.get("duration", None))
             except ValueError as e:
                 return self.make_response(msg=str(e), success=False, rstatus=400)

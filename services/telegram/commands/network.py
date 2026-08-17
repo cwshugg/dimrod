@@ -292,7 +292,7 @@ def _submit_job(service, message, session, endpoint, payload):
     """Submits a warden job via POST and returns its job id.
 
     Returns the job id string on success. On failure, sends a graceful error
-    message to the user (surfacing warden's refusal reason, e.g. arppoison
+    message to the user (surfacing warden's refusal reason, e.g. arpblock
     guardrails) and returns None.
     """
     try:
@@ -403,17 +403,17 @@ def _cmd_os(service, message, session, sub_args) -> bool:
                            queued)
 
 
-def _cmd_arppoison(service, message, session, sub_args) -> bool:
-    """`/net arppoison <ip> [duration]` (alias `/net block`) -> POST /arppoison.
+def _cmd_arpblock(service, message, session, sub_args) -> bool:
+    """`/net arpblock <ip> [duration]` (alias `/net block`) -> POST /arpblock.
 
-    Temporarily cuts a single local-subnet device off the LAN via an ARP-poison
-    block. Warden enforces the guardrails (local-subnet only, duration clamped
+    Temporarily cuts a single local-subnet device off the LAN via an ARP-block.
+    Warden enforces the guardrails (local-subnet only, duration clamped
     to [1, hard cap], and arpspoof must be installed); any refusal is surfaced
     to the user.
     """
     if len(sub_args) < 1:
         service.send_message(message.chat.id,
-                             "Usage: <code>/net arppoison &lt;ip&gt; "
+                             "Usage: <code>/net arpblock &lt;ip&gt; "
                              "[duration]</code>\nTemporarily cuts a device off "
                              "the LAN (local subnet only).",
                              parse_mode="HTML")
@@ -433,13 +433,13 @@ def _cmd_arppoison(service, message, session, sub_args) -> bool:
             return False
         payload["duration"] = duration
     if duration is not None:
-        queued = ("✅ Queued an ARP-poison block of <code>%s</code> for ~%ss. "
+        queued = ("✅ Queued an ARP-block of <code>%s</code> for ~%ss. "
                   "It will run in the background." %
                   (_esc(target), _esc(duration)))
     else:
-        queued = ("✅ Queued an ARP-poison block of <code>%s</code>. It will "
+        queued = ("✅ Queued an ARP-block of <code>%s</code>. It will "
                   "run in the background." % _esc(target))
-    return _submit_and_ack(service, message, session, "/arppoison", payload,
+    return _submit_and_ack(service, message, session, "/arpblock", payload,
                            queued)
 
 
@@ -458,8 +458,8 @@ def _send_usage(service, message):
         "ports\n"
         "  <code>/net os &lt;ip&gt;</code> — Detect a host's OS (Warden needs "
         "root; otherwise the job fails with a clear message)\n\n"
-        "<b>ARP-poison block</b>\n"
-        "  <code>/net arppoison &lt;ip&gt; [duration]</code> — Temporarily cut "
+        "<b>ARP-block</b>\n"
+        "  <code>/net arpblock &lt;ip&gt; [duration]</code> — Temporarily cut "
         "a device off the LAN (alias: <code>/net block</code>)\n"
         "  <i>Local subnet only; duration is clamped to Warden's allowed range"
         "; requires arpspoof installed on the "
@@ -468,7 +468,7 @@ def _send_usage(service, message):
         "  <code>/net scan 192.168.1.0/24</code>\n"
         "  <code>/net ports 192.168.1.10 22,80,443</code>\n"
         "  <code>/net os 192.168.1.10</code>\n"
-        "  <code>/net arppoison 192.168.1.10 30</code>"
+        "  <code>/net arpblock 192.168.1.10 30</code>"
     )
     service.send_message(message.chat.id, msg, parse_mode="HTML")
 
@@ -478,8 +478,8 @@ _JOB_SUBCOMMANDS = {
     "scan": _cmd_scan,
     "ports": _cmd_ports,
     "os": _cmd_os,
-    "arppoison": _cmd_arppoison,
-    "block": _cmd_arppoison,  # friendly alias for arppoison
+    "arpblock": _cmd_arpblock,
+    "block": _cmd_arpblock,  # friendly alias for arpblock
 }
 
 
@@ -512,7 +512,7 @@ def command_network(service, message, args: list):
         _send_usage(service, message)
         return True
 
-    # scan / port / OS / arppoison job subcommands
+    # scan / port / OS / arpblock job subcommands
     if sub in _JOB_SUBCOMMANDS:
         return _JOB_SUBCOMMANDS[sub](service, message, session, sub_args)
 

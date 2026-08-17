@@ -1,5 +1,5 @@
 # This module implements warden's background job system: a small, thread-safe
-# worker pool that executes network jobs (range/port/OS scans, ARP-poison
+# worker pool that executes network jobs (range/port/OS scans, ARP-block
 # blocks, and full network sweeps) OFF the main service thread.
 #
 # The design is intentionally decoupled from warden's networking logic: this
@@ -33,11 +33,11 @@ class JobType:
     SCAN_RANGE = "scan_range"
     SCAN_PORTS = "scan_ports"
     DETECT_OS = "detect_os"
-    ARPPOISON = "arppoison"
+    ARPBLOCK = "arpblock"
     NETWORK_SWEEP = "network_sweep"
 
     # the complete set of valid job types
-    ALL = (SCAN_RANGE, SCAN_PORTS, DETECT_OS, ARPPOISON, NETWORK_SWEEP)
+    ALL = (SCAN_RANGE, SCAN_PORTS, DETECT_OS, ARPBLOCK, NETWORK_SWEEP)
 
     @classmethod
     def is_valid(cls, job_type: str) -> bool:
@@ -77,7 +77,7 @@ class Job:
         self.started_at = None
         self.finished_at = None
         # a per-job cooperative-cancel event; long-running handlers (e.g. the
-        # ARP-poison block) can watch this / a deadline to stop early
+        # ARP-block) can watch this / a deadline to stop early
         self.cancel_event = threading.Event()
 
     def is_terminal(self) -> bool:
