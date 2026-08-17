@@ -19,31 +19,203 @@ if pdir not in sys.path:
 # Local imports
 from lib.uniserdes import Uniserdes, UniserdesField
 
-# Mapping of common timezone abbreviations to their IANA zone names. The IANA
-# zone (resolved via `zoneinfo.ZoneInfo`) handles DST automatically, so the
-# standard and daylight variants (ex: "EST"/"EDT") map to the same zone as the
-# generic abbreviation ("ET"). Lookups are performed case-insensitively against
-# the WHOLE arg token (see `parse_datetime`).
+
+# ============================= Timezone Parsing ============================= #
+# Static map of UPPERCASE timezone abbreviations -> IANA zone names, used by
+# `parse_datetime` for case-insensitive timezone parsing.
+# 
+# Some timezone abbreviations are ambiguous (i.e. they are used by multiple
+# timezones); for those, I've chosen a default.
 TIMEZONE_ABBREVIATIONS = {
+    # -------------------------- North America -------------------------- #
     "ET":   "America/New_York",
     "EST":  "America/New_York",
     "EDT":  "America/New_York",
-    "CT":   "America/Chicago",
-    "CST":  "America/Chicago",
-    "CDT":  "America/Chicago",
+    "CT":   "America/Chicago",       # ambiguous (US Central vs China); default US Central
+    "CST":  "America/Chicago",       # ambiguous (US Central/China/Cuba/AU); default US Central
+    "CDT":  "America/Chicago",       # ambiguous (US Central vs Cuba); default US Central
     "MT":   "America/Denver",
-    "MST":  "America/Denver",
+    "MST":  "America/Denver",        # ambiguous (US Mountain vs Malaysia hist.); default US Mountain
     "MDT":  "America/Denver",
     "PT":   "America/Los_Angeles",
     "PST":  "America/Los_Angeles",
     "PDT":  "America/Los_Angeles",
+    "AKST": "America/Anchorage",
+    "AKDT": "America/Anchorage",
+    "HST":  "Pacific/Honolulu",      # fixed offset, no DST
+    "HDT":  "America/Adak",          # Hawaii-Aleutian DST (Adak observes it)
+    "AST":  "America/Halifax",       # ambiguous (Atlantic vs Arabia); default Atlantic
+    "ADT":  "America/Halifax",
+    "AT":   "America/Halifax",
+    "NST":  "America/St_Johns",
+    "NDT":  "America/St_Johns",
+    "NT":   "America/St_Johns",
+    # ------------------------------ Europe ----------------------------- #
+    "GMT":  "UTC",
+    "UTC":  "UTC",
+    "UT":   "UTC",
+    "WET":  "Europe/Lisbon",
+    "WEST": "Europe/Lisbon",
     "CET":  "Europe/Paris",
     "CEST": "Europe/Paris",
-    "UTC":  "UTC",
-    "GMT":  "UTC",
+    "MET":  "Europe/Paris",          # "Middle European" == CET
+    "MEST": "Europe/Paris",
+    "HAEC": "Europe/Paris",          # French name for CEST
+    "EET":  "Europe/Bucharest",
+    "EEST": "Europe/Bucharest",
+    "BST":  "Europe/London",         # ambiguous (British Summer vs Bangladesh); default UK
+    "MSK":  "Europe/Moscow",
+    "TRT":  "Europe/Istanbul",
+    "KALT": "Europe/Kaliningrad",
+    "FET":  "Europe/Minsk",
+    "SAMT": "Europe/Samara",
+    "VOLT": "Europe/Volgograd",
+    "AZOT": "Atlantic/Azores",
+    "AZOST": "Atlantic/Azores",
+    # ------------------------------ Africa ----------------------------- #
+    "WAT":  "Africa/Lagos",
+    "WAST": "Africa/Windhoek",
+    "CAT":  "Africa/Maputo",
+    "EAT":  "Africa/Nairobi",
+    "SAST": "Africa/Johannesburg",
+    # ------------------------------- Asia ------------------------------ #
+    "IST":  "Asia/Kolkata",          # ambiguous (India/Israel/Ireland); default India
+    "PKT":  "Asia/Karachi",
+    "BTT":  "Asia/Thimphu",
+    "NPT":  "Asia/Kathmandu",
+    "SLST": "Asia/Colombo",
+    "AFT":  "Asia/Kabul",
+    "IRST": "Asia/Tehran",
+    "IRDT": "Asia/Tehran",
+    "GST":  "Asia/Dubai",            # ambiguous (Gulf vs S.Georgia); default Gulf; fixed offset
+    "IDT":  "Asia/Jerusalem",        # Israel Daylight — kept independent of IST
+    "ICT":  "Asia/Bangkok",
+    "THA":  "Asia/Bangkok",
+    "WIB":  "Asia/Jakarta",
+    "WITA": "Asia/Makassar",
+    "WIT":  "Asia/Jayapura",
+    "MYT":  "Asia/Kuala_Lumpur",
+    "SGT":  "Asia/Singapore",
+    "HKT":  "Asia/Hong_Kong",
+    "PHT":  "Asia/Manila",           # ambiguous only vs Phoenix Is. (PHOT); Philippines
+    "PHST": "Asia/Manila",
+    "TST":  "Asia/Taipei",
+    "JST":  "Asia/Tokyo",
+    "KST":  "Asia/Seoul",
+    "MMT":  "Asia/Yangon",
+    "GET":  "Asia/Tbilisi",
+    "AZT":  "Asia/Baku",
+    "UZT":  "Asia/Tashkent",
+    "TMT":  "Asia/Ashgabat",
+    "TJT":  "Asia/Dushanbe",
+    "KGT":  "Asia/Bishkek",
+    "ALMT": "Asia/Almaty",
+    "AQTT": "Asia/Aqtobe",
+    "ORAT": "Asia/Oral",
+    "NOVT": "Asia/Novosibirsk",
+    "OMST": "Asia/Omsk",
+    "KRAT": "Asia/Krasnoyarsk",
+    "IRKT": "Asia/Irkutsk",
+    "YAKT": "Asia/Yakutsk",
+    "VLAT": "Asia/Vladivostok",
+    "MAGT": "Asia/Magadan",
+    "SAKT": "Asia/Sakhalin",
+    "PETT": "Asia/Kamchatka",
+    "ANAT": "Asia/Anadyr",
+    "YEKT": "Asia/Yekaterinburg",
+    "SRET": "Asia/Srednekolymsk",
+    "BNT":  "Asia/Brunei",
+    "TLT":  "Asia/Dili",
+    "IOT":  "Indian/Chagos",
+    "MVT":  "Indian/Maldives",
+    # ------------------------ Australia / Oceania ---------------------- #
+    "AWST": "Australia/Perth",
+    "ACST": "Australia/Adelaide",
+    "ACDT": "Australia/Adelaide",
+    "AEST": "Australia/Sydney",
+    "AEDT": "Australia/Sydney",
+    "AET":  "Australia/Sydney",
+    "ACWST": "Australia/Eucla",
+    "LHST": "Australia/Lord_Howe",
+    "NZST": "Pacific/Auckland",
+    "NZDT": "Pacific/Auckland",
+    "CHAST": "Pacific/Chatham",
+    "CHADT": "Pacific/Chatham",
+    "FJT":  "Pacific/Fiji",
+    "CHST": "Pacific/Guam",          # Chamorro Std Time (fixed offset)
+    "NFT":  "Pacific/Norfolk",
+    "NCT":  "Pacific/Noumea",
+    "PGT":  "Pacific/Port_Moresby",
+    "SBT":  "Pacific/Guadalcanal",
+    "VUT":  "Pacific/Efate",
+    "TOT":  "Pacific/Tongatapu",
+    "TVT":  "Pacific/Funafuti",
+    "WAKT": "Pacific/Wake",
+    "NUT":  "Pacific/Niue",
+    "SST":  "Pacific/Pago_Pago",     # ambiguous (Samoa vs Singapore hist.); default Samoa; fixed offset
+    "WST":  "Pacific/Apia",          # ambiguous (W. Samoa vs AU West unofficial); default Samoa
+    "GILT": "Pacific/Tarawa",
+    "MHT":  "Pacific/Majuro",
+    "CKT":  "Pacific/Rarotonga",
+    "TAHT": "Pacific/Tahiti",
+    "MART": "Pacific/Marquesas",
+    "GAMT": "Pacific/Gambier",
+    "LINT": "Pacific/Kiritimati",
+    "CHUT": "Pacific/Chuuk",
+    "PONT": "Pacific/Pohnpei",
+    "KOST": "Pacific/Kosrae",
+    "CXT":  "Indian/Christmas",
+    "CCT":  "Indian/Cocos",
+    # ------------- Central / South America & Atlantic ------------------ #
+    "ACT":  "America/Rio_Branco",    # Acre Time (Brazil)
+    "ART":  "America/Argentina/Buenos_Aires",
+    "BRT":  "America/Sao_Paulo",
+    "BRST": "America/Sao_Paulo",
+    "AMT":  "America/Manaus",        # ambiguous (Amazon vs Armenia); default Amazon
+    "AMST": "America/Manaus",        # Amazon Summer
+    "FNT":  "America/Noronha",
+    "CLT":  "America/Santiago",
+    "CLST": "America/Santiago",
+    "EAST": "Pacific/Easter",
+    "EASST": "Pacific/Easter",
+    "COT":  "America/Bogota",
+    "COST": "America/Bogota",
+    "GALT": "Pacific/Galapagos",
+    "PET":  "America/Lima",
+    "BOT":  "America/La_Paz",
+    "VET":  "America/Caracas",
+    "GYT":  "America/Guyana",
+    "SRT":  "America/Paramaribo",
+    "GFT":  "America/Cayenne",
+    "PYT":  "America/Asuncion",
+    "PYST": "America/Asuncion",
+    "UYT":  "America/Montevideo",
+    "UYST": "America/Montevideo",
+    "FKT":  "Atlantic/Stanley",
+    "FKST": "Atlantic/Stanley",
+    "CVT":  "Atlantic/Cape_Verde",
+    "WGT":  "America/Nuuk",          # WGT (renamed from America/Godthab)
+    "WGST": "America/Nuuk",
+    "EGT":  "America/Scoresbysund",
+    "EGST": "America/Scoresbysund",
+    "PMST": "America/Miquelon",
+    "PMDT": "America/Miquelon",
+    "ECT":  "America/Guayaquil",     # ambiguous (Ecuador vs E. Caribbean); default Ecuador
+    # --------------------------- Indian Ocean -------------------------- #
+    "SCT":  "Indian/Mahe",
+    "MUT":  "Indian/Mauritius",
+    "RET":  "Indian/Reunion",
+    # ------------------------------ Mongolia --------------------------- #
+    "ULAT": "Asia/Ulaanbaatar",
+    "ULAST": "Asia/Ulaanbaatar",
+    "HOVT": "Asia/Hovd",
+    "HOVST": "Asia/Hovd",
+    "CHOT": "Asia/Choibalsan",
+    "CHOST": "Asia/Choibalsan",
 }
 
 
+# ============================= Date/Time Enums ============================== #
 class Weekday(Enum):
     """Simple enum to put names to numbers for datetime weekdays."""
     SUNDAY = 0
@@ -71,6 +243,7 @@ class Month(Enum):
     DECEMBER = 12
 
 
+# ============================ Date/Time Trigger ============================= #
 class DatetimeTrigger(Uniserdes):
     """A general-purpose datetime trigger that matches datetimes against a set
     of field constraints. Each field is a list acting as a filter: an empty
