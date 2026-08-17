@@ -466,7 +466,18 @@ def nla_get_recipe(oracle, jdata):
             if recipe_info is not None:
                 r_id = recipe_info.get("id", "").strip().lower()
                 recipe = oracle.service.get_recipe_by_id(r_id)
-                quantity = recipe_info.get("quantity", 1)
+                # The LLM (resolve_recipe) may return quantity as a string
+                # (e.g. "2"), a float-like string (e.g. "2.0"), a JSON
+                # number, or something unusable. Coerce it to a safe positive
+                # int at this boundary before it reaches any arithmetic or the
+                # `> 1` comparison below. Default to 1 on missing/blank/junk.
+                raw_quantity = recipe_info.get("quantity", 1)
+                try:
+                    quantity = int(float(raw_quantity))
+                except (TypeError, ValueError):
+                    quantity = 1
+                if quantity < 1:
+                    quantity = 1
         except Exception:
             # LLM resolution failed; fall through to the error below.
             pass
