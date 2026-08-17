@@ -36,5 +36,16 @@
             "macaddrs": ["ff:ff:ff:ff:ff:ff:ff:ff"],
             "tags": ["apparel"]
         }
-    ]
+    ],
+
+    "__comment_database": "On-disk SQLite database used to durably mirror the device cache so it survives a restart. 'path' selects the file (defaults to '.warden.db' next to the service). 'check_same_thread' must stay false so warden's worker-thread pool can share the single connection, and 'timeout'/'busy_timeout_ms' control how long sqlite waits on a locked database.",
+    "database": {
+        "path": ".warden.db",
+        "check_same_thread": false,
+        "timeout": 5.0,
+        "busy_timeout_ms": 5000
+    },
+
+    "__comment_device_ttl": "Seconds after which an unseen device is pruned from both the cache and database. Defaults to 604800 (1 week).",
+    "device_ttl": 604800
 }

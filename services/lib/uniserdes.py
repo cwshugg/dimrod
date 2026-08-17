@@ -18,11 +18,11 @@ from enum import Enum
 # ======================== Bang Preprocessor ========================== #
 # An extensible bang-command processing system for string values.
 #
-# Bang commands use the syntax ``!keyword content`` (e.g. ``!file path``).
-# New commands can be added at any time by calling ``register_bang()``.
+# Bang commands use the syntax `!keyword content` (e.g. `!file path`).
+# New commands can be added at any time by calling `register_bang()`.
 
-# A restricted set of builtins allowed in ``!list`` bang evaluation.
-# No access to ``os``, ``sys``, ``import``, or the real ``__builtins__`` —
+# A restricted set of builtins allowed in `!list` bang evaluation.
+# No access to `os`, `sys`, `import`, or the real `__builtins__` —
 # only safe, side-effect-free functions are exposed.
 _LIST_SAFE_BUILTINS = {
     "range": range,
@@ -48,9 +48,9 @@ _LIST_SAFE_BUILTINS = {
 
 # -------------------- Bang handler registry -------------------- #
 # Maps bang keywords to handler callables.
-# Handler signature: ``handler(content: str, base_path: str) -> str | object``
-# Most handlers return ``str``, but some (e.g. ``!list``) may return other
-# types such as ``list``.
+# Handler signature: `handler(content: str, base_path: str) -> str | object`
+# Most handlers return `str`, but some (e.g. `!list`) may return other
+# types such as `list`.
 _bang_handlers: dict = {}
 
 
@@ -58,16 +58,16 @@ def register_bang(keyword: str, handler) -> None:
     """Register a bang-command handler.
 
     Args:
-        keyword: The bang keyword (without the leading ``!``).
-                 For example, ``"file"`` registers the ``!file`` command.
+        keyword: The bang keyword (without the leading `!`).
+                 For example, `"file"` registers the `!file` command.
         handler: A callable with the signature
-                 ``handler(content: str, base_path: str) -> str | object``.
+                 `handler(content: str, base_path: str) -> str | object`.
                  *content* is the portion of the string after the keyword
                  (with inter-keyword whitespace already stripped).
                  *base_path* is the directory used for relative-path
-                 resolution (may be ``None``).
-                 Most handlers return ``str``, but handlers like ``!list``
-                 may return other types (e.g. ``list``).
+                 resolution (may be `None`).
+                 Most handlers return `str`, but handlers like `!list`
+                 may return other types (e.g. `list`).
     """
     _bang_handlers[keyword] = handler
 
@@ -78,34 +78,34 @@ def process_bangs(value: str, base_path: str = None):
     The routine:
 
     1. Strip leading whitespace from *value*.
-    2. Check for a ``!`` prefix.
-    3. Extract the keyword (everything between ``!`` and the first
+    2. Check for a `!` prefix.
+    3. Extract the keyword (everything between `!` and the first
        whitespace character, or end-of-string).
     4. Look up the keyword in the handler registry.
     5. Strip whitespace between the keyword and the content.
     6. Invoke the handler with the remaining content and *base_path*.
 
-    If the string does not start with ``!`` (after stripping), it is
-    returned unchanged.  If ``!`` is found but the keyword is not
+    If the string does not start with `!` (after stripping), it is
+    returned unchanged.  If `!` is found but the keyword is not
     recognised, the **original** (un-stripped) value is returned as-is
     for forward compatibility.
 
     Args:
         value:     The string to process (after env-var expansion).
         base_path: Directory for relative-path resolution (may be
-                   ``None``).
+                   `None`).
 
     Returns:
-        The processed value.  Most bang handlers return ``str``, but
-        some (e.g. ``!list``) return other types such as ``list``.
-        When no bang command is matched the original ``str`` is returned.
+        The processed value.  Most bang handlers return `str`, but
+        some (e.g. `!list`) return other types such as `list`.
+        When no bang command is matched the original `str` is returned.
     """
     stripped = value.lstrip()
     if not stripped.startswith("!"):
         return value
 
     # Split into keyword and content.  The keyword is everything between
-    # the ``!`` and the first whitespace (or end of string).
+    # the `!` and the first whitespace (or end of string).
     rest = stripped[1:]  # drop the leading '!'
     parts = rest.split(None, 1)  # split on first whitespace
     keyword = parts[0] if parts else ""
@@ -121,13 +121,13 @@ def process_bangs(value: str, base_path: str = None):
 
 # -------------------- Built-in bang handlers -------------------- #
 def _bang_file_handler(content: str, base_path: str) -> str:
-    """Handle the ``!file`` bang command.
+    """Handle the `!file` bang command.
 
     Read the file at *content* (a file path, already env-var expanded and
     whitespace-stripped) and return its contents as the field value.
 
     Relative paths are resolved against *base_path* when it is not
-    ``None``.  Raises ``FileNotFoundError`` if the file cannot be found.
+    `None`.  Raises `FileNotFoundError` if the file cannot be found.
     """
     path = content
     if base_path is not None and not os.path.isabs(path):
@@ -137,16 +137,16 @@ def _bang_file_handler(content: str, base_path: str) -> str:
 
 
 def _bang_list_handler(content: str, base_path: str) -> list:
-    """Handle the ``!list`` bang command.
+    """Handle the `!list` bang command.
 
-    Evaluate ``list(<content>)`` in a restricted namespace and return
+    Evaluate `list(<content>)` in a restricted namespace and return
     the resulting list object directly.
 
     Only a safe subset of built-in functions is available (see
-    ``_LIST_SAFE_BUILTINS``).  The *base_path* argument is accepted
+    `_LIST_SAFE_BUILTINS`).  The *base_path* argument is accepted
     for interface consistency but is not used.
 
-    Raises ``ValueError`` with a descriptive message on evaluation failure.
+    Raises `ValueError` with a descriptive message on evaluation failure.
     """
     try:
         result = eval(
@@ -172,21 +172,21 @@ def preprocess_string(value: str, base_path: str = None):
     """Preprocess a string field value through the DImROD string pipeline.
 
     This function is called automatically on every string field value during
-    ``parse_json()`` — no opt-in is required.
+    `parse_json()` — no opt-in is required.
 
     Pipeline order:
 
-    1. **Environment variable expansion** — ``$VAR`` and ``${VAR}`` syntax
-       is expanded via ``os.path.expandvars()``.  Undefined variables are
+    1. **Environment variable expansion** — `$VAR` and `${VAR}` syntax
+       is expanded via `os.path.expandvars()`.  Undefined variables are
        left as-is (no error).
     2. **Bang processing** — after expansion the string is checked for
-       bang commands (``!keyword content``):
+       bang commands (`!keyword content`):
 
-       * ``!file <path>`` — read the file at *path* (resolved relative to
-         *base_path* when provided) and return its contents as a ``str``.
-         Raises ``FileNotFoundError`` if the file does not exist.
-       * ``!list <expr>`` — evaluate ``list(<expr>)`` in a restricted
-         namespace and return the resulting ``list`` object directly.
+       * `!file <path>` — read the file at *path* (resolved relative to
+         *base_path* when provided) and return its contents as a `str`.
+         Raises `FileNotFoundError` if the file does not exist.
+       * `!list <expr>` — evaluate `list(<expr>)` in a restricted
+         namespace and return the resulting `list` object directly.
 
        If no recognised bang command is present the (expanded) string is
        returned unchanged.
@@ -196,12 +196,12 @@ def preprocess_string(value: str, base_path: str = None):
     Args:
         value:     The raw string value from the parsed data.
         base_path: Directory used to resolve relative paths for the
-                   ``!file`` bang command.  ``None`` means paths are
+                   `!file` bang command.  `None` means paths are
                    used as-is.
 
     Returns:
-        The preprocessed value.  Usually a ``str``, but bang handlers
-        like ``!list`` may return other types (e.g. ``list``).
+        The preprocessed value.  Usually a `str`, but bang handlers
+        like `!list` may return other types (e.g. `list`).
     """
     # Step 1: environment variable expansion
     value = os.path.expandvars(value)
@@ -290,9 +290,9 @@ class Uniserdes:
         """Takes in a file path, opens it for reading, and attempts to parse all
         fields defined in the class' 'fields' property.
 
-        The directory containing `fpath` is computed and passed as ``base_path``
-        to ``parse_json()`` so that the string preprocessor can resolve
-        ``!file`` bang-command paths relative to the config file's directory.
+        The directory containing `fpath` is computed and passed as `base_path`
+        to `parse_json()` so that the string preprocessor can resolve
+        `!file` bang-command paths relative to the config file's directory.
         """
         # slurp the entire file contents (not ideal; assumes the file isn't big
         # enough to blow out the memory we have available)
@@ -319,9 +319,9 @@ class Uniserdes:
     def parse_json(self, jdata: dict, base_path: str = None):
         """Used to parse uniserdes entries from a dictionary.
 
-        An optional ``base_path`` may be provided to specify the directory
-        used by the string preprocessor when resolving ``!file`` bang-command
-        values.  When ``None``, file-path resolution inside the
+        An optional `base_path` may be provided to specify the directory
+        used by the string preprocessor when resolving `!file` bang-command
+        values.  When `None`, file-path resolution inside the
         preprocessor is skipped and paths are used as-is.
         """
         # iterate through each field we expect to see
@@ -375,6 +375,31 @@ class Uniserdes:
                 # if the expected type is a datetime, assume that the value
                 # provided is a string in the ISO date format
                 if val is None and types[0] == datetime:
+                    # Symmetry with to_json(): an unset (None) datetime field
+                    # is serialized as JSON null by to_json(). Accept that null
+                    # back here so optional datetime fields round-trip cleanly.
+                    #   * NON-required field + null -> apply the field's default
+                    #     (None for these fields) and skip the ISO-string check.
+                    #   * required field + null -> still fail, preserving
+                    #     strictness for required datetimes.
+                    # This only broadens accepted input (values that previously
+                    # raised); to_json() output is left byte-for-byte unchanged.
+                    if jdata[key] is None:
+                        if required:
+                            msg = "%s entry \"%s\" is a required datetime: it cannot be null" % \
+                                  (self.fpath if self.fpath else "JSON", key)
+                            self.check(False, msg)
+
+                        # apply the field's default (copy mutable defaults to
+                        # prevent shared-state bugs), then move to next field
+                        default = f.default
+                        if isinstance(default, list):
+                            default = list(default)
+                        elif isinstance(default, dict):
+                            default = dict(default)
+                        setattr(self, key, default)
+                        continue
+
                     msg = "%s entry \"%s\" must be a datetime value represented as an ISO string" % \
                           (self.fpath if self.fpath else "JSON", key)
                     self.check(type(jdata[key]) == str, msg)
@@ -511,8 +536,8 @@ class Uniserdes:
         then passed to the existing `parse_json()` method to populate the
         object's fields.
 
-        An optional ``base_path`` may be provided for string preprocessor
-        ``!file`` bang-command resolution (see `parse_json()`).
+        An optional `base_path` may be provided for string preprocessor
+        `!file` bang-command resolution (see `parse_json()`).
         """
         ydata = yaml.safe_load(yaml_str)
         self.parse_json(ydata, base_path=base_path)
@@ -598,6 +623,34 @@ class Uniserdes:
         """Makes a copy of this object and returns it."""
         return self.__class__.from_json(self.to_json())
 
+    def _sqlite3_convert_value(self, val):
+        """Converts a single Python value into its SQLite3-storable form using
+        the same rules applied to visible fields: enums -> their `.value`,
+        datetimes -> POSIX timestamps, bools -> ints, `None` -> `None`
+        (stored as SQL NULL). Asserts the (post-conversion) value is a
+        primitive SQLite3 type.
+        """
+        # if the value is an enum, convert it to its underlying value
+        if issubclass(val.__class__, Enum):
+            val = val.value
+
+        # make sure the value is a primitive type, or None (which is `NULL`
+        # in SQLite3)
+        assert type(val) in [int, float, str, bool, datetime] or val is None, \
+               "only primitive types can be placed into a SQLite3 tuple for a %s object " \
+               "(found type: %s)" % \
+               (self.__class__.__name__, str(type(val)))
+
+        # convert datetimes to POSIX timestamps
+        if type(val) == datetime:
+            val = val.timestamp()
+
+        # convert booleans to integers
+        if type(val) == bool:
+            val = int(val)
+
+        return val
+
     def to_sqlite3(self, fields_to_keep_visible=[], extra_fields={},
                    include_encoded_obj=True):
         """Converts the object into a tuple for use in a SQLite3 database. By
@@ -619,6 +672,15 @@ class Uniserdes:
         All fields specified in `fields_to_keep_visible` must be simple,
         primitive types that can be represented by SQLite3 (such as integers or
         strings).
+
+        `extra_fields` is an optional dict mapping `column_name -> value` of
+        additional, caller-computed values (e.g. a nested attribute like a
+        device's `macaddr`) to append as visible columns AFTER the encoded
+        object and the `fields_to_keep_visible` values, in the dict's
+        iteration order. Each extra value goes through the SAME primitive/enum/
+        bool/datetime conversion rules as the visible fields. The default empty
+        dict is a byte-for-byte no-op, preserving the historical tuple for all
+        existing callers.
 
         `include_encoded_obj` controls whether the leading hex-encoded copy of
         the whole object is included as tuple entry 0. It defaults to `True`,
@@ -642,27 +704,13 @@ class Uniserdes:
                    "a field that doesn't belong to %s was specified: \"%s\"" % \
                    (self.__class__.__name__, name)
             val = getattr(self, name)
+            result += (self._sqlite3_convert_value(val),)
 
-            # if the value is an enum, convert it to an integer
-            if issubclass(val.__class__, Enum):
-                val = val.value
-
-            # make sure the value is a primitive type, or None (which is `NULL`)
-            # in SQLite3)
-            assert type(val) in [int, float, str, bool, datetime] or val is None, \
-                   "only primitive types can be placed into a SQLite3 tuple for a %s object " \
-                   "(found type: %s)" % \
-                   (__class__.__name__, str(type(val)))
-
-            # convert datetimes to ISO strings
-            if type(val) == datetime:
-                val = val.timestamp()
-
-            # convert booleans to integers
-            if type(val) == bool:
-                val = int(val)
-
-            result += (val,)
+        # append any extra (caller-computed) values, in dict order, AFTER the
+        # encoded object and the visible fields, using the identical conversion
+        # rules. The default empty dict adds nothing (a no-op).
+        for name in extra_fields:
+            result += (self._sqlite3_convert_value(extra_fields[name]),)
 
         return result
 
@@ -695,9 +743,34 @@ class Uniserdes:
         # join everything together and return
         return "(" + ", ".join(str_entries) + ")"
 
+    def _sqlite3_type_for_value(self, val):
+        """Infers the SQLite3 column type for a raw extra-field value, reusing
+        the same Python-type -> SQLite-type mapping used for visible fields.
+        `None` cannot convey a type, so it defaults to `TEXT` (SQLite is
+        dynamically typed, so a NULL stored in a TEXT column is fine).
+        """
+        if val is None:
+            return "TEXT"
+        # bool is a subclass of int; check it explicitly (both map to INTEGER).
+        if isinstance(val, bool):
+            return "INTEGER"
+        if isinstance(val, str):
+            return "TEXT"
+        if isinstance(val, int):
+            return "INTEGER"
+        if isinstance(val, float):
+            return "REAL"
+        if isinstance(val, datetime):
+            return "INTEGER"
+        if issubclass(val.__class__, Enum):
+            return "INTEGER"
+        raise Exception("unsupported type for SQLite3 extra field: %s" %
+                        str(type(val)))
+
     def get_sqlite3_table_definition(self, table_name: str,
                                      fields_to_keep_visible=[],
                                      primary_key_field=None,
+                                     extra_fields={},
                                      include_encoded_obj=True):
         """Creates a SQLite `CREATE TABLE` statement used to store this type of
         object, bearing in mind the same `fields_to_keep_visible` as described
@@ -705,43 +778,54 @@ class Uniserdes:
 
         Additionally, a `primary_key_field` can be specified as the name of a
         field to represent the entry's primary ID. If this is specified, the
-        given field name must also be present in `fields_to_keep_visible`.
+        given field name must be present in `fields_to_keep_visible` OR in
+        `extra_fields`.
+
+        `extra_fields` is an optional dict mapping `column_name -> value`
+        matching the `extra_fields` accepted by `to_sqlite3()`. One column is
+        appended per extra field, in dict order, AFTER the encoded-object column
+        and the visible-field columns, so the column order matches the tuple
+        order produced by `to_sqlite3()` exactly (an INSERT without an explicit
+        column list still aligns). Each extra column's SQLite type is inferred
+        from its value's Python type. The default empty dict produces DDL that
+        is byte-for-byte identical to the historical schema.
 
         `include_encoded_obj` controls whether the leading `encoded_obj TEXT`
         column is emitted. It defaults to `True`, preserving the historical
         schema for all existing callers. When set to `False`, no `encoded_obj`
         column is produced and the table consists solely of the
-        `fields_to_keep_visible` columns (in order). Because a table needs at
-        least one column, `fields_to_keep_visible` must be non-empty when
-        `include_encoded_obj=False`; otherwise a `ValueError` is raised.
+        `fields_to_keep_visible` (and any `extra_fields`) columns (in order).
+        Because a table needs at least one column, at least one visible or extra
+        field must be present when `include_encoded_obj=False`; otherwise a
+        `ValueError` is raised.
 
         The SQLite statement is returned.
         """
         # when the encoded-object column is disabled, the table is composed
-        # entirely of the visible fields, so at least one visible field is
+        # entirely of the visible/extra fields, so at least one column is
         # required (a table cannot have zero columns).
-        if not include_encoded_obj and len(fields_to_keep_visible) == 0:
+        if not include_encoded_obj and \
+           len(fields_to_keep_visible) == 0 and len(extra_fields) == 0:
             raise ValueError(
                 "get_sqlite3_table_definition() requires at least one field in "
-                "`fields_to_keep_visible` when `include_encoded_obj=False` "
-                "(a table needs at least one column)")
+                "`fields_to_keep_visible` or `extra_fields` when "
+                "`include_encoded_obj=False` (a table needs at least one column)")
 
-        result = "CREATE TABLE IF NOT EXISTS %s (" % table_name
-        # only emit the leading encoded-object column when requested. When it is
-        # omitted, the first visible field begins the column list; the existing
-        # per-field trailing-comma logic below already produces correct commas.
-        if include_encoded_obj:
-            result += "encoded_obj TEXT, "
-
-        # if a primary key field was given, make sure it is part of
-        # `fields_to_keep_visible`
+        # if a primary key field was given, make sure it is part of the visible
+        # fields or the extra fields.
         if primary_key_field is not None:
-            assert primary_key_field in fields_to_keep_visible, \
-                   "the given primary key field \"%s\" must also be present in `fields_to_keep_visible`"
+            assert primary_key_field in fields_to_keep_visible or \
+                   primary_key_field in extra_fields, \
+                   "the given primary key field \"%s\" must be present in " \
+                   "`fields_to_keep_visible` or `extra_fields`" % primary_key_field
 
-        # add all visible fields as separate colums
-        fields_to_keep_visible_len = len(fields_to_keep_visible)
-        for (i, name) in enumerate(fields_to_keep_visible):
+        # build the column definitions in order: encoded_obj, visible, extras.
+        columns = []
+        if include_encoded_obj:
+            columns.append("encoded_obj TEXT")
+
+        # add all visible fields as separate columns
+        for name in fields_to_keep_visible:
             assert hasattr(self, name), \
                    "a field that doesn't belong to %s was specified: \"%s\"" % \
                    (self.__class__.__name__, name)
@@ -774,20 +858,22 @@ class Uniserdes:
             else:
                 raise Exception("unsupported type for SQLite3 tuple: %s" % str(type(val)))
 
-            # add the name and type definition
-            result += "%s %s" % (name, sqlite3_type)
-
-            # add the "PRIMARY KEY" specifier if this field is supposed to be
-            # the primary key
+            col = "%s %s" % (name, sqlite3_type)
             if name == primary_key_field:
-                result += " PRIMARY KEY"
+                col += " PRIMARY KEY"
+            columns.append(col)
 
-            # add a comma and space if this isn't the last field
-            if i < fields_to_keep_visible_len - 1:
-                result += ", "
+        # append one column per extra field, in dict order, with the SQLite
+        # type inferred from the extra value's Python type.
+        for name in extra_fields:
+            sqlite3_type = self._sqlite3_type_for_value(extra_fields[name])
+            col = "%s %s" % (name, sqlite3_type)
+            if name == primary_key_field:
+                col += " PRIMARY KEY"
+            columns.append(col)
 
-        result += ")"
-        return result
+        return "CREATE TABLE IF NOT EXISTS %s (%s)" % \
+               (table_name, ", ".join(columns))
 
     def parse_sqlite3(self, tdata: tuple, fields_kept_visible=[],
                       include_encoded_obj=True):

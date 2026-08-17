@@ -24,3 +24,17 @@ known_devices:
   - ff:ff:ff:ff:ff:ff:ff:ff
   tags:
   - apparel
+# On-disk SQLite database used to durably mirror the device cache so it survives
+# a service restart. `path` selects the file (defaults to ".warden.db" next to
+# the service). The remaining keys tune the shared sqlite3 connection used by
+# warden's worker-thread pool: `check_same_thread` must stay false so the single
+# connection can be used across threads, and `timeout` / `busy_timeout_ms`
+# control how long sqlite waits on a locked database before raising.
+database:
+  path: .warden.db
+  check_same_thread: false
+  timeout: 5.0
+  busy_timeout_ms: 5000
+# Number of seconds after which a device that has not been seen is pruned from
+# both the in-memory cache and the database. Defaults to 604800 (1 week).
+device_ttl: 604800
