@@ -142,6 +142,51 @@ class JobManager:
         if self.log is not None:
             self.log.write(msg)
 
+    @staticmethod
+    def _summarize_params(params: dict) -> str:
+        """Builds a short, log-safe summary of a job's identifying params.
+
+        Only a small allow-list of fields (target, duration, ports) is surfaced
+        so routine per-device scans stay low-noise and full parameter dicts are
+        never dumped. Returns an empty string when none are present.
+        """
+        parts = []
+        target = params.get("target")
+        if target:
+            parts.append("target=%s" % target)
+        duration = params.get("duration")
+        if duration is not None:
+            parts.append("duration=%s" % duration)
+        ports = params.get("ports")
+        if ports:
+            parts.append("ports=%s" % ports)
+        return " ".join(parts)
+
+    @staticmethod
+    def _elapsed_str(job: "Job") -> str:
+        """Returns a job's run time (started_at -> finished_at) as e.g. "1.2s",
+        or "?" when either timestamp is missing.
+        """
+        if job.started_at is None or job.finished_at is None:
+            return "?"
+        return "%.1fs" % (job.finished_at - job.started_at).total_seconds()
+
+    @staticmethod
+    def _result_hint(result) -> str:
+        """Extracts a tiny outcome hint from a job's result dict, favoring the
+        trivially-available count fields warden's handlers return (host/port
+        counts, devices found, OS detection). Never surfaces the full result;
+        falls back to "done" when there's nothing concise to report.
+        """
+        if isinstance(result, dict):
+            if "count" in result:
+                return "count=%s" % result["count"]
+            if "devices_found" in result:
+                return "devices=%s" % result["devices_found"]
+            if result.get("os_info"):
+                return "os detected"
+        return "done"
+
     # --------------------------- Handler Registry --------------------------- #
     def register(self, job_type: str, handler):
         """Registers a handler callable for a job type. `handler(job)` should
@@ -192,6 +237,12 @@ class JobManager:
         with self._lock:
             self._jobs[job.id] = job
         self._queue.put(job)
+        # log the job as queued with a short, allow-listed param summary
+        summary = self._summarize_params(job.params)
+        if summary:
+            self._log("Queued job %s (%s) %s" % (job.id, job.type, summary))
+        else:
+            self._log("Queued job %s (%s)" % (job.id, job.type))
         return job.id
 
     # ------------------------------- Lookups -------------------------------- #
@@ -247,6 +298,13 @@ class JobManager:
             handler = self._handlers.get(job.type)
         job.status = JobStatus.RUNNING
         job.started_at = datetime.now()
+        # log the transition to running, including the target when present
+        target = job.params.get("target")
+        if target:
+            self._log("Running job %s (%s) target=%s"
+                      % (job.id, job.type, target))
+        else:
+            self._log("Running job %s (%s)" % (job.id, job.type))
         try:
             if handler is None:
                 raise ValueError("no handler registered for job type '%s'"
@@ -256,9 +314,18 @@ class JobManager:
         except Exception as e:
             job.error = str(e) or e.__class__.__name__
             job.status = JobStatus.FAILED
-            self._log("Job %s (%s) failed: %s" % (job.id, job.type, job.error))
         finally:
             job.finished_at = datetime.now()
+        # log the terminal outcome with elapsed time (a concise hint on success,
+        # the captured error on failure); done outside the try so timestamps are
+        # already set and handler exceptions can't mask the log call
+        if job.status == JobStatus.DONE:
+            self._log("Job %s (%s) done in %s (%s)."
+                      % (job.id, job.type, self._elapsed_str(job),
+                         self._result_hint(job.result)))
+        else:
+            self._log("Job %s (%s) failed in %s: %s"
+                      % (job.id, job.type, self._elapsed_str(job), job.error))
 
     def _evict_expired(self):
         """Removes finished jobs whose `finished_at` is older than `result_ttl`
