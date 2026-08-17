@@ -136,12 +136,16 @@ def command_remind(service, message, args: list):
         return
 
     # parse_datetime returns a tz-aware datetime when the user typed a tz code
-    # (e.g. "9am PT"), or a naive server-local datetime otherwise. notif fires
-    # triggers against its own naive server-local wall clock, so convert any
-    # tz-aware result to server-local naive time before building the payload.
-    # Naive results (no tz code) are used as-is (server home tz).
-    if dt is not None and dt.tzinfo is not None:
-        dt = dt.astimezone().replace(tzinfo=None)
+    # (e.g. "9am PT"), or a naive server-local datetime otherwise. Keep the
+    # originally-parsed datetime for DISPLAY (so we can echo the user's own
+    # time + zone), and separately derive a server-local naive datetime for the
+    # PAYLOAD, since notif fires triggers against its own naive server-local
+    # wall clock.
+    #   * display_dt: what we show the user (their tz-aware time, or naive
+    #     server-local time when no tz code was given).
+    #   * trigger_dt: the naive server-local wall-clock time notif fires at.
+    display_dt = dt
+    trigger_dt = dt.astimezone().replace(tzinfo=None) if dt.tzinfo is not None else dt
 
     # create a HTTP session with notif
     session = OracleSession(service.config.notif)
@@ -177,11 +181,11 @@ def command_remind(service, message, args: list):
         "message": msg,
         "send_telegrams": [telegram_target],
         "trigger": {
-            "years":   [dt.year],
-            "months":  [dt.month],
-            "days":    [dt.day],
-            "hours":   [dt.hour],
-            "minutes": [dt.minute]
+            "years":   [trigger_dt.year],
+            "months":  [trigger_dt.month],
+            "days":    [trigger_dt.day],
+            "hours":   [trigger_dt.hour],
+            "minutes": [trigger_dt.minute]
         }
     }
     try:
@@ -207,8 +211,21 @@ def command_remind(service, message, args: list):
     rdata = OracleSession.get_response_json(r)
     rem_id = rdata["id"] if "id" in rdata else "(could not find reminder ID)"
 
-    # report a success
-    trigger_str = dt.strftime("%A, %Y-%m-%d at %I:%M %p")
+    # report a success. Build the confirmation from `display_dt` so we echo the
+    # time/zone the USER specified rather than the server-converted time.
+    if display_dt.tzinfo is not None:
+        # The user typed a tz code: show their own local time and zone
+        # abbreviation. zoneinfo yields the correct DST-aware abbrev (e.g. MDT
+        # in summer, MST in winter), and we use display_dt's own date too.
+        tz_name = display_dt.tzname()
+    else:
+        # No tz code: default to server-local time. `trigger_dt` is the naive
+        # server-local datetime; calling `.astimezone()` on it treats it as
+        # system-local, yielding the DST-correct server tz abbreviation.
+        tz_name = trigger_dt.astimezone().tzname()
+    trigger_str = display_dt.strftime("%A, %Y-%m-%d at %I:%M %p")
+    if tz_name:  # guard against a falsy tzname (omit suffix if empty/None)
+        trigger_str += " " + tz_name
     service.send_message(message.chat.id,
                          "Success. Triggering on <b>%s</b>.\n\nReminder ID: <code>%s</code>" %
                          (trigger_str, rem_id),
