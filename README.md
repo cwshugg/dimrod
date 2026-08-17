@@ -19,13 +19,11 @@ DImROD is comprised of:
 
 The top-level directories are:
 
-* `http/` - Scripts for setting up Nginx, and the server's HTML/JS/CSS.
-* `ifttt/` - IFTTT routines I've created that DImROD's services interact with.
+* `services/` - My Python-based custom services.
+* `scripts/` - Other general-purpose scripts.
+* `cron/` - My cron jobs.
 * `jellyfin/` - Scripts for setting up a Jellyfin media server.
 * `pihole/` - Scripts for setting up a Pihole DNS ad-blocking server.
-* `scripts/` - Other general-purpose scripts.
-* `services/` - My Python-based custom services.
-* `cron/` - My cron jobs.
 
 ## DImROD Services
 
