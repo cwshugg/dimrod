@@ -362,25 +362,36 @@ class TreasurerService(Service):
                           (ctx.name, str(e)))
             return 0
 
-        # Populate category cache if empty (write under lock for thread safety)
+        # Populate category cache if empty (first sync of this process).
         if len(ctx.category_cache) == 0:
-            try:
-                categories = self.ynab.get_categories(ctx.budget_id)
-                with ctx.lock:
-                    for cat in categories:
-                        ctx.category_cache[cat.id] = cat.name
-                        ctx.category_group_cache[cat.id] = cat.category_group_name
-            except Exception as e:
-                self.log.write("Error fetching categories for '%s': %s" %
-                              (ctx.name, str(e)))
+            self.refresh_category_cache(ctx)
 
         # Build YNABTransactionInfo objects with category names (in-memory — no
         # lock needed).
+        #
+        # The category cache lives for the life of the process, so it can go
+        # stale: a transaction re-categorized in YNAB weeks after this process
+        # first built the cache may reference a category id that was created
+        # (or first became relevant) AFTER the cache was populated. Resolving
+        # such an id against the stale cache would silently yield
+        # "Uncategorized" and drop the user's real category on disk. To avoid
+        # that, when an upsert references a category id we do not know, refresh
+        # the cache ONCE from YNAB and retry. A single refresh per sync run is
+        # enough (it repopulates every current category); ids that are STILL
+        # unknown afterwards are genuinely gone (deleted categories) and fall
+        # back to "Uncategorized"/None as before.
+        refreshed = False
         txn_list = []
         for txn in upserts:
-            category_name = self.resolve_category_name(ctx, txn.get_category_id())
-            txn.category_name = category_name
-            txn.category_group_name = ctx.category_group_cache.get(txn.category_id) if txn.category_id else None
+            category_id = txn.get_category_id()
+            if (category_id is not None
+                    and category_id not in ctx.category_cache
+                    and not refreshed):
+                self.refresh_category_cache(ctx)
+                refreshed = True
+            txn.category_name = self.resolve_category_name(ctx, category_id)
+            txn.category_group_name = ctx.category_group_cache.get(category_id) \
+                if category_id else None
             txn.synced_at = datetime.now().isoformat()
             txn_list.append(txn)
 
@@ -888,6 +899,30 @@ class TreasurerService(Service):
         if budget_name is not None:
             return self.find_budget_by_name(budget_name)
         return None
+
+    def refresh_category_cache(self, ctx: BudgetContext) -> None:
+        """(Re)populates the per-budget category caches from YNAB.
+
+        Fetches the current category list and writes each id -> name and
+        id -> group-name mapping under the context lock (for thread-safe
+        access). This is safe to call repeatedly: it overwrites existing
+        entries with YNAB's latest values, so a category that was created or
+        renamed after the cache was first built resolves correctly instead of
+        being stuck as "Uncategorized". On a fetch error the existing cache is
+        left intact and the error is logged.
+
+        Args:
+            ctx: The BudgetContext whose caches to (re)populate.
+        """
+        try:
+            categories = self.ynab.get_categories(ctx.budget_id)
+            with ctx.lock:
+                for cat in categories:
+                    ctx.category_cache[cat.id] = cat.name
+                    ctx.category_group_cache[cat.id] = cat.category_group_name
+        except Exception as e:
+            self.log.write("Error fetching categories for '%s': %s" %
+                          (ctx.name, str(e)))
 
     def resolve_category_name(self, ctx: BudgetContext,
                               category_id: str) -> str:

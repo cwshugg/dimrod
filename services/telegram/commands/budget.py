@@ -292,6 +292,46 @@ def _budget_summary(service, message, args):
     service.send_message(message.chat.id, msg, parse_mode="HTML")
 
 
+def _budget_sync(service, message, args):
+    """Handle '/budget sync [budget_name_or_id]'.
+
+    With no further arguments, triggers a sync of ALL budgets. When a budget
+    identifier is supplied, only that budget is synced. The identifier may
+    contain spaces, so all trailing arguments are joined into a single string
+    (mirroring `_budget_summary`). Name matching is kept consistent with the
+    other subcommands by resolving via `budget_name` first and falling back to
+    `budget_id` on a 404 response.
+    """
+    session = _get_treasurer_session(service, message)
+    if session is None:
+        return
+
+    # Everything after "/budget sync" forms the (optional) budget identifier.
+    budget_identifier = " ".join(args[2:]).strip()
+
+    if not budget_identifier:
+        # No identifier — sync every configured budget with an empty payload.
+        r = session.post("/sync")
+    else:
+        # Try by budget_name first, then fall back to budget_id on 404.
+        r = session.post("/sync", payload={"budget_name": budget_identifier})
+        if r.status_code == 404:
+            r = session.post("/sync",
+                             payload={"budget_id": budget_identifier})
+
+    if not session.get_response_success(r):
+        service.send_message(message.chat.id,
+                             "Failed to sync. (%s)" %
+                             _esc(session.get_response_message(r)),
+                             parse_mode="HTML")
+        return
+
+    # On success, echo Treasurer's human-readable result message.
+    service.send_message(message.chat.id,
+                         _esc(session.get_response_message(r)),
+                         parse_mode="HTML")
+
+
 def _format_summary_message(summary: dict) -> str:
     """Formats a summary dict into an HTML message for Telegram."""
     budget_name = summary.get("budget_name", "Unknown")
@@ -357,6 +397,8 @@ def command_budget(service, message, args: list):
             return _budget_list(service, message, args)
         if subcommand == "summary":
             return _budget_summary(service, message, args)
+        if subcommand == "sync":
+            return _budget_sync(service, message, args)
         if subcommand == "help":
             _budget_help(service, message)
             return
@@ -453,6 +495,10 @@ def _budget_help(service, message):
     msg += " — Summary for that month\n"
     msg += "  <code>/budget summary &lt;name_or_id&gt; YYYY-MM-DD YYYY-MM-DD</code>"
     msg += " — Summary for date range\n"
+    msg += "  <code>/budget sync</code>"
+    msg += " — Sync all budgets\n"
+    msg += "  <code>/budget sync &lt;name_or_id&gt;</code>"
+    msg += " — Sync a single budget\n"
     msg += "  <code>/budget &lt;$amount&gt; [description]</code>"
     msg += " — Log a transaction\n"
     msg += "  <code>/budget help</code>"
@@ -461,6 +507,8 @@ def _budget_help(service, message):
     msg += "  <code>/budget list</code>\n"
     msg += "  <code>/budget summary Master Budget</code>\n"
     msg += "  <code>/budget summary Master Budget 2026-06-01 2026-06-30</code>\n"
+    msg += "  <code>/budget sync</code>\n"
+    msg += "  <code>/budget sync Master Budget</code>\n"
     msg += "  <code>/budget $12.50 Wegmans groceries</code>\n"
     service.send_message(message.chat.id, msg, parse_mode="HTML")
 
