@@ -265,10 +265,21 @@ class TreasurerService(Service):
                 None to force a full fetch.
 
         Returns:
-            A tuple (upserts, deleted_ids, server_knowledge) where:
+            A tuple (upserts, deleted_ids, split_parent_ids, server_knowledge)
+            where:
               - upserts is a list of YNABTransactionInfo for created/modified
                 transactions (splits expanded into their subtransactions),
               - deleted_ids is a list of YNAB transaction ids to remove locally,
+                INCLUDING their subtransaction children (applied via
+                delete_transaction_and_children),
+              - split_parent_ids is a list of parent transaction ids that now
+                have subtransactions. Their OWN row (id == parent id) must be
+                removed with an ID-ONLY delete so the just-upserted child rows
+                (keyed by subtransaction id, referencing the parent via
+                parent_transaction_id) survive. This collapses a transaction
+                that was first synced as a plain (non-split) row and later split
+                in YNAB, preventing the stale parent row from being counted
+                alongside its children (double-counting),
               - server_knowledge is the new server-knowledge value to persist
                 once the changes are durably applied.
         """
@@ -281,6 +292,7 @@ class TreasurerService(Service):
 
         upserts = []
         deleted_ids = []
+        split_parent_ids = []
         for t in r.data.transactions:
             # A deleted parent transaction removes itself and any of its
             # subtransactions from the local store.
@@ -301,10 +313,20 @@ class TreasurerService(Service):
                         upserts.append(
                             YNABTransactionInfo.from_ynab_subtransaction(sub, t)
                         )
+                # Collapse the parent's OWN row. When this transaction was
+                # previously synced as a plain (non-split) transaction, a row
+                # keyed by the parent id was stored via from_ynab_transaction.
+                # Now that it is split, only the children should remain, so the
+                # parent row must be removed with an ID-ONLY delete (NOT
+                # delete_transaction_and_children, which would delete the child
+                # rows just upserted, since they reference the parent via
+                # parent_transaction_id). Deleting a non-existent id is a
+                # harmless no-op, so this is idempotent/retry-safe.
+                split_parent_ids.append(t.id)
             else:
                 upserts.append(YNABTransactionInfo.from_ynab_transaction(t))
 
-        return upserts, deleted_ids, server_knowledge
+        return upserts, deleted_ids, split_parent_ids, server_knowledge
 
     def sync_budget(self, ctx: BudgetContext, force_full: bool = False) -> int:
         """Sync transactions from YNAB for a single budget via delta sync.
@@ -352,7 +374,7 @@ class TreasurerService(Service):
         # error, do NOT advance server_knowledge; return so the same delta is
         # retried next run instead of creating a permanent gap.
         try:
-            upserts, deleted_ids, server_knowledge = \
+            upserts, deleted_ids, split_parent_ids, server_knowledge = \
                 self.fetch_transactions_delta(
                     ctx.budget_id,
                     last_knowledge_of_server=last_knowledge
@@ -407,6 +429,17 @@ class TreasurerService(Service):
                     # re-listing its subtransactions, so deleting by parent id
                     # is required to avoid orphaning the child rows.
                     ctx.db.delete_transaction_and_children(txn_id)
+                for parent_id in split_parent_ids:
+                    # Collapse a now-split parent's OWN row. This is applied
+                    # AFTER the child upserts using an ID-ONLY delete so the
+                    # just-upserted children (keyed by subtransaction id,
+                    # referencing this parent via parent_transaction_id) are
+                    # preserved. This removes the stale plain-transaction row
+                    # left behind when a transaction was first synced
+                    # non-split and later split in YNAB, which would otherwise
+                    # be counted alongside its children (double-counting).
+                    # Deleting a non-existent id is a harmless no-op.
+                    ctx.db.delete_transaction(parent_id)
             except Exception as e:
                 self.log.write("Error applying transactions for '%s': %s" %
                               (ctx.name, str(e)))
