@@ -15,22 +15,43 @@ if pdir not in sys.path:
 from lib.oracle import OracleSession
 from notif.reminder import Reminder
 import lib.dtu as dtu
+from menu import Menu
 
 
-def delete_reminder(service, message, rem_id: str):
+# Stable key under which the reminder-cancel menu action is registered with the
+# Telegram service (see `TelegramService.register_menu_action`).
+REMINDER_CANCEL_ACTION_KEY = "reminder_cancel"
+
+
+def cancel_reminder(service, rem_id: str, chat_id, notify_success: bool = True) -> bool:
+    """Core reminder-cancellation logic.
+
+    Logs into notif and posts to `/reminder/delete` for `rem_id`, reporting
+    progress/errors back to `chat_id`. Returns True on success and False on any
+    failure. This is the shared core used by both the `/remind cancel. <id>`
+    text command (via `delete_reminder`) and the inline "❌ Cancel" button (via
+    `reminder_cancel_action`); it deliberately takes only `service`, `rem_id`,
+    and `chat_id` so it can run without a fabricated telegram message.
+
+    When `notify_success` is True (the default, used by the text command), a
+    "Successfully deleted the reminder..." confirmation is sent to `chat_id` on
+    success. The button handler passes `notify_success=False` because its
+    "Cancelled ✅" button update is sufficient confirmation. Failure/error
+    messages are always sent regardless of this flag.
+    """
     # create a HTTP session with notif
     session = OracleSession(service.config.notif)
     try:
         r = session.login()
         if r.status_code != 200 or not session.get_response_success(r):
-            service.send_message(service.config.admin_telegram,
+            service.send_message(chat_id,
                                  "Sorry, I couldn't log into Notif.")
-            return
-    except Exception as e:
-        service.send_message(message.chat.id,
+            return False
+    except Exception:
+        service.send_message(chat_id,
                              "Sorry, I couldn't reach Notif. "
                              "It might be offline.")
-        return
+        return False
 
     # send the deletion request
     payload = {
@@ -40,22 +61,68 @@ def delete_reminder(service, message, rem_id: str):
     try:
         r = session.post("/reminder/delete", payload=payload)
         if r.status_code != 200 or not session.get_response_success(r):
-            service.send_message(message.chat.id,
+            service.send_message(chat_id,
                                  "Sorry, I couldn't delete the reminder. (%s)" %
                                  session.get_response_message(r))
-            return
+            return False
 
         rem = Reminder.from_json(session.get_response_json(r))
     except Exception as e:
-        service.send_message(message.chat.id,
+        service.send_message(chat_id,
                              "Sorry, I couldn't delete the reminder. (%s)" % e)
-        return
+        return False
 
     # send a success message
-    service.send_message(message.chat.id,
-                         "Successfully deleted the reminder:\n\n<b>%s</b> - %s" %
-                         (rem.title, rem.message),
-                         parse_mode="HTML")
+    if notify_success:
+        service.send_message(chat_id,
+                             "Successfully deleted the reminder:\n\n<b>%s</b> - %s" %
+                             (rem.title, rem.message),
+                             parse_mode="HTML")
+    return True
+
+
+def delete_reminder(service, message, rem_id: str):
+    """Cancels a reminder in response to the `/remind cancel. <id>` text command.
+
+    Thin wrapper around `cancel_reminder` that supplies the originating chat id
+    from the incoming `message`.
+    """
+    return cancel_reminder(service, rem_id, message.chat.id)
+
+
+def reminder_cancel_action(service, call, menu, option, context):
+    """Menu-action handler for the inline "❌ Cancel" button.
+
+    Registered under `REMINDER_CANCEL_ACTION_KEY`. Cancels the reminder named in
+    `context["reminder_id"]` and updates the button to a terminal
+    "Cancelled ✅" state. Idempotent: once the option has been marked cancelled
+    (persisted in `context`), a second press is a safe no-op.
+    """
+    # idempotency guard: a previously-successful cancel marks the context so a
+    # double-press does nothing (and does not re-hit notif).
+    if context.get("cancelled"):
+        return
+
+    rem_id = context.get("reminder_id")
+    if rem_id is None:
+        return
+
+    # the reminder should be cancelled in (and feedback sent to) the chat the
+    # menu message lives in
+    chat_id = menu.telegram_msg_info.chat.id
+    if not cancel_reminder(service, rem_id, chat_id, notify_success=False):
+        # leave the button intact so the user can retry; the failure reason was
+        # already reported by `cancel_reminder`.
+        return
+
+    # mark the option as terminal, persist, and update the button text
+    context["cancelled"] = True
+    option.action_context = context
+    option.title = "Cancelled ✅"
+    service.update_menu(menu.telegram_msg_info.chat.id,
+                        menu.telegram_msg_info.id,
+                        menu)
+    service.menu_db.save_menu(menu)
 
 
 # =================================== Main =================================== #
@@ -226,8 +293,34 @@ def command_remind(service, message, args: list):
     trigger_str = display_dt.strftime("%A, %Y-%m-%d at %I:%M %p")
     if tz_name:  # guard against a falsy tzname (omit suffix if empty/None)
         trigger_str += " " + tz_name
-    service.send_message(message.chat.id,
-                         "Success. Triggering on <b>%s</b>.\n\nReminder ID: <code>%s</code>" %
-                         (trigger_str, rem_id),
-                         parse_mode="HTML")
+    success_text = "Success. Triggering on <b>%s</b>.\n\nReminder ID: <code>%s</code>" % \
+                   (trigger_str, rem_id)
+
+    # When notif returned a real reminder id, present the confirmation as a
+    # one-button MENU carrying an inline "❌ Cancel" action, so the user can
+    # cancel the reminder with a tap (equivalent to "/remind cancel. <id>").
+    # The menu title is the same success text as the plain confirmation. When
+    # there's no valid id (or the menu send fails), fall back to a plain
+    # message so the user still gets their confirmation.
+    have_valid_id = "id" in rdata
+    if have_valid_id:
+        m = Menu()
+        m.parse_json({
+            "title": success_text,
+            "options": [
+                {
+                    "title": "❌ Cancel",
+                    "action_key": REMINDER_CANCEL_ACTION_KEY,
+                    "action_context": {"reminder_id": rem_id},
+                },
+            ],
+        })
+        try:
+            service.send_menu(message.chat.id, m, parse_mode="HTML")
+            return
+        except Exception:
+            # fall through to a plain confirmation message below
+            pass
+
+    service.send_message(message.chat.id, success_text, parse_mode="HTML")
 

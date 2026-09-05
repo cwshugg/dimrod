@@ -70,7 +70,22 @@ class MenuOption(MenuObject):
             UniserdesField("title",            [str],      required=True),
             UniserdesField("menu_id",          [str],      required=False, default=""),
             UniserdesField("selection_count",  [int],      required=False, default=0),
+            # Optional binding to an arbitrary, code-defined action. When
+            # `action_key` is set, pressing this option's button dispatches to
+            # the in-process menu-action registry (see
+            # `TelegramService.register_menu_action`) instead of running the
+            # menu's selection-count behavior. `action_context` carries a small,
+            # JSON-serializable payload the handler needs (e.g. a reminder ID).
+            # Both are persisted by Uniserdes, so bindings survive a restart.
+            # Menus/options created before these fields existed simply parse
+            # back with the `None` defaults (backwards compatible).
+            UniserdesField("action_key",       [str],      required=False, default=None),
+            UniserdesField("action_context",   [dict],     required=False, default=None),
         ]
+
+    def has_action(self):
+        """Returns True if this option is bound to a code-defined action."""
+        return self.action_key is not None
 
     def get_button(self):
         """Generates a Telegram Bot button and returns it."""

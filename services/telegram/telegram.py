@@ -45,7 +45,8 @@ from commands.lights import command_lights
 from commands.network import command_network
 from commands.weather import command_weather
 from commands.event import command_event
-from commands.remind import command_remind
+from commands.remind import command_remind, reminder_cancel_action, \
+                            REMINDER_CANCEL_ACTION_KEY
 from commands.calendar import command_calendar
 from commands.budget import command_budget
 from commands.news import command_news
@@ -237,8 +238,31 @@ class TelegramService(Service):
                                         ".telegram_bot_menus.db")
         self.menu_db = MenuDatabase(menu_db_path)
 
+        # in-process registry mapping a stable menu-action key to a handler
+        # callable. Options that carry an `action_key` (see `MenuOption`) are
+        # dispatched here when their button is pressed. The key is persisted in
+        # the database, while the code lives in-process and is (re)registered at
+        # startup -- mirroring how command handlers are wired in `self.commands`
+        # and the persisted-binding / handler-registry pattern from the
+        # architecture design (report 3482f4ea253aa089).
+        self.menu_actions = {}
+        self.register_menu_action(REMINDER_CANCEL_ACTION_KEY,
+                                  reminder_cancel_action)
+
         # set up a menu thread to manage the database asynchronously
         self.menu_thread = TelegramService_MenuThread(self)
+
+    def register_menu_action(self, action_key: str, handler):
+        """Registers an in-process handler for a menu-button action key.
+
+        `handler` must accept the signature
+        `handler(service, call, menu, option, context)` and is invoked when a
+        button whose `MenuOption.action_key` equals `action_key` is pressed.
+        The handler performs the side effect and provides user feedback (e.g.
+        updating the button to a terminal state). Handlers should be idempotent
+        so a repeated press is a safe no-op.
+        """
+        self.menu_actions[action_key] = handler
 
     # ------------------------------- Helpers -------------------------------- #
     def refresh(self):
@@ -283,6 +307,31 @@ class TelegramService(Service):
             self.log.write("Message from unrecognized user: \"%s\" (topic: %s)" %
                            (user_id, thread_id))
         return user_is_valid
+
+    def callback_is_authorized(self, call):
+        """Checks a callback query (e.g. an inline-button press) against the
+        chat/user allowlist and returns True if the presser is authorized.
+
+        This mirrors `check_message`'s allowlist gate, but reads the chat from
+        the menu message (`call.message.chat`) and the user from the presser
+        (`call.from_user`).
+        """
+        # the callback must carry a message (the menu) and a pressing user
+        if call.message is None or call.from_user is None:
+            return False
+
+        # validate the chat-of-origin against the allowlist
+        chat_id = str(call.message.chat.id)
+        if not any(chat.id == chat_id for chat in self.chats):
+            self.log.write("Menu action from unrecognized chat: \"%s\"" % chat_id)
+            return False
+
+        # validate the pressing user against the allowlist
+        user_id = str(call.from_user.id)
+        if not any(user.id == user_id for user in self.users):
+            self.log.write("Menu action from unrecognized user: \"%s\"" % user_id)
+            return False
+        return True
 
     def get_speaker_session(self):
         """Creates and returns a new OracleSession with the speaker.
@@ -743,6 +792,176 @@ class TelegramService(Service):
         """Removes a menu from a message."""
         return self.update_menu(chat_id, message_id, m=None)
 
+    def dispatch_menu_action(self, call, m: Menu, op) -> bool:
+        """Dispatches an action-bound menu option press to its registered
+        handler and returns True if the press was handled as an action.
+
+        Returns False when `op` is not action-bound, so the caller falls back
+        to the normal selection-count behavior. Action options do NOT fall
+        through to counter re-rendering.
+
+        Authorization reuses the existing chat/user allowlist
+        (`callback_is_authorized`); the handler is resolved from the in-process
+        `self.menu_actions` registry by the option's stable `action_key`. The
+        handler is responsible for the side effect, idempotency, and user
+        feedback (e.g. updating the button to a terminal state).
+        """
+        if not op.has_action():
+            return False
+
+        # only allowlisted chats/users may trigger a menu action
+        if not self.callback_is_authorized(call):
+            self.log.write("Unauthorized menu action press ignored "
+                           "(action_key: %s)." % op.action_key)
+            return True
+
+        # resolve the handler from the in-process registry
+        handler = self.menu_actions.get(op.action_key)
+        if handler is None:
+            self.log.write("No handler registered for menu action key: %s" %
+                           op.action_key)
+            return True
+
+        # the persisted context (may be None for a context-less action)
+        context = op.action_context if op.action_context is not None else {}
+
+        # invoke the handler; never let a handler error escape into the poller
+        try:
+            handler(self, call, m, op, context)
+        except Exception:
+            self.log.write("Menu action handler (key: %s) raised an error:" %
+                           op.action_key)
+            tb = traceback.format_exc()
+            for line in tb.split("\n"):
+                self.log.write(line)
+        return True
+
+    def handle_menu_callback(self, call):
+        """Handles an inline-button (menu) press. Extracted from the polling
+        loop so it can be unit-tested directly.
+        """
+        # capture the originating forum-topic id so any messages sent by the
+        # dispatched menu-action handler land in the same topic; cleared in the
+        # finally so it never leaks into the next update handled on this worker
+        # thread (mirrors the message handler's ambient-topic handling).
+        self._ambient_msg_ctx.message_thread_id = \
+            getattr(call.message, "message_thread_id", None) \
+            if call.message is not None else None
+        try:
+            menu_option_id = call.data
+
+            # query the database for a menu option with the matching ID
+            op_info = self.menu_db.search_menu_option(menu_option_id)
+            if op_info is None:
+                self.log.write("Unknown menu option selected.")
+                return
+
+            # with the menu option retrieve, query for the menu that owns this
+            # menu option
+            m = self.menu_db.search_menu(op_info.menu_id)
+            if m is None:
+                self.log.write("Menu option belongs to an unknown menu.")
+                return
+
+            # because the above `MenuOption` object was recreated from a
+            # database entry, (and so was the `Menu` object), we want to get a
+            # reference to the menu's version of the `MenuOption` object,
+            # instead of the one reconstructed from the database entry.
+            #
+            # Why? Because we will write the `Menu` back out to the database,
+            # which means *its* `MenuOption` object will be the one written out
+            # to disk. This means that all modifications to the menu option
+            # need to be applied to the `Menu`'s `MenuOption` object.
+            op = m.get_option(op_info.get_id())
+
+            # if this option is bound to a code-defined action, dispatch to the
+            # registered handler and stop -- an action option must NOT fall through
+            # to the selection-count behavior below.
+            if self.dispatch_menu_action(call, m, op):
+                return
+
+            # next, look at the menu's behavior type. We'll adjust the menu
+            # options differently depending on the selecteed value
+            original_op_titles = [o.title for o in m.options]
+            do_menu_update = False
+            if m.behavior_type == MenuBehaviorType.ACCUMULATE:
+                # if we're accumulating, our job is easy; just increment the
+                # option that was selected
+                op.select_add()
+                do_menu_update = True
+
+                # iterate through all options and update the corresponding
+                # button on the menu to show the number of times it was
+                # selected (only do so if it's selection count is non-zero)
+                for o in m.options:
+                    if o.selection_count == 0:
+                        continue
+                    o.title = "%s [%d]" % (o.title, o.selection_count)
+            if m.behavior_type == MenuBehaviorType.MULTI_CHOICE:
+                # if the selected option was already selected, we'll reset it
+                if op.selection_count == 1:
+                    op.select_set(0)
+                else:
+                    op.select_set(1)
+                do_menu_update = True
+
+                # iterate through all options and update the corresponding
+                # button on the menu to show which ones have been selected
+                for o in m.options:
+                    if o.selection_count == 0:
+                        continue
+                    o.title = "%s ✅" % o.title
+            elif m.behavior_type == MenuBehaviorType.SINGLE_CHOICE:
+                # if the menu only allows a single choice, we need to set the
+                # current option's selection count to 1, and reduce all others
+                # to zero
+
+                # if the selected option was already selected, we'll reset it
+                # (i.e. 1 --> 0 and 0 --> 1)
+                new_value = 0 if op.selection_count == 1 else 1
+                do_menu_update = True
+
+                # zero out all options and set the seleted option's new value
+                for o in m.options:
+                    o.select_set(0)
+                op.select_set(new_value)
+
+                # set the select option's title to show that it was the one
+                # chosen value, if its new value is 1
+                if new_value == 1:
+                    op.title = "%s ✅" % op.title
+
+            # apply any changes made above to the option titles (the text on
+            # the buttons) to the Telegram menu
+            if do_menu_update:
+                self.update_menu(m.telegram_msg_info.chat.id,
+                                 m.telegram_msg_info.id,
+                                 m)
+            else:
+                # otherwise, change a single button twice, briefly, to force
+                # telegram to get rid of the shimmery "a button was just
+                # pressed" effect
+                for text in [" %s " % op.title, op.title]:
+                    op.title = text
+                    self.update_menu(m.telegram_msg_info.chat.id,
+                                     m.telegram_msg_info.id,
+                                     m)
+
+            # update the menu option to increment its selection counter
+            self.log.write("Menu option (ID: %s) from Menu (ID %s) "
+                           "was selected. (count: %d)" %
+                           (op.get_id(), m.get_id(), op.selection_count))
+
+            # write the updated menu back out to the database (first, reset the
+            # option titles to reflect the original versions, before we updated
+            # the Telegram menu, so the database retains the original,
+            # un-modified titles)
+            for (i, o) in enumerate(m.options):
+                o.title = original_op_titles[i]
+            self.menu_db.save_menu(m)
+        finally:
+            self._ambient_msg_ctx.message_thread_id = None
+
     def react_to_message(self, chat_id, message_id, emoji="👍", is_big=False):
         """Adds a reaction to a message."""
         for i in range(self.config.bot_error_retry_attempts):
@@ -970,114 +1189,12 @@ class TelegramService(Service):
                 finally:
                     self._ambient_msg_ctx.message_thread_id = None
 
-            # Callback for any menu buttons that are pressed.
+            # Callback for any menu buttons that are pressed. The body lives in
+            # `handle_menu_callback` (a class method) so it can be unit-tested
+            # without spinning up the bot / polling loop.
             @self.bot.callback_query_handler(func=lambda call: True)
             def menu_button_callback(call):
-                menu_option_id = call.data
-
-                # query the database for a menu option with the matching ID
-                op_info = self.menu_db.search_menu_option(menu_option_id)
-                if op_info is None:
-                    self.log.write("Unknown menu option selected.")
-                    return
-
-                # with the menu option retrieve, query for the menu that owns this
-                # menu option
-                m = self.menu_db.search_menu(op_info.menu_id)
-                if m is None:
-                    self.log.write("Menu option belongs to an unknown menu.")
-                    return
-
-                # because the above `MenuOption` object was recreated from a
-                # database entry, (and so was the `Menu` object), we want to get a
-                # reference to the menu's version of the `MenuOption` object,
-                # instead of the one reconstructed from the database entry.
-                #
-                # Why? Because we will write the `Menu` back out to the database,
-                # which means *its* `MenuOption` object will be the one written out
-                # to disk. This means that all modifications to the menu option
-                # need to be applied to the `Menu`'s `MenuOption` object.
-                op = m.get_option(op_info.get_id())
-
-                # next, look at the menu's behavior type. We'll adjust the menu
-                # options differently depending on the selecteed value
-                original_op_titles = [o.title for o in m.options]
-                do_menu_update = False
-                if m.behavior_type == MenuBehaviorType.ACCUMULATE:
-                    # if we're accumulating, our job is easy; just increment the
-                    # option that was selected
-                    op.select_add()
-                    do_menu_update = True
-
-                    # iterate through all options and update the corresponding
-                    # button on the menu to show the number of times it was
-                    # selected (only do so if it's selection count is non-zero)
-                    for o in m.options:
-                        if o.selection_count == 0:
-                            continue
-                        o.title = "%s [%d]" % (o.title, o.selection_count)
-                if m.behavior_type == MenuBehaviorType.MULTI_CHOICE:
-                    # if the selected option was already selected, we'll reset it
-                    if op.selection_count == 1:
-                        op.select_set(0)
-                    else:
-                        op.select_set(1)
-                    do_menu_update = True
-
-                    # iterate through all options and update the corresponding
-                    # button on the menu to show which ones have been selected
-                    for o in m.options:
-                        if o.selection_count == 0:
-                            continue
-                        o.title = "%s ✅" % o.title
-                elif m.behavior_type == MenuBehaviorType.SINGLE_CHOICE:
-                    # if the menu only allows a single choice, we need to set the
-                    # current option's selection count to 1, and reduce all others
-                    # to zero
-
-                    # if the selected option was already selected, we'll reset it
-                    # (i.e. 1 --> 0 and 0 --> 1)
-                    new_value = 0 if op.selection_count == 1 else 1
-                    do_menu_update = True
-
-                    # zero out all options and set the seleted option's new value
-                    for o in m.options:
-                        o.select_set(0)
-                    op.select_set(new_value)
-
-                    # set the select option's title to show that it was the one
-                    # chosen value, if its new value is 1
-                    if new_value == 1:
-                        op.title = "%s ✅" % op.title
-
-                # apply any changes made above to the option titles (the text on
-                # the buttons) to the Telegram menu
-                if do_menu_update:
-                    self.update_menu(m.telegram_msg_info.chat.id,
-                                     m.telegram_msg_info.id,
-                                     m)
-                else:
-                    # otherwise, change a single button twice, briefly, to force
-                    # telegram to get rid of the shimmery "a button was just
-                    # pressed" effect
-                    for text in [" %s " % op.title, op.title]:
-                        op.title = text
-                        self.update_menu(m.telegram_msg_info.chat.id,
-                                         m.telegram_msg_info.id,
-                                         m)
-
-                # update the menu option to increment its selection counter
-                self.log.write("Menu option (ID: %s) from Menu (ID %s) "
-                               "was selected. (count: %d)" %
-                               (op.get_id(), m.get_id(), op.selection_count))
-
-                # write the updated menu back out to the database (first, reset the
-                # option titles to reflect the original versions, before we updated
-                # the Telegram menu, so the database retains the original,
-                # un-modified titles)
-                for (i, o) in enumerate(m.options):
-                    o.title = original_op_titles[i]
-                self.menu_db.save_menu(m)
+                self.handle_menu_callback(call)
 
             # now that all handlers are defined, start polling. If we fail,
             # we'll initialize a new instance of the bot, then redo this entire
